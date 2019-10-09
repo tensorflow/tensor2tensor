@@ -1507,11 +1507,12 @@ class T2TModel(base.Layer):
           if hasattr(problem, 'packed_length'):
             assert hasattr(problem, 'max_examples_per_pack')
             # TODO: should be able to reshape from
-            # [max_target_seq_length] -> [max_examples_per_pack, -1, 1, 1]
+            # [batch_size, max_target_seq_length] -> [batch_size, max_examples_per_pack, -1, 1, 1]
             # https://app.asana.com/0/1137246510213018/1143626077249177/f
             features['targets'] = tf.reshape(
                 tensor=features['targets'],
                 shape=[
+                    -1,
                     problem.max_examples_per_pack,
                     hparams.max_target_seq_length, 1, 1])
           # FATHOM
