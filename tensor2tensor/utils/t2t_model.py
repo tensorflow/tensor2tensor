@@ -1512,7 +1512,6 @@ class T2TModel(base.Layer):
             features['targets'] = tf.reshape(
                 tensor=features['targets'],
                 shape=[
-                    -1,
                     problem.max_examples_per_pack,
                     hparams.max_target_seq_length, 1, 1])
           # FATHOM
