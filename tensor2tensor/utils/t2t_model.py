@@ -1511,9 +1511,7 @@ class T2TModel(base.Layer):
             # https://app.asana.com/0/1137246510213018/1143626077249177/f
             features['targets'] = tf.reshape(
                 tensor=features['targets'],
-                shape=[
-                    problem.max_examples_per_pack,
-                    hparams.max_target_seq_length, 1, 1])
+                shape=[-1, hparams.max_target_seq_length, 1, 1])
           # FATHOM
           # NOTE: right now the tf.logging.warning will not trigger.
           # ...consider if we should add
