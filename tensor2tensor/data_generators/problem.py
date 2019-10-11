@@ -1004,7 +1004,7 @@ class Problem(object):
           dataset = dataset.map(
             pad_to_next_chunk_length(
               features_to_pad=['inputs'],
-              length=hparams.bert_max_length,
+              chunk_length=hparams.bert_max_length,
               axis=0),
             num_parallel_calls=num_threads
           )
