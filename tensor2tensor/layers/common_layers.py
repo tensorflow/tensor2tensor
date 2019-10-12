@@ -2586,7 +2586,7 @@ class FactoredTensor(object):
 
 def _convert_factored_tensor_to_tensor(value, *args, **kwargs):
   # call ops.convert_to_tensor to handle optional arguments appropriately
-  return ops.internal_convert_to_tensor(value.to_tensor(), *args, **kwargs)
+  return ops.convert_to_tensor(value.to_tensor(), *args, **kwargs)
 
 
 tf.register_tensor_conversion_function(FactoredTensor,
