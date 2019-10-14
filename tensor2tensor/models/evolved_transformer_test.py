@@ -103,6 +103,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
   def testSlowVsFast(self):
+    tf.set_random_seed(1234)
     model, features = get_model(transformer.transformer_tiny())
 
     decode_length = DECODE_LENGTH
@@ -253,6 +254,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
     self.assertAllClose(slow_tpu_res, slow_non_tpu_res)
 
   def testGreedyFastTPUVsNonTPU(self):
+    tf.set_random_seed(1234)
     decode_length = DECODE_LENGTH
 
     model, features = self._create_greedy_infer_model()
@@ -273,6 +275,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
     self.assertAllClose(fast_tpu_res, fast_non_tpu_res)
 
   def testGreedyTPUSlowVsFast(self):
+    tf.set_random_seed(1234)
     decode_length = DECODE_LENGTH
 
     model, features = self._create_greedy_infer_model()
