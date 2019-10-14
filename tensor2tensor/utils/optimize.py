@@ -113,16 +113,19 @@ class ConditionalOptimizer(tf.train.Optimizer):
     else:
       self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
+    self._zero_grads = hparams.optimizer_zero_grads
+
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
-    def cast_grad(g, v):
+    def cast_grad_tpu(g, v):
+      if v is not None and g is not None:
+        g = common_layers.cast_like(g, v)
+      if self._zero_grads and g is None:
+        g = tf.zeros_like(v)
+      return (g, v)
+
+    def cast_grad_gpu(g, v):
       """
-      below is old code.
-      need to test new to make sure it is still working
-      (word embedding slowdown problems)
-
-      can delete this block if runs OK
-
       August 7 2018: We still need the code block below instead
           Refer to https://github.com/tensorflow/tensor2tensor/issues/979.
           We need `use_resource=False` in model_fn in utils/t2t_model.py
@@ -130,19 +133,24 @@ class ConditionalOptimizer(tf.train.Optimizer):
           Without both of these changes, we are very slow with
           large word embeddings on the CPU.
 
+      Sept 30 2019: We tried removing this since we are off word embeddings
+          but slowdown seems to still be around
       """
-      if v is None or g is None:
+      if v is not None or g is None:
         return (g, v)
-      # Fathom: Ryan Sepassi said this would help
       if v.dtype.base_dtype == g.dtype.base_dtype:
         return (g, v)
       return (tf.cast(g, v.dtype), v)
-      #if v is not None and g is not None:
-        #g = common_layers.cast_like(g, v)
-      #return (g, v)
+
+    # separate out tpu vs gpu cast grad so that changes in
+    # https://github.com/medicode/tensor2tensor/pull/130/files#diff-2b8e7a5e8b58c8e97ae722ba253dff43
+    # preserve speed on gpus
+    cast_grad = (
+        cast_grad_tpu
+        if common_layers.is_xla_compiled()
+        else cast_grad_gpu)
     gradients = [cast_grad(g, v) for g, v in gradients]
     return gradients
-    # return self._opt.compute_gradients(loss, var_list, **kwargs)
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
     return self._opt.apply_gradients(
