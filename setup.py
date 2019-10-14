@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.13.4',
+    version='1.14.1',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -40,7 +40,6 @@ setup(
         'gevent',
         'gin-config',
         'google-api-python-client',
-        'grpcio',
         'gunicorn',
         'gym',
         'h5py',
@@ -56,20 +55,23 @@ setup(
         'six',
         'sympy',
         'tensorflow-datasets',
-        'tensorflow-probability',
+        'tensorflow-gan',
+        'tensorflow-probability==0.7.0',
         'tqdm',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.13.1'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.13.1'],
+        'tensorflow': ['tensorflow>=1.14.0'],
+        'tensorflow_gpu': ['tensorflow-gpu>=1.14.0'],
         'tensorflow-hub': ['tensorflow-hub>=0.1.1'],
         'tests': [
             'absl-py',
+            # Needed to fix a Travis pytest error.
+            # https://github.com/Julian/jsonschema/issues/449#issuecomment-411406525
+            'attrs>=17.4.0',
             'pytest>=3.8.0',
             'mock',
             'pylint',
             'jupyter',
-            'gsutil',
             'matplotlib',
             # Need atari extras for Travis tests, but because gym is already in
             # install_requires, pip skips the atari extras, so we instead do an

@@ -189,6 +189,46 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
       self.assertEqual(output_shape[0], batch_size)
       self.assertEqual(output_shape[1], max_length)
 
+  @test_utils.run_in_graph_and_eager_modes()
+  def testInputAndTargetVocabSizesAreReversed(self):
+
+    class WasReversedTestProblem(problem_module.Problem):
+
+      def __init__(self, input_vocab_size, target_vocab_size, was_reversed):
+        super(WasReversedTestProblem, self).__init__(was_reversed, False)
+        self.input_vocab_size = input_vocab_size
+        self.target_vocab_size = target_vocab_size
+
+      def hparams(self, defaults, model_hparams):
+        hp = defaults
+        hp.vocab_size = {"targets": self.target_vocab_size,
+                         "inputs": self.input_vocab_size}
+
+    problem = WasReversedTestProblem(input_vocab_size=1,
+                                     target_vocab_size=3,
+                                     was_reversed=True)
+    p_hparams = problem.get_hparams()
+    self.assertEqual(p_hparams.vocab_size["inputs"], 3)
+    self.assertEqual(p_hparams.vocab_size["targets"], 1)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testInputAndTargetModalitiesAreReversed(self):
+
+    class WasReversedTestProblem(problem_module.Problem):
+
+      def __init__(self, was_reversed):
+        super(WasReversedTestProblem, self).__init__(was_reversed, False)
+
+      def hparams(self, defaults, model_hparams):
+        hp = defaults
+        hp.modality["inputs"] = "inputs_modality"
+        hp.modality["targets"] = "targets_modality"
+
+    problem = WasReversedTestProblem(was_reversed=True)
+    p_hparams = problem.get_hparams()
+    self.assertEqual(p_hparams.modality["inputs"], "targets_modality")
+    self.assertEqual(p_hparams.modality["targets"], "inputs_modality")
+
 
 if __name__ == "__main__":
   tf.test.main()

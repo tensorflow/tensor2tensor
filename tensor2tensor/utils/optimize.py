@@ -18,7 +18,6 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
 import numpy as np
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor as adafactor_lib
@@ -45,8 +44,7 @@ def optimize(loss,
              learning_rate,
              hparams,
              use_tpu=False,
-             variables=None,
-             gpu_auto_mixed_precision=False):
+             variables=None):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
@@ -71,8 +69,7 @@ def optimize(loss,
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
-  if gpu_auto_mixed_precision or os.environ.get(
-      "TF_ENABLE_AUTO_MIXED_PRECISION", "0") == "1":
+  if getattr(hparams, "gpu_automatic_mixed_precision", False):
     if use_tpu:
       raise RuntimeError("GPU auto mixed precision cannot be used with TPU")
     elif _mixed_precision_is_enabled(hparams):
@@ -159,16 +156,9 @@ def true_adam(learning_rate, hparams):
 
 @registry.register_optimizer
 def adam_w(learning_rate, hparams):
-  # Openai gpt used weight decay.
-  # Given the internals of AdamW, weight decay dependent on the
-  # learning rate is chosen to match the openai implementation.
-  # The weight decay update to each parameter is applied before the adam
-  # gradients computation, which is different from that described
-  # in the paper and in the openai implementation:
-  # https://arxiv.org/pdf/1711.05101.pdf
   return tf.contrib.opt.AdamWOptimizer(
-      0.01*learning_rate,
-      learning_rate,
+      weight_decay=hparams.weight_decay,
+      learning_rate=learning_rate,
       beta1=hparams.optimizer_adam_beta1,
       beta2=hparams.optimizer_adam_beta2,
       epsilon=hparams.optimizer_adam_epsilon)

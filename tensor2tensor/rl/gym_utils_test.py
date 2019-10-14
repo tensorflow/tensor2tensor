@@ -67,19 +67,19 @@ class GymUtilsTest(tf.test.TestCase):
   # Just make an environment and expect to get one.
   def test_making_simple_env(self):
     env = gym_utils.make_gym_env("CartPole-v0")
-    self.assertTrue(isinstance(env, gym.Env))
+    self.assertIsInstance(env, gym.Env)
 
   # Make a time-wrapped environment and expect to get one.
   def test_making_timewrapped_env(self):
     env = gym_utils.make_gym_env("CartPole-v0", rl_env_max_episode_steps=1000)
-    self.assertTrue(isinstance(env, gym.Env))
-    self.assertTrue(isinstance(env, gym.wrappers.TimeLimit))
+    self.assertIsInstance(env, gym.Env)
+    self.assertIsInstance(env, gym.wrappers.TimeLimit)
     self.assertEqual(1000, env._max_episode_steps)
 
   # Make an instance of the environment without a TimeLimit
   def test_unlimited_env(self):
     env = gym_utils.make_gym_env("CartPole-v0", rl_env_max_episode_steps=None)
-    self.assertTrue(isinstance(env, gym.Env))
+    self.assertIsInstance(env, gym.Env)
     self.assertNotIsInstance(env, gym.wrappers.TimeLimit)
 
   def test_rendered_env(self):
@@ -99,7 +99,7 @@ class GymUtilsTest(tf.test.TestCase):
     self.assertEqual("T2TEnv-SimpleEnv-v0", reg_id)
 
     # Most basic check.
-    self.assertTrue(isinstance(env, gym.Env))
+    self.assertIsInstance(env, gym.Env)
 
     # Just make sure we got the same environment.
     self.assertTrue(

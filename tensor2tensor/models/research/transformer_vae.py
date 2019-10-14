@@ -507,6 +507,8 @@ def ae_transformer_internal(inputs,
       # reshape back to 4d here
       if hparams.task == "image":
         targets = tf.reshape(targets, original_targets_shape)
+    else:
+      targets = d
 
   res = decode_transformer(inputs, ed, targets, hparams, "decoder",
                            causal=hparams.causal)

@@ -2586,7 +2586,7 @@ class FactoredTensor(object):
 
 def _convert_factored_tensor_to_tensor(value, *args, **kwargs):
   # call ops.convert_to_tensor to handle optional arguments appropriately
-  return ops.internal_convert_to_tensor(value.to_tensor(), *args, **kwargs)
+  return ops.convert_to_tensor(value.to_tensor(), *args, **kwargs)
 
 
 tf.register_tensor_conversion_function(FactoredTensor,
@@ -3724,7 +3724,8 @@ def double_discriminator(x, filters1=128, filters2=None,
       tf.reshape(net, [batch_size, -1])
     net = tf.nn.relu(net)
     net = layers().Conv2D(
-        filters2, kernel_size, strides=strides, padding="SAME", name="conv2")(x)
+        filters2, kernel_size, strides=strides, padding="SAME",
+        name="conv2")(net)
     if pure_mean:
       net2 = tf.reduce_mean(net, [1, 2])
     else:

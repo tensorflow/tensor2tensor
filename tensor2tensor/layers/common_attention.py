@@ -447,6 +447,8 @@ def get_timing_signal_1d(length,
   inv_timescales = min_timescale * tf.exp(
       tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
   scaled_time = tf.expand_dims(position, 1) * tf.expand_dims(inv_timescales, 0)
+  # Please note that this slightly differs from the published paper.
+  # See a discussion here: https://github.com/tensorflow/tensor2tensor/pull/177
   signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=1)
   signal = tf.pad(signal, [[0, 0], [0, tf.mod(channels, 2)]])
   signal = tf.reshape(signal, [1, length, channels])
@@ -1863,6 +1865,7 @@ def dot_product_self_attention_relative_v2(q,
                                            max_relative_position=None,
                                            dropout_rate=0.0,
                                            image_shapes=None,
+                                           save_weights_to=None,
                                            name=None,
                                            make_image_summary=True,
                                            dropout_broadcast_dims=None,
@@ -1884,6 +1887,9 @@ def dot_product_self_attention_relative_v2(q,
       to look back - changing this invalidates checkpoints
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
+    save_weights_to: an optional dictionary to capture attention weights
+      for visualization; the weights tensor will be appended there under
+      a string key created from the variable scope (including name).
     name: an optional string.
     make_image_summary: Whether to make an attention image summary.
     dropout_broadcast_dims:  an optional list of integers less than 4
@@ -1906,7 +1912,7 @@ def dot_product_self_attention_relative_v2(q,
   with tf.variable_scope(
       name,
       default_name="dot_product_self_attention_relative_v2",
-      values=[q, k, v]):
+      values=[q, k, v]) as scope:
 
     # This calculation only works for self attention.
     # q, k and v must therefore have the same shape.
@@ -1930,6 +1936,9 @@ def dot_product_self_attention_relative_v2(q,
       logits += bias
 
     weights = tf.nn.softmax(logits, name="attention_weights")
+    if save_weights_to is not None:
+      save_weights_to[scope.name] = weights
+      save_weights_to[scope.name + "/logits"] = logits
     # Dropping out the attention links for each of the heads.
     weights = common_layers.dropout_with_broadcast_dims(
         weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
@@ -2034,7 +2043,7 @@ def get_relative_embeddings_left_right(max_relative_position, length, depth,
 
 def dot_product_unmasked_self_attention_relative_v2(
     q, k, v, bias, max_relative_position=None, dropout_rate=0.0,
-    image_shapes=None, name=None, make_image_summary=True,
+    image_shapes=None, save_weights_to=None, name=None, make_image_summary=True,
     dropout_broadcast_dims=None, heads_share_relative_embedding=False,
     add_relative_to_values=False):
   """Calculate relative position-aware dot-product self-attention.
@@ -2051,6 +2060,9 @@ def dot_product_unmasked_self_attention_relative_v2(
       Changing this invalidates checkpoints.
     dropout_rate: a floating point number.
     image_shapes: optional tuple of integer scalars.
+    save_weights_to: an optional dictionary to capture attention weights
+      for visualization; the weights tensor will be appended there under
+      a string key created from the variable scope (including name).
     name: an optional string.
     make_image_summary: Whether to make an attention image summary.
     dropout_broadcast_dims:  an optional list of integers less than 4
@@ -2074,7 +2086,7 @@ def dot_product_unmasked_self_attention_relative_v2(
   with tf.variable_scope(
       name,
       default_name="dot_product_unmasked_self_attention_relative_v2",
-      values=[q, k, v]):
+      values=[q, k, v]) as scope:
 
     # This calculation only works for self attention.
     # q, k and v must therefore have the same shape.
@@ -2102,6 +2114,9 @@ def dot_product_unmasked_self_attention_relative_v2(
     if bias is not None:
       logits += bias
     weights = tf.nn.softmax(logits, name="attention_weights")
+    if save_weights_to is not None:
+      save_weights_to[scope.name] = weights
+      save_weights_to[scope.name + "/logits"] = logits
     # dropping out the attention links for each of the heads
     weights = common_layers.dropout_with_broadcast_dims(
         weights, 1.0 - dropout_rate, broadcast_dims=dropout_broadcast_dims)
@@ -2729,7 +2744,7 @@ def _relative_position_to_absolute_position_unmasked(x):
                           length, 2 * length - 1]
 
   Returns:
-    A Tensor of shape [batch (or batch*num_blocks), heads, length, length-1]
+    A Tensor of shape [batch (or batch*num_blocks), heads, length, length]
   """
   x_shape = common_layers.shape_list(x)
   batch = x_shape[0]
@@ -4662,6 +4677,7 @@ def multihead_attention(query_antecedent,
           max_relative_position,
           dropout_rate,
           image_shapes,
+          save_weights_to=save_weights_to,
           make_image_summary=make_image_summary,
           dropout_broadcast_dims=dropout_broadcast_dims,
           heads_share_relative_embedding=heads_share_relative_embedding,
@@ -4675,6 +4691,7 @@ def multihead_attention(query_antecedent,
           max_relative_position,
           dropout_rate,
           image_shapes,
+          save_weights_to=save_weights_to,
           make_image_summary=make_image_summary,
           dropout_broadcast_dims=dropout_broadcast_dims,
           heads_share_relative_embedding=heads_share_relative_embedding,

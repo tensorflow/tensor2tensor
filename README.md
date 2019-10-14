@@ -227,6 +227,8 @@ which is close to state-of-the art. If training on a single GPU, try the
 or larger data-sets (e.g., for English-French), try the big model
 with `--hparams_set=transformer_big`.
 
+See this [example](https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/notebooks/Transformer_translate.ipynb) to know how the translation works.
+
 ## Basics
 
 ### Walkthrough

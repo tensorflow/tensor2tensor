@@ -197,7 +197,7 @@ class HParamsTest(tf.test.TestCase):
     """Assignment to an index position."""
     parse_dict = hparam.parse_values('arr[1]=10', {'arr': int})
     self.assertEqual(len(parse_dict), 1)
-    self.assertTrue(isinstance(parse_dict['arr'], dict))
+    self.assertIsInstance(parse_dict['arr'], dict)
     self.assertDictEqual(parse_dict['arr'], {1: 10})
 
   def testParseValuesWithIndexAssigment1_IgnoreUnknown(self):
@@ -205,14 +205,14 @@ class HParamsTest(tf.test.TestCase):
     parse_dict = hparam.parse_values(
         'arr[1]=10,b=5', {'arr': int}, ignore_unknown=True)
     self.assertEqual(len(parse_dict), 1)
-    self.assertTrue(isinstance(parse_dict['arr'], dict))
+    self.assertIsInstance(parse_dict['arr'], dict)
     self.assertDictEqual(parse_dict['arr'], {1: 10})
 
   def testParseValuesWithIndexAssigment2(self):
     """Assignment to multiple index positions."""
     parse_dict = hparam.parse_values('arr[0]=10,arr[5]=20', {'arr': int})
     self.assertEqual(len(parse_dict), 1)
-    self.assertTrue(isinstance(parse_dict['arr'], dict))
+    self.assertIsInstance(parse_dict['arr'], dict)
     self.assertDictEqual(parse_dict['arr'], {0: 10, 5: 20})
 
   def testParseValuesWithIndexAssigment2_IgnoreUnknown(self):
@@ -220,7 +220,7 @@ class HParamsTest(tf.test.TestCase):
     parse_dict = hparam.parse_values(
         'arr[0]=10,arr[5]=20,foo=bar', {'arr': int}, ignore_unknown=True)
     self.assertEqual(len(parse_dict), 1)
-    self.assertTrue(isinstance(parse_dict['arr'], dict))
+    self.assertIsInstance(parse_dict['arr'], dict)
     self.assertDictEqual(parse_dict['arr'], {0: 10, 5: 20})
 
   def testParseValuesWithIndexAssigment3(self):
@@ -229,9 +229,9 @@ class HParamsTest(tf.test.TestCase):
                                      {'arr': int,
                                       'L': int})
     self.assertEqual(len(parse_dict), 2)
-    self.assertTrue(isinstance(parse_dict['arr'], dict))
+    self.assertIsInstance(parse_dict['arr'], dict)
     self.assertDictEqual(parse_dict['arr'], {0: 10, 1: 20})
-    self.assertTrue(isinstance(parse_dict['L'], dict))
+    self.assertIsInstance(parse_dict['L'], dict)
     self.assertDictEqual(parse_dict['L'], {5: 100, 10: 200})
 
   def testParseValuesWithIndexAssigment3_IgnoreUnknown(self):
@@ -240,9 +240,9 @@ class HParamsTest(tf.test.TestCase):
         'arr[0]=10,C=5,arr[1]=20,B[0]=kkk,L[5]=100,L[10]=200',
         {'arr': int, 'L': int}, ignore_unknown=True)
     self.assertEqual(len(parse_dict), 2)
-    self.assertTrue(isinstance(parse_dict['arr'], dict))
+    self.assertIsInstance(parse_dict['arr'], dict)
     self.assertDictEqual(parse_dict['arr'], {0: 10, 1: 20})
-    self.assertTrue(isinstance(parse_dict['L'], dict))
+    self.assertIsInstance(parse_dict['L'], dict)
     self.assertDictEqual(parse_dict['L'], {5: 100, 10: 200})
 
   def testParseValuesWithIndexAssigment4(self):
@@ -252,7 +252,7 @@ class HParamsTest(tf.test.TestCase):
                                       'y': int,
                                       'arr': int})
     self.assertEqual(len(parse_dict), 3)
-    self.assertTrue(isinstance(parse_dict['arr'], dict))
+    self.assertIsInstance(parse_dict['arr'], dict)
     self.assertDictEqual(parse_dict['arr'], {1: 20})
     self.assertEqual(parse_dict['x'], 10)
     self.assertEqual(parse_dict['y'], 30)
@@ -263,7 +263,7 @@ class HParamsTest(tf.test.TestCase):
         'x=10,foo[0]=bar,arr[1]=20,zzz=78,y=30',
         {'x': int, 'y': int, 'arr': int}, ignore_unknown=True)
     self.assertEqual(len(parse_dict), 3)
-    self.assertTrue(isinstance(parse_dict['arr'], dict))
+    self.assertIsInstance(parse_dict['arr'], dict)
     self.assertDictEqual(parse_dict['arr'], {1: 20})
     self.assertEqual(parse_dict['x'], 10)
     self.assertEqual(parse_dict['y'], 30)
@@ -277,13 +277,13 @@ class HParamsTest(tf.test.TestCase):
         'd': float
     })
     self.assertEqual(set(parse_dict.keys()), {'a', 'b', 'c', 'd'})
-    self.assertTrue(isinstance(parse_dict['a'], dict))
+    self.assertIsInstance(parse_dict['a'], dict)
     self.assertDictEqual(parse_dict['a'], {0: 5})
-    self.assertTrue(isinstance(parse_dict['b'], dict))
+    self.assertIsInstance(parse_dict['b'], dict)
     self.assertDictEqual(parse_dict['b'], {1: True})
-    self.assertTrue(isinstance(parse_dict['c'], dict))
+    self.assertIsInstance(parse_dict['c'], dict)
     self.assertDictEqual(parse_dict['c'], {2: 'abc'})
-    self.assertTrue(isinstance(parse_dict['d'], dict))
+    self.assertIsInstance(parse_dict['d'], dict)
     self.assertDictEqual(parse_dict['d'], {3: 3.14})
 
   def testParseValuesWithIndexAssigment5_IgnoreUnknown(self):
@@ -293,13 +293,13 @@ class HParamsTest(tf.test.TestCase):
         {'a': int, 'b': bool, 'c': str, 'd': float},
         ignore_unknown=True)
     self.assertEqual(set(parse_dict.keys()), {'a', 'b', 'c', 'd'})
-    self.assertTrue(isinstance(parse_dict['a'], dict))
+    self.assertIsInstance(parse_dict['a'], dict)
     self.assertDictEqual(parse_dict['a'], {0: 5})
-    self.assertTrue(isinstance(parse_dict['b'], dict))
+    self.assertIsInstance(parse_dict['b'], dict)
     self.assertDictEqual(parse_dict['b'], {1: True})
-    self.assertTrue(isinstance(parse_dict['c'], dict))
+    self.assertIsInstance(parse_dict['c'], dict)
     self.assertDictEqual(parse_dict['c'], {2: 'abc'})
-    self.assertTrue(isinstance(parse_dict['d'], dict))
+    self.assertIsInstance(parse_dict['d'], dict)
     self.assertDictEqual(parse_dict['d'], {3: 3.14})
 
   def testParseValuesWithBadIndexAssigment1(self):

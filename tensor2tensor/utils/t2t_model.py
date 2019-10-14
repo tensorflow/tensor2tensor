@@ -1704,8 +1704,9 @@ class T2TModel(base.Layer):
     # Workaround for "ValueError: prediction values must be from the default
     # graph" during TPU model exporting.
     # TODO(b/130501786): remove tf.identity once default graph mismatch is fixed
-    for name, feature in features.items():
-      features[name] = tf.identity(feature)
+    if use_tpu:
+      for name, feature in features.items():
+        features[name] = tf.identity(feature)
 
     inputs = features.get("inputs")
     if inputs is None:
@@ -1821,10 +1822,15 @@ class T2TModel(base.Layer):
 
     # Only do scheduled sampling on language tasks.
     modality = problem_hparams.modality["targets"]
-    if modality != modalities.ModalityType.SYMBOL:
+    if modality not in [
+        modalities.ModalityType.SYMBOL,
+        modalities.ModalityType.SYMBOL_WEIGHTS_ALL,
+        modalities.ModalityType.IMAGE
+    ]:
       assert hparams.scheduled_sampling_prob == 0, (
-          "Scheduled sampling only applies to ModalityType.SYMBOL. Set "
-          "hparams.scheduled_sampling_prob == 0.0.")
+          "Scheduled sampling only applies to ModalityType.(SYMBOL, "
+          "SYMBOL_WEIGHTS_ALL, IMAGE). Found {modality}. Set "
+          "hparams.scheduled_sampling_prob == 0.0.").format(modality=modality)
       return (logits, losses)
 
     # Only do scheduled sampling when training.
@@ -1874,11 +1880,12 @@ class T2TModel(base.Layer):
       """Constructs mask based on timestep."""
       assert x.shape.ndims == 4, x.shape
       x_shape = tf.shape(x)
-      batch_size = x_shape[0]
       num_timesteps = x_shape[1]
       timesteps = tf.range(num_timesteps)
       timesteps = tf.reshape(timesteps, [1, num_timesteps, 1, 1])
-      timesteps = tf.tile(timesteps, [batch_size, 1, 1, 1])
+      # The following is a bit untrue. For images, "num_timesteps" actually
+      # represents image height, not time. We ignore that fact here.
+      timesteps = tf.broadcast_to(timesteps, x_shape)
       return tf.greater_equal(timesteps, pass_idx)
 
     # TODO(duckworthd): Move to scheduled_sampling.py.

@@ -144,7 +144,7 @@ class ImageTest(tf.test.TestCase):
           decode_hooks)
       self.assertEqual(len(summaries), summaries_length)
       if summaries:
-        self.assertTrue(isinstance(summaries[0], tf.Summary.Value))
+        self.assertIsInstance(summaries[0], tf.Summary.Value)
 
 
 if __name__ == "__main__":

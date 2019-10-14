@@ -141,6 +141,9 @@ flags.DEFINE_string("job-dir", None,
 flags.DEFINE_integer("log_step_count_steps", 100,
                      "Number of local steps after which progress is printed "
                      "out")
+flags.DEFINE_bool("gpu_automatic_mixed_precision", False,
+                  "Whether to employ GPU automatic mixed precision training "
+                  "(via graph rewrite and dynamic loss scaling).")
 
 
 
@@ -385,6 +388,8 @@ def main(argv):
     set_hparams_from_args(argv[1:])
   if FLAGS.schedule != "run_std_server":
     hparams = create_hparams()
+  if FLAGS.gpu_automatic_mixed_precision:
+    setattr(hparams, "gpu_automatic_mixed_precision", True)
 
   if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
     mlperf_log.transformer_print(key=mlperf_log.RUN_START, hparams=hparams)

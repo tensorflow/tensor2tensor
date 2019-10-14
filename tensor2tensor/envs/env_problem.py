@@ -23,6 +23,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from absl import logging
 from gym.core import Env
 import numpy as np
 import six
@@ -150,6 +151,11 @@ class EnvProblem(Env, problem.Problem):
   def trajectories(self):
     return self._trajectories
 
+  @trajectories.setter
+  def trajectories(self, trajectories_):
+    assert self.trajectories.batch_size == trajectories_.batch_size
+    self._trajectories = trajectories_
+
   def initialize(self, batch_size=1, **kwargs):
     self.initialize_environments(batch_size=batch_size, **kwargs)
 
@@ -232,6 +238,10 @@ class EnvProblem(Env, problem.Problem):
     min_reward, max_reward = self.reward_range
     return (min_reward != -np.inf) and (max_reward != np.inf)
 
+  @property
+  def discrete_rewards(self):
+    return self._discrete_rewards
+
   def process_rewards(self, rewards):
     """Clips the rewards, optionally rounds them and casts to integer.
 
@@ -273,10 +283,10 @@ class EnvProblem(Env, problem.Problem):
     # Pre-conditions: reward range is finite.
     #               : processed rewards are discrete.
     if not self.is_reward_range_finite:
-      tf.logging.warn("Infinite reward range, `num_rewards returning None`")
+      logging.warn("Infinite reward range, `num_rewards returning None`")
       return None
     if not self.is_processed_rewards_discrete:
-      tf.logging.warn(
+      logging.warn(
           "Processed rewards are not discrete, `num_rewards` returning None")
       return None
 
@@ -356,7 +366,7 @@ class EnvProblem(Env, problem.Problem):
 
     # If this is empty (not None) then don't do anything, no env was done.
     if indices.size == 0:
-      tf.logging.warning(
+      logging.warning(
           "`reset` called with empty indices array, this is a no-op.")
       return None
 
@@ -613,7 +623,7 @@ class EnvProblem(Env, problem.Problem):
     num_completed_trajectories = self.trajectories.num_completed_trajectories
     num_shards = len(files_list)
     if num_completed_trajectories < num_shards:
-      tf.logging.warning(
+      logging.warning(
           "Number of completed trajectories [%d] is less than "
           "the number of shards [%d], some shards maybe empty.",
           num_completed_trajectories, num_shards)

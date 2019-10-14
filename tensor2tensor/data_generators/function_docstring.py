@@ -98,6 +98,11 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
                 "embed_code": [0],
             }
 
+  def preprocess_example(self, example, mode, unused_hparams):
+    if mode != tf.estimator.ModeKeys.TRAIN:
+      example["embed_code"] = [0]
+    return example
+
   def eval_metrics(self):
     return [
         metrics.Metrics.ACC
