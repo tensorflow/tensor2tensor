@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,13 @@ from tensor2tensor.utils import mlperf_log
 import tensorflow as tf
 
 
-def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
+# TODO(lukaszkaiser): remove this function when not needed any more.
+def layers():
+  return common_layers.layers()
+
+
+def transformer_prepare_encoder(inputs, target_space, hparams, features=None,
+                                type_ids=None, num_types=None):
   """Prepare one shard of the model for the encoder.
 
   Args:
@@ -36,6 +42,9 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
     hparams: run hyperparameters
     features: optionally pass the entire features dictionary as well.
       This is needed now for "packed" datasets.
+    type_ids: optional, an int64 Tensor of shape [batch, length] that allows
+      for adding type embeddings, similar to positional embeddings.
+    num_types: optional, an int that decides the number of types in type_ids.
 
   Returns:
     encoder_input: a Tensor, bottom of encoder stack
@@ -50,31 +59,46 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
     inputs_segmentation = features["inputs_segmentation"]
     inputs_position = features["inputs_position"]
     targets_segmentation = features["targets_segmentation"]
-    encoder_self_attention_bias = common_attention.attention_bias_same_segment(
-        inputs_segmentation, inputs_segmentation)
+    if (hasattr(hparams, "unidirectional_encoder") and
+        hparams.unidirectional_encoder):
+      tf.logging.info("Using unidirectional encoder")
+      encoder_self_attention_bias = (
+          common_attention.attention_bias_lower_triangle(
+              common_layers.shape_list(inputs)[1]))
+    else:
+      encoder_self_attention_bias = (
+          common_attention.attention_bias_same_segment(
+              inputs_segmentation, inputs_segmentation))
     encoder_decoder_attention_bias = (
         common_attention.attention_bias_same_segment(targets_segmentation,
                                                      inputs_segmentation))
   else:
-    # Usual case - not a packed dataset.
     encoder_padding = common_attention.embedding_to_padding(encoder_input)
     ignore_padding = common_attention.attention_bias_ignore_padding(
         encoder_padding)
-    encoder_self_attention_bias = ignore_padding
+    if (hasattr(hparams, "unidirectional_encoder") and
+        hparams.unidirectional_encoder):
+      tf.logging.info("Using unidirectional encoder")
+      encoder_self_attention_bias = (
+          common_attention.attention_bias_lower_triangle(
+              common_layers.shape_list(inputs)[1]))
+    else:
+      # Usual case - not a packed dataset.
+      encoder_self_attention_bias = ignore_padding
     encoder_decoder_attention_bias = ignore_padding
     inputs_position = None
   if hparams.proximity_bias:
     encoder_self_attention_bias += common_attention.attention_bias_proximal(
         common_layers.shape_list(inputs)[1])
-  if hparams.get("use_target_space_embedding", True):
+  if target_space is not None and hparams.get("use_target_space_embedding",
+                                              True):
     # Append target_space_id embedding to inputs.
     emb_target_space = common_layers.embedding(
         target_space,
         32,
         ishape_static[-1],
         name="target_space_embedding",
-        dtype=tf.bfloat16
-        if hparams.activation_dtype == "bfloat16" else tf.float32)
+        dtype=hparams.get("activation_dtype", "float32"))
     emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
     encoder_input += emb_target_space
   if hparams.pos == "timing":
@@ -87,11 +111,18 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None):
     encoder_input = common_attention.add_positional_embedding(
         encoder_input, hparams.max_length, "inputs_positional_embedding",
         inputs_position)
-  if hparams.activation_dtype == "bfloat16":
-    encoder_self_attention_bias = tf.cast(encoder_self_attention_bias,
-                                          tf.bfloat16)
-    encoder_decoder_attention_bias = tf.cast(encoder_decoder_attention_bias,
-                                             tf.bfloat16)
+
+  # Add type embeddings
+  if type_ids is not None:
+    if not num_types:
+      raise ValueError("Need to set num_types as well.")
+    encoder_input = common_attention.add_positional_embedding(
+        encoder_input, num_types, "inputs_type_embedding", type_ids)
+
+  encoder_self_attention_bias = common_layers.cast_like(
+      encoder_self_attention_bias, encoder_input)
+  encoder_decoder_attention_bias = common_layers.cast_like(
+      encoder_decoder_attention_bias, encoder_input)
   return (encoder_input, encoder_self_attention_bias,
           encoder_decoder_attention_bias)
 
@@ -103,7 +134,8 @@ def transformer_encoder(encoder_input,
                         nonpadding=None,
                         save_weights_to=None,
                         make_image_summary=True,
-                        losses=None):
+                        losses=None,
+                        attn_bias_for_padding=None):
   """A stack of transformer layers.
 
   Args:
@@ -123,6 +155,8 @@ def transformer_encoder(encoder_input,
       a string key created from the variable scope (including name).
     make_image_summary: Whether to make an attention image summary.
     losses: optional list onto which to append extra training losses
+    attn_bias_for_padding: Padded attention bias in case a unidirectional
+      encoder is being used where future attention is masked.
 
   Returns:
     y: a Tensors
@@ -149,8 +183,10 @@ def transformer_encoder(encoder_input,
     if nonpadding is not None:
       padding = 1.0 - nonpadding
     else:
-      padding = common_attention.attention_bias_to_padding(
-          encoder_self_attention_bias)
+      attention_bias = encoder_self_attention_bias
+      if attn_bias_for_padding is not None:
+        attention_bias = attn_bias_for_padding
+      padding = common_attention.attention_bias_to_padding(attention_bias)
       nonpadding = 1.0 - padding
     pad_remover = None
     if hparams.use_pad_remover and not common_layers.is_xla_compiled():
@@ -158,6 +194,14 @@ def transformer_encoder(encoder_input,
     for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
       with tf.variable_scope("layer_%d" % layer):
         with tf.variable_scope("self_attention"):
+          if layer < hparams.get("num_area_layers", 0):
+            max_area_width = hparams.get("max_area_width", 1)
+            max_area_height = hparams.get("max_area_height", 1)
+            memory_height = hparams.get("memory_height", 1)
+          else:
+            max_area_width = 1
+            max_area_height = 1
+            memory_height = 1
           y = common_attention.multihead_attention(
               common_layers.layer_preprocess(x, hparams),
               None,
@@ -176,7 +220,18 @@ def transformer_encoder(encoder_input,
               make_image_summary=make_image_summary,
               dropout_broadcast_dims=attention_dropout_broadcast_dims,
               max_length=hparams.get("max_length"),
-              vars_3d=hparams.get("attention_variables_3d"))
+              vars_3d=hparams.get("attention_variables_3d"),
+              activation_dtype=hparams.get("activation_dtype", "float32"),
+              weight_dtype=hparams.get("weight_dtype", "float32"),
+              hard_attention_k=hparams.get("hard_attention_k", 0),
+              gumbel_noise_weight=hparams.get("gumbel_noise_weight", 0.0),
+              max_area_width=max_area_width,
+              max_area_height=max_area_height,
+              memory_height=memory_height,
+              area_key_mode=hparams.get("area_key_mode", "none"),
+              area_value_mode=hparams.get("area_value_mode", "none"),
+              training=(hparams.get("mode", tf.estimator.ModeKeys.TRAIN)
+                        == tf.estimator.ModeKeys.TRAIN))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -204,7 +259,8 @@ def transformer_ffn_layer(x,
                           losses=None,
                           cache=None,
                           decode_loop_step=None,
-                          readout_filter_size=0):
+                          readout_filter_size=0,
+                          layer_collection=None):
   """Feed-forward layer in the transformer.
 
   Args:
@@ -225,6 +281,8 @@ def transformer_ffn_layer(x,
         Only used for inference on TPU.
     readout_filter_size: if it's greater than 0, then it will be used instead of
       filter_size
+    layer_collection: A tensorflow_kfac.LayerCollection. Only used by the
+      KFAC optimizer. Default is None.
 
 
   Returns:
@@ -267,7 +325,8 @@ def transformer_ffn_layer(x,
         hparams.filter_size,
         hparams.hidden_size,
         dropout=hparams.relu_dropout,
-        dropout_broadcast_dims=relu_dropout_broadcast_dims)
+        dropout_broadcast_dims=relu_dropout_broadcast_dims,
+        layer_collection=layer_collection)
     if pad_remover:
       # Restore `conv_output` to the original shape of `x`, including padding.
       conv_output = tf.reshape(
@@ -304,10 +363,9 @@ def transformer_ffn_layer(x,
   elif ffn_layer == "sru":
     return common_layers.sru(x)
   elif ffn_layer == "local_moe_tpu":
-    overhead = (
-        hparams.moe_overhead_train
-        if hparams.mode == tf.estimator.ModeKeys.TRAIN else
-        hparams.moe_overhead_eval)
+    overhead = hparams.moe_overhead_eval
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      overhead = hparams.moe_overhead_train
     ret, loss = expert_utils.local_moe_tpu(
         x,
         hparams.filter_size // 2,
@@ -316,10 +374,9 @@ def transformer_ffn_layer(x,
         overhead=overhead,
         loss_coef=hparams.moe_loss_coef)
   elif ffn_layer == "local_moe":
-    overhead = (
-        hparams.moe_overhead_train
-        if hparams.mode == tf.estimator.ModeKeys.TRAIN else
-        hparams.moe_overhead_eval)
+    overhead = hparams.moe_overhead_eval
+    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      overhead = hparams.moe_overhead_train
     ret, loss = expert_utils.local_moe(
         x,
         True,

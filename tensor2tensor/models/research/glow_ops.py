@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,74 @@ import tensorflow_probability as tfp
 
 arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope
+
+
+def linear_interpolate(tensor1, tensor2, coeffs):
+  """Linearly interpolate between two tensors at coeff.
+
+  Args:
+    tensor1: 4-D Tensor, shape=(NHWC)
+    tensor2: 4-D Tensor, shape=(NHWC)
+    coeffs: list of floats.
+  Returns:
+    interp_latents: 5-D Tensor, with interp_latents[i] representing
+                    interpolations at coeffs[i].
+                    shape=(len(coeffs), NHWC)
+  """
+  interp_tensors = []
+  for coeff in coeffs:
+    interp_tensor = tensor1 + coeff * (tensor2 - tensor1)
+    interp_tensors.append(interp_tensor)
+  return tf.concat(interp_tensors, axis=0)
+
+
+def linear_interpolate_rank(tensor1, tensor2, coeffs, rank=1):
+  """Linearly interpolate channel at "rank" between two tensors.
+
+  The channels are ranked according to their L2 norm between tensor1[channel]
+  and tensor2[channel].
+
+  Args:
+    tensor1: 4-D Tensor, NHWC
+    tensor2: 4-D Tensor, NHWC
+    coeffs: list of floats.
+    rank: integer.
+  Returns:
+    interp_latents: list of interpolated 4-D Tensors, shape=(NHWC)
+  """
+  # sum across space, max across channels.
+  _, _, _, num_channels = common_layers.shape_list(tensor1)
+  diff_sq_sum = tf.reduce_sum((tensor1 - tensor2)**2, axis=(0, 1, 2))
+  _, feature_ranks = tf.math.top_k(diff_sq_sum, k=rank)
+  feature_rank = feature_ranks[-1]
+  channel_inds = tf.range(num_channels, dtype=tf.int32)
+  channel_mask = tf.equal(channel_inds, feature_rank)
+  ones_t = tf.ones(num_channels, dtype=tf.float32)
+  zeros_t = tf.zeros(num_channels, dtype=tf.float32)
+
+  interp_tensors = []
+  for coeff in coeffs:
+    curr_coeff = tf.where(channel_mask, coeff * ones_t, zeros_t)
+    interp_tensor = tensor1 + curr_coeff * (tensor2 - tensor1)
+    interp_tensors.append(interp_tensor)
+  return tf.concat(interp_tensors, axis=0)
+
+
+def postprocess(x, n_bits_x=8):
+  """Converts x from [-0.5, 0.5], to [0, 255].
+
+  Args:
+    x: 3-D or 4-D Tensor normalized between [-0.5, 0.5]
+    n_bits_x: Number of bits representing each pixel of the output.
+              Defaults to 8, to default to 256 possible values.
+  Returns:
+    x: 3-D or 4-D Tensor representing images or videos.
+  """
+  x = tf.where(tf.is_finite(x), x, tf.ones_like(x))
+  x = tf.clip_by_value(x, -0.5, 0.5)
+  x += 0.5
+  x = x * 2**n_bits_x
+  return tf.cast(tf.clip_by_value(x, 0, 255), dtype=tf.uint8)
 
 
 class TemperedNormal(tfp.distributions.Normal):
@@ -101,7 +169,8 @@ def check_cond_latents(cond_latents, hparams):
 def get_variable_ddi(name, shape, initial_value, dtype=tf.float32, init=False,
                      trainable=True):
   """Wrapper for data-dependent initialization."""
-  # If init is a tensor bool, w is returned dynamically.
+  # If init is a tf bool: w is assigned dynamically at runtime.
+  # If init is a python bool: then w is determined during graph construction.
   w = tf.get_variable(name, shape, dtype, None, trainable=trainable)
   if isinstance(init, bool):
     if init:
@@ -109,6 +178,24 @@ def get_variable_ddi(name, shape, initial_value, dtype=tf.float32, init=False,
     return w
   else:
     return tf.cond(init, lambda: assign(w, initial_value), lambda: w)
+
+
+@add_arg_scope
+def get_dropout(x, rate=0.0, init=True):
+  """Dropout x with dropout_rate = rate.
+
+  Apply zero dropout during init or prediction time.
+
+  Args:
+    x: 4-D Tensor, shape=(NHWC).
+    rate: Dropout rate.
+    init: Initialization.
+  Returns:
+    x: activations after dropout.
+  """
+  if init or rate == 0:
+    return x
+  return tf.layers.dropout(x, rate=rate, training=True)
 
 
 @add_arg_scope
@@ -302,11 +389,7 @@ def invertible_1x1_conv(name, x, reverse=False):
       w = tf.reshape(w, [1, 1] + w_shape)
       x = tf.nn.conv2d(x, w, [1, 1, 1, 1], "SAME", data_format="NHWC")
     else:
-      u_inv = tf.matrix_inverse(u)
-      l_inv = tf.matrix_inverse(l)
-      p_inv = tf.matrix_inverse(p)
-      w_inv = tf.matmul(u_inv, tf.matmul(l_inv, p_inv))
-      w_inv = tf.reshape(w_inv, [1, 1]+w_shape)
+      w_inv = tf.reshape(tf.linalg.inv(w), [1, 1]+w_shape)
       x = tf.nn.conv2d(
           x, w_inv, [1, 1, 1, 1], "SAME", data_format="NHWC")
       objective *= -1
@@ -405,6 +488,7 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
 
   x_shape = common_layers.shape_list(x)
   is_2d = len(x_shape) == 4
+  num_steps = x_shape[1]
 
   # set filter_size, stride and in_channels
   if is_2d:
@@ -419,7 +503,10 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
     conv_filter = tf.nn.conv2d
   else:
     if filter_size is None:
-      filter_size = [2, 3, 3]
+      if num_steps == 1:
+        filter_size = [1, 3, 3]
+      else:
+        filter_size = [2, 3, 3]
     if stride is None:
       stride = [1, 1, 1]
     if dilations is None:
@@ -453,7 +540,8 @@ def conv(name, x, output_channels, filter_size=None, stride=None,
 
 
 @add_arg_scope
-def conv_block(name, x, mid_channels, dilations=None):
+def conv_block(name, x, mid_channels, dilations=None, activation="relu",
+               dropout=0.0):
   """2 layer conv block used in the affine coupling layer.
 
   Args:
@@ -461,6 +549,10 @@ def conv_block(name, x, mid_channels, dilations=None):
     x: 4-D or 5-D Tensor.
     mid_channels: Output channels of the second layer.
     dilations: Optional, list of integers.
+    activation: relu or gatu.
+      If relu, the second layer is relu(W*x)
+      If gatu, the second layer is tanh(W1*x) * sigmoid(W2*x)
+    dropout: Dropout probability.
   Returns:
     x: 4-D Tensor: Output activations.
   """
@@ -468,11 +560,17 @@ def conv_block(name, x, mid_channels, dilations=None):
 
     x_shape = common_layers.shape_list(x)
     is_2d = len(x_shape) == 4
+    num_steps = x_shape[1]
     if is_2d:
       first_filter = [3, 3]
       second_filter = [1, 1]
     else:
-      first_filter = [2, 3, 3]
+      # special case when number of steps equal 1 to avoid
+      # padding.
+      if num_steps == 1:
+        first_filter = [1, 3, 3]
+      else:
+        first_filter = [2, 3, 3]
       second_filter = [1, 1, 1]
 
     # Edge Padding + conv2d + actnorm + relu:
@@ -480,17 +578,29 @@ def conv_block(name, x, mid_channels, dilations=None):
     x = conv("1_1", x, output_channels=mid_channels, filter_size=first_filter,
              dilations=dilations)
     x = tf.nn.relu(x)
+    x = get_dropout(x, rate=dropout)
 
-    # Padding + conv2d + actnorm + relu
+    # Padding + conv2d + actnorm + activation.
     # [input, output: 512 channels]
-    x = conv("1_2", x, output_channels=mid_channels, filter_size=second_filter,
-             dilations=dilations)
-    x = tf.nn.relu(x)
+    if activation == "relu":
+      x = conv("1_2", x, output_channels=mid_channels,
+               filter_size=second_filter, dilations=dilations)
+      x = tf.nn.relu(x)
+    elif activation == "gatu":
+      # x = tanh(w1*x) * sigm(w2*x)
+      x_tanh = conv("1_tanh", x, output_channels=mid_channels,
+                    filter_size=second_filter, dilations=dilations)
+      x_sigm = conv("1_sigm", x, output_channels=mid_channels,
+                    filter_size=second_filter, dilations=dilations)
+      x = tf.nn.tanh(x_tanh) * tf.nn.sigmoid(x_sigm)
+
+    x = get_dropout(x, rate=dropout)
     return x
 
 
 def dilated_conv_stack(name, x, mid_channels, output_channels,
-                       dilation_rates):
+                       dilation_rates, activation="relu",
+                       dropout=0.0):
   """Dilated convolutional stack.
 
   Features at different rates are computed independently using a 3 layer
@@ -503,6 +613,8 @@ def dilated_conv_stack(name, x, mid_channels, output_channels,
                   stack.
     output_channels: Number of output channels of the last layer.
     dilation_rates: A list of dilation rates.
+    activation: Can be either "relu" or "gatu"
+    dropout: dropout.
   Returns:
     output: 5-D Tensor.
   """
@@ -511,13 +623,15 @@ def dilated_conv_stack(name, x, mid_channels, output_channels,
     for dil_ind, dil_rate in enumerate(dilation_rates):
       # TODO(mechcoder) try (concat across channels + 1x1) modulo memory issues.
       curr_out = conv_stack("dil_%d" % dil_ind, x, mid_channels=mid_channels,
-                            output_channels=output_channels, dilations=dil_rate)
+                            output_channels=output_channels, dilations=dil_rate,
+                            activation=activation, dropout=dropout)
       output += curr_out
     return output
 
 
 @add_arg_scope
-def conv_stack(name, x, mid_channels, output_channels, dilations=None):
+def conv_stack(name, x, mid_channels, output_channels, dilations=None,
+               activation="relu", dropout=0.0):
   """3-layer convolutional stack.
 
   Args:
@@ -527,14 +641,18 @@ def conv_stack(name, x, mid_channels, output_channels, dilations=None):
     output_channels: Number of output channels.
     dilations: Dilations to apply in the first 3x3 layer and the last 3x3 layer.
                By default, apply no dilations.
-
+    activation: relu or gatu.
+      If relu, the second layer is relu(W*x)
+      If gatu, the second layer is tanh(W1*x) * sigmoid(W2*x)
+    dropout: float, 0.0
   Returns:
     output: output of 3 layer conv network.
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 
     x = conv_block("conv_block", x, mid_channels=mid_channels,
-                   dilations=dilations)
+                   dilations=dilations, activation=activation,
+                   dropout=dropout)
 
     # Final layer.
     x = conv("zeros", x, apply_actnorm=False, conv_init="zeros",
@@ -543,16 +661,19 @@ def conv_stack(name, x, mid_channels, output_channels, dilations=None):
 
 
 @add_arg_scope
-def additive_coupling(name, x, mid_channels=512, reverse=False):
+def additive_coupling(name, x, mid_channels=512, reverse=False,
+                      activation="relu", dropout=0.0):
   """Reversible additive coupling layer.
 
   Args:
     name: variable scope.
-    x: 4-D Tensor.
+    x: 4-D Tensor, shape=(NHWC).
     mid_channels: number of channels in the coupling layer.
     reverse: Forward or reverse operation.
+    activation: "relu" or "gatu"
+    dropout: default, 0.0
   Returns:
-    output:
+    output: 4-D Tensor, shape=(NHWC)
     objective: 0.0
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
@@ -560,7 +681,8 @@ def additive_coupling(name, x, mid_channels=512, reverse=False):
     x1, x2 = tf.split(x, num_or_size_splits=2, axis=-1)
 
     z1 = x1
-    shift = conv_stack("nn", x1, mid_channels, output_channels=output_channels)
+    shift = conv_stack("nn", x1, mid_channels, output_channels=output_channels,
+                       activation=activation, dropout=dropout)
 
     if not reverse:
       z2 = x2 + shift
@@ -570,17 +692,20 @@ def additive_coupling(name, x, mid_channels=512, reverse=False):
 
 
 @add_arg_scope
-def affine_coupling(name, x, mid_channels=512, reverse=False):
+def affine_coupling(name, x, mid_channels=512, activation="relu",
+                    reverse=False, dropout=0.0):
   """Reversible affine coupling layer.
 
   Args:
     name: variable scope.
     x: 4-D Tensor.
     mid_channels: number of channels in the coupling layer.
+    activation: Can be either "relu" or "gatu".
     reverse: Forward or reverse operation.
+    dropout: default, 0.0
   Returns:
-    output:
-    objective:
+    output: x shifted and scaled by an affine transformation.
+    objective: log-determinant of the jacobian
   """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     x_shape = common_layers.shape_list(x)
@@ -592,7 +717,9 @@ def affine_coupling(name, x, mid_channels=512, reverse=False):
     # Else:
     # z2 = (x2 / scale) - shift
     z1 = x1
-    log_scale_and_shift = conv_stack("nn", x1, mid_channels, x_shape[-1])
+    log_scale_and_shift = conv_stack(
+        "nn", x1, mid_channels, x_shape[-1], activation=activation,
+        dropout=dropout)
     shift = log_scale_and_shift[:, :, :, 0::2]
     scale = tf.nn.sigmoid(log_scale_and_shift[:, :, :, 1::2] + 2.0)
     if not reverse:
@@ -648,7 +775,7 @@ def get_dilation_rates(hparams, width):
   """Get a list of valid dilation rates.
 
   Args:
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     width: spatial dimension. Ensures that the effective filter size is
            not larger than the spatial dimension.
   Returns:
@@ -657,7 +784,7 @@ def get_dilation_rates(hparams, width):
   # dil_rate=1 means no dilation.
   allowed_dilations = [[1]*5]
   apply_dilations = hparams.get("latent_apply_dilations", False)
-  dilation_rates = [1, 3]   # Number of holes between each filter element.
+  dilation_rates = hparams.get("latent_dilation_rates", [1, 3])
   if apply_dilations:
     for rate in dilation_rates:
       # k + (k - 1) * rate but k is harcoded to be 3 everywhere.
@@ -684,7 +811,6 @@ def temporal_latent_to_dist(name, x, hparams, output_channels=None):
   if output_channels is None:
     output_channels = res_channels
   dilation_rates = get_dilation_rates(hparams, width)
-
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     h = x
     for i in range(hparams.latent_encoder_depth):
@@ -692,11 +818,15 @@ def temporal_latent_to_dist(name, x, hparams, output_channels=None):
         h2 = dilated_conv_stack("dil_latent_3d_res_%d" % i, h,
                                 mid_channels=hparams.latent_encoder_width,
                                 output_channels=res_channels,
-                                dilation_rates=dilation_rates)
+                                dilation_rates=dilation_rates,
+                                activation=hparams.latent_activation,
+                                dropout=hparams.latent_dropout)
       else:
         h2 = conv_stack("latent_3d_res_%d" % i, h,
                         mid_channels=hparams.latent_encoder_width,
-                        output_channels=res_channels)
+                        output_channels=res_channels,
+                        activation=hparams.latent_activation,
+                        dropout=hparams.latent_dropout)
       h += h2
 
     # take last activation that should capture all context since padding is
@@ -735,7 +865,7 @@ def latent_to_dist(name, x, hparams, output_channels=None):
   Args:
     name: variable scope.
     x: 4-D Tensor of shape (NHWC)
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
       latent_architecture - can be "single_conv", "glow_nn" or "glow_resnet",
                             default = single_conv
       latent_encoder_depth - int, depth of architecture, valid if
@@ -775,7 +905,8 @@ def latent_to_dist(name, x, hparams, output_channels=None):
       h = x
       for layer in range(depth):
         h3 = conv_stack("latent_resnet_%d" % layer, h,
-                        mid_channels=width, output_channels=x_shape[-1])
+                        mid_channels=width, output_channels=x_shape[-1],
+                        dropout=hparams.coupling_dropout)
         h += h3
       mean_log_scale = conv("glow_res_final", h, conv_init="zeros",
                             output_channels=2*output_channels,
@@ -787,6 +918,22 @@ def latent_to_dist(name, x, hparams, output_channels=None):
     mean = mean_log_scale[:, :, :, 0::2]
     log_scale = mean_log_scale[:, :, :, 1::2]
     return tfp.distributions.Normal(mean, tf.exp(log_scale))
+
+
+@add_arg_scope
+def noise_op(latents, hparams):
+  """Adds isotropic gaussian-noise to each latent.
+
+  Args:
+    latents: 4-D or 5-D tensor, shape=(NTHWC) or (NHWC).
+    hparams: HParams.
+  Returns:
+    latents: latents with isotropic gaussian noise appended.
+  """
+  if hparams.latent_noise == 0 or hparams.mode != tf.estimator.ModeKeys.TRAIN:
+    return latents
+  latent_shape = common_layers.shape_list(latents)
+  return latents + tf.random_normal(latent_shape, stddev=hparams.latent_noise)
 
 
 @add_arg_scope
@@ -854,6 +1001,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     output_channels = common_layers.shape_list(z)[-1]
     last_latent = latent[-1]
     latent_stack = tf.concat([prior_dist.loc] + latent, axis=-1)
+    latent_stack = noise_op(latent_stack, hparams)
     cond_dist = latent_to_dist(
         "latent_stack", latent_stack, hparams=hparams,
         output_channels=output_channels)
@@ -870,6 +1018,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     prev_latents = tf.tile(tf.expand_dims(prior_dist.loc, axis=1),
                            [1, num_steps, 1, 1, 1])
     cond_latents = tf.concat((cond_latents, prev_latents), axis=-1)
+    cond_latents = noise_op(cond_latents, hparams)
     cond_dist = temporal_latent_to_dist(
         "latent_stack", cond_latents, hparams, output_channels=output_channels)
 
@@ -877,6 +1026,7 @@ def level_cond_prior(prior_dist, z, latent, hparams, state):
     last_latent = latent
     output_channels = common_layers.shape_list(z)[-1]
     latent_stack = tf.concat((prior_dist.loc, latent), axis=-1)
+    latent_stack = noise_op(latent_stack, hparams)
     _, state = common_video.conv_lstm_2d(
         latent_stack, state, hparams.latent_encoder_width, kernel_size=3,
         name="conv_lstm")
@@ -904,7 +1054,7 @@ def compute_prior(name, z, latent, hparams, condition=False, state=None,
             The first-three dimensions of the latent should be the same as z.
     hparams: next_frame_glow_hparams.
     condition: Whether or not to condition the distribution on latent.
-    state: tf.contrib.rnn.LSTMStateTuple.
+    state: tf.nn.rnn_cell.LSTMStateTuple.
            the current state of a LSTM used to model the distribution. Used
            only if hparams.latent_dist_encoder = "conv_lstm".
     temperature: float, temperature with which to sample from the Gaussian.
@@ -948,17 +1098,27 @@ def split(name, x, reverse=False, eps=None, eps_std=None, cond_latents=None,
     name: variable scope.
     x: 4-D Tensor, shape (NHWC).
     reverse: Forward or reverse pass.
-    eps: If eps is provided, x2 is set to be
+    eps: If eps is provided, x2 is set to be mu(x1) + eps * sigma(x1).
     eps_std: Sample x2 with the provided eps_std.
     cond_latents: optionally condition x2 on cond_latents.
     hparams: next_frame_glow hparams.
-    state: tf.contrib.rnn.LSTMStateTuple. Current state of the LSTM over z_2.
+    state: tf.nn.rnn_cell.LSTMStateTuple.. Current state of the LSTM over z_2.
            Used only when hparams.latent_dist_encoder == "conv_lstm"
     condition: bool, Whether or not to condition the distribution on
                cond_latents.
     temperature: Temperature with which to sample from the gaussian.
 
   Returns:
+    If reverse:
+      x: 4-D Tensor, concats input and x2 across channels.
+      x2: 4-D Tensor, a sample from N(mu(x1), sigma(x1))
+    Else:
+      x1: 4-D Tensor, Output of the split operation.
+      logpb: log-probability of x2 belonging to mu(x1), sigma(x1)
+      eps: 4-D Tensor, (x2 - mu(x1)) / sigma(x1)
+      x2: 4-D Tensor, Latent representation at the current level.
+    state: Current LSTM state.
+           4-D Tensor, only if hparams.latent_dist_encoder is set to conv_lstm.
   Raises:
     ValueError: If latent is provided and shape is not equal to NHW(C/2)
                 where (NHWC) is the size of x.
@@ -1006,11 +1166,13 @@ def revnet_step(name, x, hparams, reverse=True):
     if hparams.coupling == "additive":
       coupling_layer = functools.partial(
           additive_coupling, name="additive", reverse=reverse,
-          mid_channels=hparams.coupling_width)
+          mid_channels=hparams.coupling_width,
+          activation=hparams.activation, dropout=hparams.coupling_dropout)
     else:
       coupling_layer = functools.partial(
           affine_coupling, name="affine", reverse=reverse,
-          mid_channels=hparams.coupling_width)
+          mid_channels=hparams.coupling_width,
+          activation=hparams.activation, dropout=hparams.coupling_dropout)
     ops = [
         functools.partial(actnorm, name="actnorm", reverse=reverse),
         functools.partial(invertible_1x1_conv, name="invertible",
@@ -1027,7 +1189,17 @@ def revnet_step(name, x, hparams, reverse=True):
 
 
 def revnet(name, x, hparams, reverse=True):
-  """'hparams.depth' steps of generative flow."""
+  """'hparams.depth' steps of generative flow.
+
+  Args:
+    name: variable scope for the revnet block.
+    x: 4-D Tensor, shape=(NHWC).
+    hparams: HParams.
+    reverse: bool, forward or backward pass.
+  Returns:
+    x: 4-D Tensor, shape=(NHWC).
+    objective: float.
+  """
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
     steps = np.arange(hparams.depth)
     if reverse:
@@ -1124,7 +1296,33 @@ def uniform_binning_correction(x, n_bits=8):
 def encoder_decoder(name, x, hparams, eps=None, reverse=False,
                     cond_latents=None, condition=False, states=None,
                     temperature=1.0):
-  """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations."""
+  """Glow encoder-decoder. n_levels of (Squeeze + Flow + Split.) operations.
+
+  Args:
+    name: variable scope.
+    x: 4-D Tensor, shape=(NHWC).
+    hparams: HParams.
+    eps: Stores (glow(x) - mu) / sigma during the forward pass.
+         Used only to test if the network is reversible.
+    reverse: Forward or reverse pass.
+    cond_latents: list of lists of tensors.
+                  outer length equals hparams.num_cond_latents
+                  innter length equals hparams.num_levels - 1.
+    condition: If set to True, condition the encoder/decoder on cond_latents.
+    states: LSTM states, used only if hparams.latent_dist_encoder is set
+            to "conv_lstm.
+    temperature: Temperature set during sampling.
+  Returns:
+    x: If reverse, decoded image, else the encoded glow latent representation.
+    objective: log-likelihood.
+    eps: list of tensors, shape=(num_levels-1).
+         Stores (glow(x) - mu_level(x)) / sigma_level(x)) for each level.
+    all_latents: list of tensors, shape=(num_levels-1).
+                 Latent representatios for each level.
+    new_states: list of tensors, shape=(num_levels-1).
+                useful only if hparams.latent_dist_encoder="conv_lstm", returns
+                the current state of each level.
+  """
   # TODO(mechcoder) Change return_type to a dict to be backward compatible.
   with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
 

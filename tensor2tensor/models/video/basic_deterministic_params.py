@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,6 +47,12 @@ def next_frame_basic_deterministic():
   hparams.add_hparam("filter_double_steps", 2)
   hparams.add_hparam("pixel_sampling_temperature", 0.0)
   hparams.add_hparam("concat_internal_states", False)
+  hparams.add_hparam("do_autoregressive_rnn", False)
+  hparams.add_hparam("autoregressive_rnn_lookback", 8)
+  hparams.add_hparam("autoregressive_rnn_warmup_steps", 8000)
+  hparams.add_hparam("activation_fn", "relu")
+  hparams.bottom["inputs"] = modalities.video_identity_bottom
+  hparams.bottom["targets"] = modalities.video_identity_bottom
   return hparams
 
 
@@ -55,7 +61,17 @@ def next_frame_pixel_noise():
   """Basic 2-frame conv model with pixel noise."""
   hparams = next_frame_basic_deterministic()
   hparams.add_hparam("video_modality_input_noise", 0.05)
-  hparams.modality["inputs"] = modalities.VideoModalityPixelNoise
+  hparams.bottom["inputs"] = modalities.video_pixel_noise_bottom
+  hparams.top["inputs"] = modalities.video_top
+  return hparams
+
+
+@registry.register_hparams
+def next_frame_pixel_noise_long():
+  """Long scheduled sampling setting."""
+  hparams = next_frame_pixel_noise()
+  hparams.batch_size = 2
+  hparams.video_num_target_frames = 16
   return hparams
 
 
@@ -80,7 +96,8 @@ def next_frame_tpu():
 def next_frame_ae():
   """Conv autoencoder."""
   hparams = next_frame_basic_deterministic()
-  hparams.modality["inputs"] = modalities.VideoModalityBitwise
+  hparams.bottom["inputs"] = modalities.video_bitwise_bottom
+  hparams.top["inputs"] = modalities.video_top
   hparams.hidden_size = 256
   hparams.batch_size = 8
   hparams.num_hidden_layers = 4
@@ -93,7 +110,8 @@ def next_frame_ae():
 def next_frame_ae_tiny():
   """Conv autoencoder, tiny set for testing."""
   hparams = next_frame_tiny()
-  hparams.modality["inputs"] = modalities.VideoModalityBitwise
+  hparams.bottom["inputs"] = modalities.video_bitwise_bottom
+  hparams.top["inputs"] = modalities.video_top
   hparams.batch_size = 8
   hparams.dropout = 0.4
   return hparams
@@ -122,7 +140,8 @@ def next_frame_tiny():
 def next_frame_l1():
   """Basic conv model with L1 modality."""
   hparams = next_frame_basic_deterministic()
-  hparams.modality["targets"] = modalities.VideoModalityL1
+  hparams.loss["targets"] = modalities.video_l1_loss
+  hparams.top["targets"] = modalities.video_l1_top
   hparams.video_modality_loss_cutoff = 2.4
   return hparams
 
@@ -131,7 +150,8 @@ def next_frame_l1():
 def next_frame_l2():
   """Basic conv model with L2 modality."""
   hparams = next_frame_basic_deterministic()
-  hparams.modality["targets"] = modalities.VideoModalityL2
+  hparams.loss["targets"] = modalities.video_l2_loss
+  hparams.top["targets"] = modalities.video_l1_top
   hparams.video_modality_loss_cutoff = 2.4
   return hparams
 

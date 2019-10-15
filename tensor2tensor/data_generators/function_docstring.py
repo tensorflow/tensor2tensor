@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,19 +34,22 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
   ",".
   """
 
+  NUM_SHARDS = 100
+
   @property
   def base_url(self):
     return "gs://kubeflow-examples/t2t-code-search/raw_data"
 
   @property
   def pair_files_list(self):
-    return [
-        [
-            "{}/func-doc-pairs-000{:02}-of-00100.csv".format(self.base_url, i),
-            ("func-doc-pairs-000{:02}-of-00100.csv".format(i),)
-        ]
-        for i in range(100)
-    ]
+    files = []
+    for i in range(self.NUM_SHARDS):
+      files.append([
+          "{}/func-doc-pairs-{:05}-of-{:05}.csv".format(self.base_url, i,
+                                                        self.NUM_SHARDS),
+          ("func-doc-pairs-{:05}-of-{:05}.csv".format(i, self.NUM_SHARDS),)
+      ])
+    return files
 
   @property
   def is_generate_per_split(self):
@@ -89,7 +92,16 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
         for line in csv_file:
           reader = csv.reader(StringIO(line))
           for docstring_tokens, function_tokens in reader:
-            yield {"inputs": docstring_tokens, "targets": function_tokens}
+            yield {
+                "inputs": docstring_tokens,
+                "targets": function_tokens,
+                "embed_code": [0],
+            }
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    if mode != tf.estimator.ModeKeys.TRAIN:
+      example["embed_code"] = [0]
+    return example
 
   def eval_metrics(self):
     return [

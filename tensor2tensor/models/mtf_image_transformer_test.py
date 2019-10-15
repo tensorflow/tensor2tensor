@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ def get_model(hparams=None,
   del p_hparams.modality["inputs"]
   hparams.problem_hparams = p_hparams
 
-  targets = -1 + np.random.random_integers(
+  targets = np.random.randint(
       VOCAB_SIZE, size=(BATCH_SIZE, IMG_LENGTH, IMG_LENGTH, 1, 1))
   features = {
       "targets": tf.constant(targets, dtype=tf.int32, name="targets"),

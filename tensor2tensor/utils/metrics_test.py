@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -56,6 +56,26 @@ class MetricsTest(tf.test.TestCase):
     self.assertAlmostEqual(actual1, expected)
     self.assertAlmostEqual(actual2, 1.0)
 
+  def testPrefixAccuracy(self):
+    vocab_size = 10
+    predictions = tf.one_hot(
+        tf.constant([[[1], [2], [3], [4], [9], [6], [7], [8]],
+                     [[1], [2], [3], [4], [5], [9], [7], [8]],
+                     [[1], [2], [3], [4], [5], [9], [7], [0]]]),
+        vocab_size)
+    labels = tf.expand_dims(
+        tf.constant([[[1], [2], [3], [4], [5], [6], [7], [8]],
+                     [[1], [2], [3], [4], [5], [6], [7], [8]],
+                     [[1], [2], [3], [4], [5], [6], [7], [0]]]),
+        axis=-1)
+    expected_accuracy = np.average([4.0 / 8.0,
+                                    5.0 / 8.0,
+                                    5.0 / 7.0])
+    accuracy, _ = metrics.prefix_accuracy(predictions, labels)
+    with self.test_session() as session:
+      accuracy_value = session.run(accuracy)
+      self.assertAlmostEqual(expected_accuracy, accuracy_value)
+
   def testSequenceAccuracyMetric(self):
     predictions = np.random.randint(4, size=(12, 12, 12, 1))
     targets = np.random.randint(4, size=(12, 12, 12, 1))
@@ -107,6 +127,10 @@ class MetricsTest(tf.test.TestCase):
 
   def testWordErrorRateMetric(self):
 
+    # Ensure availability of the WER metric function in the dictionary.
+    assert metrics.Metrics.WORD_ERROR_RATE in metrics.METRICS_FNS
+
+    # Test if WER is computed correctly.
     ref = np.asarray([
         # a b c
         [97, 34, 98, 34, 99],
@@ -200,6 +224,22 @@ class MetricsTest(tf.test.TestCase):
 
     with self.test_session() as session:
       score, _ = metrics.sigmoid_accuracy_one_hot(logits, labels)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      s = session.run(score)
+    self.assertEqual(s, 0.5)
+
+  def testSigmoidAccuracy(self):
+    logits = np.array([
+        [-1., 1.],
+        [1., -1.],
+        [-1., 1.],
+        [1., -1.]
+    ])
+    labels = np.array([1, 0, 0, 1])
+
+    with self.test_session() as session:
+      score, _ = metrics.sigmoid_accuracy(logits, labels)
       session.run(tf.global_variables_initializer())
       session.run(tf.local_variables_initializer())
       s = session.run(score)
@@ -318,6 +358,20 @@ class MetricsTest(tf.test.TestCase):
       _ = session.run(a_op)
       actual = session.run(a)
     self.assertAlmostEqual(actual, expected, places=6)
+
+  def testPearsonCorrelationCoefficient(self):
+    predictions = np.random.rand(12, 1)
+    targets = np.random.rand(12, 1)
+
+    expected = np.corrcoef(np.squeeze(predictions), np.squeeze(targets))[0][1]
+    with self.test_session() as session:
+      pearson, _ = metrics.pearson_correlation_coefficient(
+          tf.constant(predictions, dtype=tf.float32),
+          tf.constant(targets, dtype=tf.float32))
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      actual = session.run(pearson)
+    self.assertAlmostEqual(actual, expected)
 
 
 if __name__ == '__main__':

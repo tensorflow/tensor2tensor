@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,8 +32,9 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import update_ops_hook
 
 import tensorflow as tf
+import tensorflow_gan as tfgan
 
-gan_losses = tf.contrib.gan.losses.wargs
+gan_losses = tfgan.losses.wargs
 
 
 class NextFrameSavpBase(object):
@@ -498,6 +499,9 @@ class NextFrameSavpRl(NextFrameSavpBase, sv2p.NextFrameSv2p):
     if not self.hparams.use_vae or self.hparams.use_gan:
       raise NotImplementedError("Only supporting VAE for now.")
 
+    if self.has_pred_actions or self.has_values:
+      raise NotImplementedError("Parameter sharing with policy not supported.")
+
     image, action, reward = frames[0], actions[0], rewards[0]
     latent_dims = self.hparams.z_dim
     batch_size = common_layers.shape_list(image)[0]
@@ -555,4 +559,4 @@ class NextFrameSavpRl(NextFrameSavpBase, sv2p.NextFrameSv2p):
 
     pred_reward = self.reward_prediction(
         pred_image, action, reward, latent)
-    return pred_image, pred_reward, 0.0, internal_states
+    return pred_image, pred_reward, None, None, 0.0, internal_states

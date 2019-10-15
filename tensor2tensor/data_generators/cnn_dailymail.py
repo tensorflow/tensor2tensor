@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,8 +22,8 @@ from __future__ import print_function
 import hashlib
 import io
 import os
+import random
 import tarfile
-import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
@@ -118,9 +118,7 @@ def example_splits(url_file, all_files):
 
   all_files_map = {f.split("/")[-1]: f for f in all_files}
 
-  urls = []
-  for line in tf.gfile.Open(url_file):
-    urls.append(line.strip().encode("utf-8"))
+  urls = [line.strip().encode("utf-8") for line in tf.gfile.Open(url_file)]
 
   filelist = []
   for url in urls:
@@ -156,10 +154,7 @@ def example_generator(all_files, urls_path, sum_token):
     summary = []
     reading_highlights = False
     for line in tf.gfile.Open(story_file, "rb"):
-      if six.PY2:
-        line = unicode(line.strip(), "utf-8")
-      else:
-        line = line.strip().decode("utf-8")
+      line = text_encoder.to_unicode_utf8(line.strip())
       line = fix_run_on_sents(line)
       if not line:
         continue
@@ -253,8 +248,8 @@ class SummarizeCnnDailymailWikiLMSharedVocab(SummarizeCnnDailymail32k):
   """Summarize CNN and Daily Mail articles using the Wiki 32k vocab."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelEnWiki32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki32k()
 
 
 @registry.register_problem
@@ -262,5 +257,124 @@ class SummarizeCnnDailymailWikiLMSharedVocab64k(SummarizeCnnDailymail32k):
   """Summarize CNN and Daily Mail articles using the Wiki 64k vocab."""
 
   @property
-  def vocab_filename(self):
-    return wiki_lm.LanguagemodelEnWiki64k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki64k()
+
+
+@registry.register_problem
+class SummarizeCnnDailymailWikiLMMultiVocab64k(SummarizeCnnDailymail32k):
+  """Summarize CNN and Daily Mail articles using multi-lingual 64k vocab."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+
+@registry.register_problem
+class SummarizeCnnDailymailMulti64kPacked1k(SummarizeCnnDailymail32k):
+  """Summarize CNN and Daily Mail articles using multi-lingual 64k vocab."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+  @property
+  def packed_length(self):
+    return 1024
+
+  @property
+  def num_training_examples(self):
+    return 252600
+
+  @property
+  def inputs_prefix(self):
+    return "CNN Daily Mail article to summary "
+
+  @property
+  def targets_prefix(self):
+    return "CNN Daily Mail summary to article "
+
+
+@registry.register_problem
+class SummarizeFracCnnDailymailWikiLMSharedVocab64k(SummarizeCnnDailymail32k):
+  """Summarize a fraction of CNN/DM articles using the Wiki 64k vocab."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelEnWiki64k()
+
+  def fraction_of_data(self):
+    return 1.
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    del data_dir
+    all_data = []
+    all_files, urls_path = _maybe_download_corpora(tmp_dir, dataset_split)
+    write_raw_text_to_files(all_files, urls_path, dataset_split, tmp_dir)
+    for example in example_generator(all_files, urls_path, sum_token=True):
+      story, summary = _story_summary_split(example)
+      all_data.append((story, summary))
+
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      random.shuffle(all_data)
+      fractional_len = int(self.fraction_of_data() * len(all_data))
+      all_data = all_data[:fractional_len]
+
+    for story, summary in all_data:
+      yield {"inputs": story, "targets": summary}
+
+
+@registry.register_problem
+class SummarizeFrac0p1CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.001
+
+
+@registry.register_problem
+class SummarizeFrac1CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.01
+
+
+@registry.register_problem
+class SummarizeFrac2CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.02
+
+
+@registry.register_problem
+class SummarizeFrac5CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.05
+
+
+@registry.register_problem
+class SummarizeFrac10CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.1
+
+
+@registry.register_problem
+class SummarizeFrac20CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.2
+
+
+@registry.register_problem
+class SummarizeFrac50CnnDailymailWikiLMSharedVocab64k(
+    SummarizeFracCnnDailymailWikiLMSharedVocab64k):
+
+  def fraction_of_data(self):
+    return 0.5

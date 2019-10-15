@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -358,8 +358,8 @@ class LambadaRc(text_problems.Text2ClassProblem):
     """
 
     p = defaults
-    p.modality = {"inputs": modalities.SymbolModality,
-                  "targets": modalities.ClassLabelModality}
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
     p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
                     "targets": self._encoders["targets"].vocab_size}
 

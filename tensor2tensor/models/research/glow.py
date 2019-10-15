@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,15 +49,19 @@ def glow_hparams():
   hparams.add_hparam("n_levels", 3)
   hparams.add_hparam("n_bits_x", 8)
   hparams.add_hparam("depth", 32)
+  # Activation - Relu or Gatu
+  hparams.add_hparam("activation", "relu")
   # Coupling layer, additive or affine.
   hparams.add_hparam("coupling", "affine")
   hparams.add_hparam("coupling_width", 512)
+  hparams.add_hparam("coupling_dropout", 0.0)
   hparams.add_hparam("top_prior", "single_conv")
   # init_batch_size denotes the number of examples used for data-dependent
   # initialization. A higher init_batch_size is required for training
   # stability especially when hparams.batch_size is low.
   hparams.add_hparam("init_batch_size", 256)
   hparams.add_hparam("temperature", 1.0)
+
   return hparams
 
 
@@ -94,15 +98,6 @@ class Glow(t2t_model.T2TModel):
       return self.hparams.temperature
     return 1.0
 
-  def scale(self, x):
-    """Scale x from -0.5 - 0.5 to 0 - 255."""
-    x = tf.where(tf.is_nan(x), tf.ones_like(x), x)
-    x = tf.where(tf.is_inf(x), tf.ones_like(x), x)
-    x = tf.clip_by_value(x, -0.5, 0.5)
-    x += 0.5
-    x = x * 2**self.hparams.n_bits_x
-    return tf.cast(tf.clip_by_value(x, 0, 255), dtype=tf.uint8)
-
   @property
   def is_training(self):
     return self.hparams.mode == tf.estimator.ModeKeys.TRAIN
@@ -114,7 +109,7 @@ class Glow(t2t_model.T2TModel):
     features["targets"] = tf.zeros(shape=(batch_size, 1, 1, 1))
     _, _ = self(features)  # pylint: disable=not-callable
 
-    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm, glow_ops.get_dropout]
     var_scope = tf.variable_scope("glow/body", reuse=True)
     # If eps=None, images are sampled from the prior.
     with arg_scope(ops, init=False), var_scope:
@@ -122,7 +117,7 @@ class Glow(t2t_model.T2TModel):
           "codec", self.z_sample, self.hparams, eps=None, reverse=True,
           temperature=self.temperature)
 
-    return self.scale(predictions)
+    return glow_ops.postprocess(predictions, self.hparams.n_bits_x)
 
   def create_init_batch(self, features):
     """Returns a batch of size "hparams.init_batch_size" for initialization.
@@ -187,9 +182,12 @@ class Glow(t2t_model.T2TModel):
     # the per-channel output activations have zero mean and unit variance
     # ONLY during the first step. After that the parameters are learned
     # through optimisation.
-    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+    ops = [glow_ops.get_variable_ddi, glow_ops.actnorm, glow_ops.get_dropout]
     with arg_scope(ops, init=init):
-      self.z, encoder_objective, self.eps, _, _ = glow_ops.encoder_decoder(
+      encoder = glow_ops.encoder_decoder
+
+
+      self.z, encoder_objective, self.eps, _, _ = encoder(
           "codec", x, self.hparams, eps=None, reverse=False)
       objective += encoder_objective
 

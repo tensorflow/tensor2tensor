@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ def problem(name):
 
 
 def available():
-  return sorted(registry.list_problems())
+  return registry.list_base_problems()
 
 
 all_problems.import_modules(all_problems.ALL_MODULES)

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -367,9 +367,12 @@ def transformer_symshard_base():
   # we only want one data shard.
   hparams.no_data_parallelism = True
   # bypass the symbol modality so that we can use model parallelism.
-  hparams.modality = {
-      "inputs": modalities.IdentitySymbolModality,
-      "targets": modalities.IdentitySymbolModality,
+  hparams.bottom = {
+      "inputs": modalities.identity_bottom,
+      "targets": modalities.identity_bottom,
+  }
+  hparams.top = {
+      "targets": modalities.identity_top,
   }
   hparams.add_hparam("filter_size", 1280)
   hparams.add_hparam("mix_fraction", 0.5)

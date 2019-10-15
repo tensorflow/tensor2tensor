@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,22 +22,31 @@ from __future__ import print_function
 import math
 import os
 
+from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.rl import ppo
 from tensor2tensor.rl.envs.tf_atari_wrappers import StackWrapper
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
 from tensor2tensor.rl.policy_learner import PolicyLearner
+from tensor2tensor.rl.restarter import Restarter
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 
 
 class PPOLearner(PolicyLearner):
   """PPO for policy learning."""
 
-  def __init__(self, *args, **kwargs):
-    super(PPOLearner, self).__init__(*args, **kwargs)
+  def __init__(self, frame_stack_size, base_event_dir, agent_model_dir,
+               total_num_epochs, **kwargs):
+    super(PPOLearner, self).__init__(
+        frame_stack_size, base_event_dir, agent_model_dir, total_num_epochs)
     self._num_completed_iterations = 0
+    self._lr_decay_start = None
+    self._distributional_size = kwargs.get("distributional_size", 1)
+    self._distributional_subscale = kwargs.get("distributional_subscale", 0.04)
+    self._distributional_threshold = kwargs.get("distributional_threshold", 0.0)
 
   def train(self,
             env_fn,
@@ -45,10 +54,15 @@ class PPOLearner(PolicyLearner):
             simulated,
             save_continuously,
             epoch,
+            sampling_temp=1.0,
             num_env_steps=None,
             env_step_multiplier=1,
             eval_env_fn=None,
-            report_fn=None):
+            report_fn=None,
+            model_save_fn=None):
+    assert sampling_temp == 1.0 or hparams.learning_rate == 0.0, \
+        "Sampling with non-1 temperature does not make sense during training."
+
     if not save_continuously:
       # We do not save model, as that resets frames that we need at restarts.
       # But we need to save at the last step, so we set it very high.
@@ -71,6 +85,11 @@ class PPOLearner(PolicyLearner):
                   env,
                   hparams,
                   eval_env_fn,
+                  sampling_temp,
+                  distributional_size=self._distributional_size,
+                  distributional_subscale=self._distributional_subscale,
+                  distributional_threshold=self._distributional_threshold,
+                  epoch=epoch if simulated else -1,
                   frame_stack_size=self.frame_stack_size,
                   force_beginning_resets=simulated))
 
@@ -83,22 +102,37 @@ class PPOLearner(PolicyLearner):
         iteration_increment *= env_step_multiplier
 
         self._num_completed_iterations += iteration_increment
+
+        restarter = Restarter(
+            "policy", self.agent_model_dir, self._num_completed_iterations
+        )
+        if restarter.should_skip:
+          return
+
+        if hparams.lr_decay_in_final_epoch:
+          if epoch != self.total_num_epochs - 1:
+            # Extend the warmup period to the end of this epoch.
+            hparams.learning_rate_warmup_steps = restarter.target_global_step
+          else:
+            if self._lr_decay_start is None:
+              # Stop the warmup at the beginning of this epoch.
+              self._lr_decay_start = \
+                  restarter.target_global_step - iteration_increment
+            hparams.learning_rate_warmup_steps = self._lr_decay_start
+
         _run_train(
             hparams,
             event_dir,
             self.agent_model_dir,
-            self._num_completed_iterations,
+            restarter,
             train_summary_op,
             eval_summary_op,
             initializers,
-            report_fn=report_fn)
+            epoch,
+            report_fn=report_fn,
+            model_save_fn=model_save_fn)
 
-  def evaluate(self, env_fn, hparams, stochastic):
-    if stochastic:
-      policy_to_actions_lambda = lambda policy: policy.sample()
-    else:
-      policy_to_actions_lambda = lambda policy: policy.mode()
-
+  def evaluate(self, env_fn, hparams, sampling_temp):
     with tf.Graph().as_default():
       with tf.name_scope("rl_eval"):
         eval_env = env_fn(in_graph=True)
@@ -109,9 +143,13 @@ class PPOLearner(PolicyLearner):
             eval_phase=True,
             frame_stack_size=self.frame_stack_size,
             force_beginning_resets=False,
-            policy_to_actions_lambda=policy_to_actions_lambda)
+            sampling_temp=sampling_temp,
+            distributional_size=self._distributional_size,
+        )
         model_saver = tf.train.Saver(
-            tf.global_variables(".*network_parameters.*"))
+            tf.global_variables(hparams.policy_network + "/.*")
+            # tf.global_variables("clean_scope.*")  # Needed for sharing params.
+        )
 
         with tf.Session() as sess:
           sess.run(tf.global_variables_initializer())
@@ -121,7 +159,17 @@ class PPOLearner(PolicyLearner):
           sess.run(collect_memory)
 
 
-def _define_train(train_env, ppo_hparams, eval_env_fn=None, **collect_kwargs):
+def _define_train(
+    train_env,
+    ppo_hparams,
+    eval_env_fn=None,
+    sampling_temp=1.0,
+    distributional_size=1,
+    distributional_subscale=0.04,
+    distributional_threshold=0.0,
+    epoch=-1,
+    **collect_kwargs
+):
   """Define the training setup."""
   memory, collect_summary, train_initialization = (
       _define_collect(
@@ -129,13 +177,19 @@ def _define_train(train_env, ppo_hparams, eval_env_fn=None, **collect_kwargs):
           ppo_hparams,
           "ppo_train",
           eval_phase=False,
-          policy_to_actions_lambda=(lambda policy: policy.sample()),
+          sampling_temp=sampling_temp,
+          distributional_size=distributional_size,
           **collect_kwargs))
   ppo_summary = ppo.define_ppo_epoch(
-      memory, ppo_hparams, train_env.action_space, train_env.batch_size)
+      memory, ppo_hparams, train_env.action_space, train_env.batch_size,
+      distributional_size=distributional_size,
+      distributional_subscale=distributional_subscale,
+      distributional_threshold=distributional_threshold,
+      epoch=epoch)
   train_summary = tf.summary.merge([collect_summary, ppo_summary])
 
   if ppo_hparams.eval_every_epochs:
+    # TODO(koz4k): Do we need this at all?
     assert eval_env_fn is not None
     eval_env = eval_env_fn(in_graph=True)
     (_, eval_collect_summary, eval_initialization) = (
@@ -144,7 +198,8 @@ def _define_train(train_env, ppo_hparams, eval_env_fn=None, **collect_kwargs):
             ppo_hparams,
             "ppo_eval",
             eval_phase=True,
-            policy_to_actions_lambda=(lambda policy: policy.mode()),
+            sampling_temp=0.0,
+            distributional_size=distributional_size,
             **collect_kwargs))
     return (train_summary, eval_collect_summary, (train_initialization,
                                                   eval_initialization))
@@ -155,63 +210,79 @@ def _define_train(train_env, ppo_hparams, eval_env_fn=None, **collect_kwargs):
 def _run_train(ppo_hparams,
                event_dir,
                model_dir,
-               num_target_iterations,
+               restarter,
                train_summary_op,
                eval_summary_op,
                initializers,
-               report_fn=None):
+               epoch,
+               report_fn=None,
+               model_save_fn=None):
   """Train."""
   summary_writer = tf.summary.FileWriter(
       event_dir, graph=tf.get_default_graph(), flush_secs=60)
 
-  model_saver = tf.train.Saver(tf.global_variables(".*network_parameters.*"))
+  model_saver = tf.train.Saver(
+      tf.global_variables(ppo_hparams.policy_network + "/.*") +
+      tf.global_variables("training/" + ppo_hparams.policy_network + "/.*") +
+      # tf.global_variables("clean_scope.*") +  # Needed for sharing params.
+      tf.global_variables("global_step") +
+      tf.global_variables("losses_avg.*") +
+      tf.global_variables("train_stats.*")
+  )
+
+  global_step = tf.train.get_or_create_global_step()
+  with tf.control_dependencies([tf.assign_add(global_step, 1)]):
+    train_summary_op = tf.identity(train_summary_op)
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     for initializer in initializers:
       initializer(sess)
-    num_completed_iterations = trainer_lib.restore_checkpoint(
-        model_dir, model_saver, sess)
+    trainer_lib.restore_checkpoint(model_dir, model_saver, sess)
 
-    # Fail-friendly, complete only unfinished epoch
-    if num_target_iterations <= num_completed_iterations:
-      tf.logging.info(
-          "Skipping PPO training. Requested %d iterations while %d train "
-          "iterations already reached", num_target_iterations,
-          num_completed_iterations)
-      return
-
-    for epoch_index in range(num_completed_iterations, num_target_iterations):
-      summary = sess.run(train_summary_op)
-      if summary_writer:
-        summary_writer.add_summary(summary, epoch_index)
-
-      if (ppo_hparams.eval_every_epochs and
-          epoch_index % ppo_hparams.eval_every_epochs == 0):
-        eval_summary = sess.run(eval_summary_op)
+    num_target_iterations = restarter.target_local_step
+    num_completed_iterations = num_target_iterations - restarter.steps_to_go
+    with restarter.training_loop():
+      for epoch_index in range(num_completed_iterations, num_target_iterations):
+        summary = sess.run(train_summary_op)
         if summary_writer:
-          summary_writer.add_summary(eval_summary, epoch_index)
-        if report_fn:
-          summary_proto = tf.Summary()
-          summary_proto.ParseFromString(eval_summary)
-          for elem in summary_proto.value:
-            if "mean_score" in elem.tag:
-              report_fn(elem.simple_value, epoch_index)
-              break
+          summary_writer.add_summary(summary, epoch_index)
 
-      if (model_saver and ppo_hparams.save_models_every_epochs and
-          (epoch_index % ppo_hparams.save_models_every_epochs == 0 or
-           (epoch_index + 1) == num_target_iterations)):
-        ckpt_path = os.path.join(
-            model_dir,
-            "model.ckpt-{}".format(epoch_index + 1))
-        model_saver.save(sess, ckpt_path)
+        if (ppo_hparams.eval_every_epochs and
+            epoch_index % ppo_hparams.eval_every_epochs == 0):
+          eval_summary = sess.run(eval_summary_op)
+          if summary_writer:
+            summary_writer.add_summary(eval_summary, epoch_index)
+          if report_fn:
+            summary_proto = tf.Summary()
+            summary_proto.ParseFromString(eval_summary)
+            for elem in summary_proto.value:
+              if "mean_score" in elem.tag:
+                report_fn(elem.simple_value, epoch_index)
+                break
+
+        if (model_saver and ppo_hparams.save_models_every_epochs and
+            (epoch_index % ppo_hparams.save_models_every_epochs == 0 or
+             (epoch_index + 1) == num_target_iterations)):
+          ckpt_name = "model.ckpt-{}".format(
+              tf.train.global_step(sess, global_step)
+          )
+          # Keep the last checkpoint from each epoch in a separate directory.
+          epoch_dir = os.path.join(model_dir, "epoch_{}".format(epoch))
+          tf.gfile.MakeDirs(epoch_dir)
+          for ckpt_dir in (model_dir, epoch_dir):
+            model_saver.save(sess, os.path.join(ckpt_dir, ckpt_name))
+          if model_save_fn:
+            model_save_fn(model_dir)
 
 
-def _rollout_metadata(batch_env):
+def _rollout_metadata(batch_env, distributional_size=1):
   """Metadata for rollouts."""
   batch_env_shape = batch_env.observ.get_shape().as_list()
   batch_size = [batch_env_shape[0]]
+  value_size = batch_size
+  if distributional_size > 1:
+    value_size = batch_size + [distributional_size]
   shapes_types_names = [
       # TODO(piotrmilos): possibly retrieve the observation type for batch_env
       (batch_size + batch_env_shape[1:], batch_env.observ_dtype, "observation"),
@@ -220,7 +291,7 @@ def _rollout_metadata(batch_env):
       (batch_size + list(batch_env.action_shape), batch_env.action_dtype,
        "action"),
       (batch_size, tf.float32, "pdf"),
-      (batch_size, tf.float32, "value_function"),
+      (value_size, tf.float32, "value_function"),
   ]
   return shapes_types_names
 
@@ -265,17 +336,19 @@ class _MemoryWrapper(WrapperBase):
 
 
 def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
-                    policy_to_actions_lambda, force_beginning_resets):
+                    sampling_temp, force_beginning_resets,
+                    distributional_size=1):
   """Collect trajectories.
 
   Args:
     batch_env: Batch environment.
     ppo_hparams: PPO hparams, defined in tensor2tensor.models.research.rl.
     scope: var scope.
-    frame_stack_size: TODO(koz4k): Write docstring.
+    frame_stack_size: Number of last observations to feed into the policy.
     eval_phase: TODO(koz4k): Write docstring.
-    policy_to_actions_lambda: TODO(koz4k): Write docstring.
-    force_beginning_resets: TODO(koz4k): Write docstring.
+    sampling_temp: Sampling temperature for the policy.
+    force_beginning_resets: Whether to reset at the beginning of each episode.
+    distributional_size: optional, number of buckets in distributional RL.
 
   Returns:
     Returns memory (observations, rewards, dones, actions,
@@ -300,7 +373,7 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
       batch_env = w[0](batch_env, **w[1])
       to_initialize.append(batch_env)
 
-    rollout_metadata = _rollout_metadata(batch_env)
+    rollout_metadata = _rollout_metadata(batch_env, distributional_size)
     speculum = batch_env.speculum
 
     def initialization_lambda(sess):
@@ -308,7 +381,7 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
         batch_env.initialize(sess)
 
     memory = [
-        tf.get_variable(
+        tf.get_variable(  # pylint: disable=g-complex-comprehension
             "collect_memory_%d_%s" % (epoch_length, name),
             shape=[epoch_length] + shape,
             dtype=dtype,
@@ -346,21 +419,25 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
       # operation. We are waiting for tf.copy:
       # https://github.com/tensorflow/tensorflow/issues/11186
       obs_copy = batch_env.observ + 0
+      value_fun_shape = (num_agents,)
+      if distributional_size > 1:
+        value_fun_shape = (num_agents, distributional_size)
 
       def env_step(arg1, arg2, arg3):  # pylint: disable=unused-argument
         """Step of the environment."""
-        actor_critic = get_policy(
-            tf.expand_dims(obs_copy, 0), ppo_hparams, batch_env.action_space)
-        policy = actor_critic.policy
-        action = policy_to_actions_lambda(policy)
 
-        postprocessed_action = actor_critic.action_postprocessing(action)
-        reward, done = batch_env.simulate(postprocessed_action[0, ...])
+        (logits, value_function) = get_policy(
+            obs_copy, ppo_hparams, batch_env.action_space, distributional_size
+        )
+        action = common_layers.sample_with_temperature(logits, sampling_temp)
+        action = tf.cast(action, tf.int32)
+        action = tf.reshape(action, shape=(num_agents,))
 
-        pdf = policy.prob(action)[0]
-        value_function = actor_critic.value[0]
+        reward, done = batch_env.simulate(action)
+
+        pdf = tfp.distributions.Categorical(logits=logits).prob(action)
         pdf = tf.reshape(pdf, shape=(num_agents,))
-        value_function = tf.reshape(value_function, shape=(num_agents,))
+        value_function = tf.reshape(value_function, shape=value_fun_shape)
         done = tf.reshape(done, shape=(num_agents,))
 
         with tf.control_dependencies([reward, done]):
@@ -374,7 +451,7 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
           env_step,
           [
               tf.constant(0.0, shape=(num_agents,)),
-              tf.constant(0.0, shape=(num_agents,)),
+              tf.constant(0.0, shape=value_fun_shape),
               tf.constant(False, shape=(num_agents,))
           ],
           parallel_iterations=1,
@@ -383,7 +460,6 @@ def _define_collect(batch_env, ppo_hparams, scope, frame_stack_size, eval_phase,
 
       with tf.control_dependencies([pdf, value_function]):
         obs, reward, done, action = speculum.dequeue()
-
         to_save = [obs, reward, done, action, pdf, value_function]
         save_ops = [
             tf.scatter_update(memory_slot, index, value)

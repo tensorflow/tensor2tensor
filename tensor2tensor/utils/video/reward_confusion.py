@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ def main(_):
       shuffle_files=False,
       hparams=hparams)
 
-  dataset = dataset.apply(tf.contrib.data.batch_and_drop_remainder(batch_size))
+  dataset = dataset.batch(batch_size, drop_remainder=True)
   data = dataset.make_one_shot_iterator().get_next()
   input_data = dict((k, data[k]) for k in data.keys() if k.startswith("input"))
 

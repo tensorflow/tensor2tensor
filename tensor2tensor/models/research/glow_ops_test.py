@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Lint as: python2, python3
 """Tests for tensor2tensor.models.research.glow_ops."""
 
 from __future__ import absolute_import
@@ -23,8 +24,11 @@ import os
 import tempfile
 from absl.testing import parameterized
 import numpy as np
+from six.moves import range
+from six.moves import zip
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import glow_ops
+from tensor2tensor.utils import hparam
 import tensorflow as tf
 
 arg_scope = tf.contrib.framework.arg_scope
@@ -39,6 +43,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
 
   def get_glow_hparams(self):
     hparams = glow.glow_hparams()
+    hparams.add_hparam("mode", tf.estimator.ModeKeys.TRAIN)
     hparams.add_hparam("num_cond_latents", 1)
     hparams.add_hparam("latent_architecture", "glow_resnet")
     # Use latent skip connections
@@ -50,6 +55,9 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
     hparams.add_hparam("latent_pre_output_channels", 256)
     hparams.add_hparam("latent_dist_encoder", "conv_net")
     hparams.add_hparam("latent_time_filter_size", 3)
+    hparams.add_hparam("latent_activation", "relu")
+    hparams.add_hparam("latent_dropout", 0.0)
+    hparams.add_hparam("latent_noise", 0.0)
     return hparams
 
   def test_get_variable_ddi(self):
@@ -73,23 +81,29 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         self.assertTrue(np.allclose(channel_mean, 0.0, atol=1e-3))
         self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
 
-  def check_invertibility(self, op, name):
+  @parameterized.named_parameters(
+      ("inv_1x1", glow_ops.invertible_1x1_conv, "inv_1x1"),
+      ("affine", glow_ops.affine_coupling, "affine_coupling"),
+      ("additive", glow_ops.additive_coupling, "additive_coupling"),
+      ("actnorm", glow_ops.actnorm, "actnorm"),
+      ("affine_drop", glow_ops.affine_coupling, "affine_dropout", 0.5),
+      ("additive_drop", glow_ops.additive_coupling, "additive_dropout", 0.5))
+  def test_invertibility(self, op, name, dropout=0.0):
     with tf.Graph().as_default():
+      tf.set_random_seed(42)
       x = tf.random_uniform(shape=(16, 32, 32, 4))
 
-      x_inv, _ = op(name, x, reverse=False)
-      x_inv_inv, _ = op(name, x_inv, reverse=True)
+      if op in [glow_ops.affine_coupling, glow_ops.additive_coupling]:
+        with arg_scope([glow_ops.get_dropout], init=False):
+          x_inv, _ = op(name, x, reverse=False, dropout=dropout)
+          x_inv_inv, _ = op(name, x_inv, reverse=True, dropout=dropout)
+      else:
+        x_inv, _ = op(name, x, reverse=False)
+        x_inv_inv, _ = op(name, x_inv, reverse=True)
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
         diff = session.run(x - x_inv_inv)
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-5))
-
-  def test_invertibility(self):
-    rev_ops = [glow_ops.invertible_1x1_conv, glow_ops.affine_coupling,
-               glow_ops.actnorm, glow_ops.additive_coupling]
-    names = ["inv_1X1_conv", "affine_coupling", "actnorm", "additive_coupling"]
-    for rev_op, name in zip(rev_ops, names):
-      self.check_invertibility(rev_op, name)
 
   def test_add_edge_bias(self):
     with tf.Graph().as_default():
@@ -126,11 +140,14 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         # test shape in case apply_actnorm is set to False,
         self.assertEqual(zeros_np.shape, (16, 5, 5, 64))
 
-  def test_conv_stack(self):
+  @parameterized.named_parameters(
+      ("relu_act", "relu"), ("gatu_act", "gatu"))
+  def test_conv_stack(self, activation="relu"):
     """Test output shape."""
     with tf.Graph().as_default():
       x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
-      nn = glow_ops.conv_stack("nn", x, 512, 64)
+      nn = glow_ops.conv_stack("nn", x, mid_channels=512, output_channels=64,
+                               activation=activation)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
@@ -143,7 +160,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
   def check_latent_to_dist(self, architecture):
     with tf.Graph().as_default():
       x = tf.random_uniform(shape=(16, 5, 5, 32))
-      hparams = tf.contrib.training.HParams(architecture=architecture)
+      hparams = hparam.HParams(architecture=architecture)
       x_prior = glow_ops.latent_to_dist("split_prior", x, hparams=hparams,
                                         output_channels=64)
       mean_t, scale_t = x_prior.loc, x_prior.scale
@@ -193,27 +210,31 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
     with tf.Graph().as_default():
       hparams = glow.glow_hparams()
       hparams.n_levels = 3
-      hparams.depth = 2
-
-      x = tf.random_uniform(shape=(16, 64, 64, 4), seed=0)
-      x_inv, _, eps, z_levels, _ = glow_ops.encoder_decoder(
-          "encoder_decoder", x, hparams, reverse=False)
+      hparams.depth = 6
+      rng = np.random.RandomState(0)
+      x_np = rng.rand(1, 64, 64, 4)
+      x_t = tf.convert_to_tensor(x_np, dtype=tf.float32)
+      init_ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
+      with arg_scope(init_ops, init=True):
+        x_inv, _, eps, z_levels, _ = glow_ops.encoder_decoder(
+            "encoder_decoder", x_t, hparams, reverse=False)
       x_inv_inv, _, z_inv_levels, _ = glow_ops.encoder_decoder(
           "encoder_decoder", x_inv, hparams, eps=eps, reverse=True)
 
       with tf.Session() as session:
         session.run(tf.global_variables_initializer())
-        diff, x_inv_np, z_levels_np, z_inv_levels_np = session.run(
-            [x - x_inv_inv, x_inv, z_levels, z_inv_levels])
-
+        x_inv_np = session.run(x_inv)
+        z_levels_np, z_inv_levels_np, x_inv_inv_np = session.run(
+            [z_levels, z_inv_levels, x_inv_inv])
+        diff = x_inv_inv_np - x_np
         self.assertLen(z_levels_np, 2)
         self.assertLen(z_inv_levels_np, 2)
         # (h_i, w_i, c_i) = (h_{i-1}/f, w_{i-1}/f, c_{i-1}*(2f)/2) where (f=2)
-        self.assertEqual(z_levels_np[0].shape, (16, 32, 32, 8))
-        self.assertEqual(z_levels_np[1].shape, (16, 16, 16, 16))
-        self.assertEqual(z_inv_levels_np[0].shape, (16, 32, 32, 8))
-        self.assertEqual(z_inv_levels_np[1].shape, (16, 16, 16, 16))
-        self.assertTrue(x_inv_np.shape, (16, 8, 8, 64))
+        self.assertEqual(z_levels_np[0].shape, (1, 32, 32, 8))
+        self.assertEqual(z_levels_np[1].shape, (1, 16, 16, 16))
+        self.assertEqual(z_inv_levels_np[0].shape, (1, 32, 32, 8))
+        self.assertEqual(z_inv_levels_np[1].shape, (1, 16, 16, 16))
+        self.assertTrue(x_inv_np.shape, (1, 8, 8, 64))
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
 
   def test_encoder_decoder_practical_usage(self):
@@ -319,8 +340,12 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       ("conv_net_skip", "conv_net", True),
       ("conv_net_no_skip", "conv_net", False),
       ("conv3d_skip", "conv3d_net", False),
-      ("conv3d_no_skip", "conv3d_net", True))
-  def test_latent_dist_encoder(self, encoder="conv_lstm", skip=True):
+      ("conv3d_no_skip", "conv3d_net", True),
+      ("conv3d_skip_drop", "conv3d_net", False, 0.1),
+      ("conv3d_no_skip_drop", "conv3d_net", True, 0.1),
+      ("conv3d_no_skip_drop_noise", "conv3d_net", True, 0.1, 0.1),)
+  def test_latent_dist_encoder(self, encoder="conv_lstm", skip=True,
+                               dropout=0.0, noise=0.1):
     with tf.Graph().as_default():
       rng = np.random.RandomState(0)
       # Initialize x, latent, state.
@@ -332,15 +357,18 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
       state_t = tf.convert_to_tensor(state_rand)
       if encoder in ["conv_net", "conv3d_net"]:
         latent_t = [latent_t, latent_t]
-      init_state = tf.contrib.rnn.LSTMStateTuple(state_t, state_t)
+      init_state = tf.nn.rnn_cell.LSTMStateTuple(state_t, state_t)
       hparams = self.get_glow_hparams()
       hparams.latent_dist_encoder = encoder
       hparams.latent_skip = skip
       hparams.latent_encoder_width = 256
+      hparams.latent_dropout = dropout
+      hparams.latent_noise = noise
 
-      prior_dist, new_state = glow_ops.compute_prior(
-          "prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
-          condition=True)
+      with arg_scope([glow_ops.get_dropout], init=False):
+        prior_dist, new_state = glow_ops.compute_prior(
+            "prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
+            condition=True)
       with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         # Test initialization:
@@ -406,12 +434,22 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
           self.assertTrue(np.allclose(channel_var, 1.0, atol=1e-3))
 
   @parameterized.named_parameters(
-      ("dilation", True), ("no_dilation", False))
-  def test_temporal_latent_to_dist(self, apply_dilation):
+      ("dil_relu", True, "relu"), ("no_dil_relu", False, "relu"),
+      ("dil_gatu", True, "gatu"), ("no_dil_gatu", False, "gatu"),
+      ("dil_relu_drop", True, "relu", 0.1),
+      ("dil_gatu_drop", True, "gatu", 0.1),
+      ("dil_gatu_drop_noise", True, "gatu", 0.1, 0.1),
+      ("gatu_drop_single_step", False, "gatu", 0.1, 0.1, 1),
+      ("dil_gatu_drop_single_step", True, "gatu", 0.1, 0.1, 1),)
+  def test_temporal_latent_to_dist(self, apply_dilation, activation,
+                                   dropout=0.0, noise=0.1, num_steps=5):
     with tf.Graph().as_default():
       hparams = self.get_glow_hparams()
       hparams.latent_apply_dilations = apply_dilation
-      latent_shape = (16, 5, 32, 32, 48)
+      hparams.latent_activation = activation
+      hparams.latent_dropout = dropout
+      hparams.latent_noise = noise
+      latent_shape = (16, num_steps, 32, 32, 48)
       latents = tf.random_normal(latent_shape)
       dist = glow_ops.temporal_latent_to_dist(
           "tensor_to_dist", latents, hparams)
@@ -448,6 +486,28 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
         scale_act = np.std(samples_np, axis=0)
         self.assertTrue(np.allclose(loc_exp, loc_act, atol=1e-2))
         self.assertTrue(np.allclose(scale_exp, scale_act, atol=1e-2))
+
+  def linear_interpolate_rank(self):
+    with tf.Graph().as_default():
+      # Since rank is 1, the first channel should remain 1.0.
+      # and the second channel should be interpolated between 1.0 and 6.0
+      z1 = np.ones(shape=(4, 4, 2))
+      z2 = np.copy(z1)
+      z2[:, :, 0] += 0.01
+      z2[:, :, 1] += 5.0
+      coeffs = np.linspace(0.0, 1.0, 11)
+      z1 = np.expand_dims(z1, axis=0)
+      z2 = np.expand_dims(z2, axis=0)
+      tensor1 = tf.convert_to_tensor(z1, dtype=tf.float32)
+      tensor2 = tf.convert_to_tensor(z2, dtype=tf.float32)
+      lin_interp_max = glow_ops.linear_interpolate_rank(
+          tensor1, tensor2, coeffs)
+      with tf.Session() as sess:
+        lin_interp_np_max = sess.run(lin_interp_max)
+        for lin_interp_np, coeff in zip(lin_interp_np_max, coeffs):
+          exp_val = 1.0 + coeff * (6.0 - 1.0)
+          self.assertTrue(np.allclose(lin_interp_np[:, :, 0], 1.0))
+          self.assertTrue(np.allclose(lin_interp_np[:, :, 1], exp_val))
 
 
 if __name__ == "__main__":

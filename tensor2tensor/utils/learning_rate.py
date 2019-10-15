@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,6 +40,26 @@ def learning_rate_factor(name, step_num, hparams):
         np.pi * step_num / hparams.learning_rate_decay_steps))
     # if in warmup stage return 1 else return the decayed value
     return in_warmup * 1 + (1 - in_warmup) * ret
+  elif name == "single_cycle_cos_decay":
+    # Cosine decay to zero with a single cycle. This is different from
+    # "cosdecay" because it starts at 1 when the warmup steps end.
+    x = tf.maximum(step_num, hparams.learning_rate_warmup_steps)
+    step = x - hparams.learning_rate_warmup_steps
+    if hparams.train_steps <= hparams.learning_rate_warmup_steps:
+      raise ValueError("single_cycle_cos_decay cannot be used unless "
+                       "hparams.train_steps > "
+                       "hparams.learning_rate_warmup_steps")
+    return tf.math.cos(
+        step * np.pi /
+        (hparams.train_steps - hparams.learning_rate_warmup_steps)) / 2.0 + 0.5
+  elif name == "multi_cycle_cos_decay":
+    # Cosine decay with a variable number of cycles. This is different from
+    # "cosdecay" because it starts at 1 when the warmup steps end. Use
+    # hparams.learning_rate_decay_steps to determine the number of cycles.
+    x = tf.maximum(step_num, hparams.learning_rate_warmup_steps)
+    step = x - hparams.learning_rate_warmup_steps
+    return tf.math.cos(
+        step * np.pi / hparams.learning_rate_decay_steps) / 2.0 + 0.5
   elif name == "rsqrt_decay":
     return tf.rsqrt(tf.maximum(step_num, hparams.learning_rate_warmup_steps))
   elif name == "rsqrt_normalized_decay":
@@ -90,7 +110,7 @@ def legacy_learning_rate_schedule(hparams):
     warmup = _learning_rate_warmup(warmup_steps, hparams=hparams)
     decay = _learning_rate_decay(hparams, warmup_steps)
     ret = tf.where(step_num < warmup_steps, warmup, decay)
-  optimizer_correction = 0.002 if "Adam" in hparams.optimizer else 1.0
+  optimizer_correction = 0.002 if "adam" in hparams.optimizer else 1.0
   tf.logging.info("Base learning rate: %f", hparams.learning_rate)
   return ret * optimizer_correction * hparams.learning_rate
 

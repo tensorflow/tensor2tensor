@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,6 +34,27 @@ import tensorflow as tf
 @registry.register_model
 class MtfTransformer(mtf_model.MtfModel):
   """Transformer in mesh_tensorflow."""
+
+  def __init__(self,
+               hparams,
+               mode=tf.estimator.ModeKeys.TRAIN,
+               problem_hparams=None,
+               data_parallelism=None,
+               decode_hparams=None,
+               **kwargs):
+    """Init with assignments of hparams.encoder_layers / decoder_layers."""
+    # Finalize encoder_layers, decoder_layers
+    hparams.encoder_layers = (
+        hparams.encoder_layers * hparams.encoder_replicate_factor)
+    hparams.decoder_layers = (
+        hparams.decoder_layers * hparams.decoder_replicate_factor)
+
+    super(MtfTransformer, self).__init__(hparams,
+                                         mode=mode,
+                                         problem_hparams=problem_hparams,
+                                         data_parallelism=data_parallelism,
+                                         decode_hparams=decode_hparams,
+                                         **kwargs)
 
   @property
   def batch_dims(self):
@@ -382,15 +403,13 @@ class MtfTransformer(mtf_model.MtfModel):
 
   @property
   def _targets_vocab_size(self):
-    targets_vocab_size = self._problem_hparams.modality[
-        "targets"].top_dimensionality
+    targets_vocab_size = self._problem_hparams.vocab_size["targets"]
     targets_vocab_size += (-targets_vocab_size) % self._hparams.vocab_divisor
     return targets_vocab_size
 
   @property
   def _inputs_vocab_size(self):
-    inputs_vocab_size = self._problem_hparams.modality[
-        "inputs"].top_dimensionality
+    inputs_vocab_size = self._problem_hparams.vocab_size["inputs"]
     inputs_vocab_size += (-inputs_vocab_size) % self._hparams.vocab_divisor
     return inputs_vocab_size
 
@@ -786,6 +805,8 @@ def mtf_transformer_base():
   hparams.add_hparam("layout", "batch:batch;vocab:model;d_ff:model;heads:model")
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("d_ff", 2048)
+  hparams.add_hparam("encoder_replicate_factor", 1)
+  hparams.add_hparam("decoder_replicate_factor", 1)
   hparams.add_hparam("encoder_layers", ["att", "drd"] * 6)
   hparams.add_hparam("decoder_layers", ["att", "enc_att", "drd"] * 6)
   hparams.add_hparam("attention_dropout", 0.1)
@@ -833,9 +854,12 @@ def mtf_transformer_base():
   # These parameters make Transformer model compatible with MtfTransformer
   # Do not override these, as mtf_transformer does not support other options.
   hparams.clip_grad_norm = 0.  # i.e. no gradient clipping
-  hparams.modality = {
-      "inputs": modalities.IdentitySymbolModality,
-      "targets": modalities.IdentitySymbolModality,
+  hparams.bottom = {
+      "inputs": modalities.identity_bottom,
+      "targets": modalities.identity_bottom,
+  }
+  hparams.top = {
+      "targets": modalities.identity_top,
   }
 
   # Parameters for computing the maximum decode length in beam search.

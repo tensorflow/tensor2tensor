@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -131,9 +131,9 @@ class ImageQuestion2MultilabelProblem(image_utils.ImageProblem):
     targets_encoder = self._encoders["targets"]
 
     p.modality = {
-        "inputs": modalities.IdentityModality,
-        "question": modalities.SymbolModality,
-        "targets": modalities.MultiLabelModality,
+        "inputs": modalities.ModalityType.IDENTITY,
+        "question": modalities.ModalityType.SYMBOL,
+        "targets": modalities.ModalityType.MULTI_LABEL,
     }
     p.vocab_size = {
         "inputs": None,

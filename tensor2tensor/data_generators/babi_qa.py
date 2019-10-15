@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -109,7 +109,9 @@ def _prepare_babi_data(tmp_dir, data_dir):
     tf.gfile.MakeDirs(data_dir)
 
   file_path = os.path.join(tmp_dir, _TAR)
-  headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36"}  # pylint: disable=line-too-long
+  headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_1) "
+                           "AppleWebKit/537.36 (KHTML, like Gecko) "
+                           "Chrome/63.0.3239.132 Safari/537.36"}
   resp = requests.get(_URL, headers=headers)
   with open(file_path, "wb") as f:
     f.write(resp.content)
@@ -192,10 +194,12 @@ def _babi_parser(tmp_dir,
 
     tf.logging.info("Preparing dataset of all task together")
     globe_name = ("*_{}.txt")
+    mode_name = "test"
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      mode_name = "train"
     files_name = os.path.join(
         tmp_dir, _DIR_NAME, subset,
-        globe_name.format("train" if dataset_split == problem.DatasetSplit.TRAIN
-                          else "test"))
+        globe_name.format(mode_name))
     with tf.gfile.GFile(data_file, "wb") as outfile:
       for filename in tf.gfile.Glob(files_name):
         if filename == data_file:
@@ -421,7 +425,7 @@ class BabiQa(text_problems.QuestionAndContext2TextProblem):
     (super(BabiQa, self).hparams(defaults, unused_model_hparams))
     p = defaults
     num_classes = self._encoders["targets"].vocab_size
-    p.modality = {"targets": modalities.ClassLabelModality}
+    p.modality = {"targets": modalities.ModalityType.CLASS_LABEL}
     p.vocab_size = {"targets": num_classes}
 
   def example_reading_spec(self):

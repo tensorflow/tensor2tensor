@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,16 +27,10 @@ import random
 import re
 import subprocess
 
-import six
-
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 
 import tensorflow as tf
-
-
-def to_unicode(s):
-  return unicode(s, "utf-8") if six.PY2 else s.decode("utf-8")
 
 
 def include_revision(revision_num, skip_factor=1.1):
@@ -57,7 +51,7 @@ def include_revision(revision_num, skip_factor=1.1):
   """
   if skip_factor <= 1.0:
     return True
-  return (int(math.log(revision_num + 1.0) / math.log(skip_factor)) != int(
+  return (int(math.log1p(revision_num) / math.log(skip_factor)) != int(
       math.log(revision_num + 2.0) / math.log(skip_factor)))
 
 
@@ -118,7 +112,7 @@ def get_title(page):
   assert start_pos != -1
   assert end_pos != -1
   start_pos += len("<title>")
-  return to_unicode(page[start_pos:end_pos])
+  return text_encoder.to_unicode_utf8(page[start_pos:end_pos])
 
 
 def get_id(page):
@@ -257,7 +251,7 @@ def get_text(revision, strip=True):
     ret = revision[end_tag_pos:end_pos]
   if strip:
     ret = strip_text(ret)
-  ret = to_unicode(ret)
+  ret = text_encoder.to_unicode_utf8(ret)
   return ret
 
 
@@ -497,10 +491,8 @@ def edit_distance_filter(source_target_input, max_equal_to_diff_ratio=0):
   if not max_equal_to_diff_ratio:
     return source_target_input, thrown_out_count
 
-  for i in range(len(source_target_input)):
-    src = source_target_input[i][0]
-    tgt = source_target_input[i][1]
-    opcodes = fast_match_sequences(src, tgt)
+  for src_tgt in source_target_input:
+    opcodes = fast_match_sequences(*src_tgt)
     diff_char_count = 0
     equal_char_count = 0
     for tag, i1, i2, j1, j2 in opcodes:
@@ -510,7 +502,7 @@ def edit_distance_filter(source_target_input, max_equal_to_diff_ratio=0):
       else:
         equal_char_count += i2 - i1
     if diff_char_count <= max_equal_to_diff_ratio * equal_char_count:
-      source_target_output.append(source_target_input[i])
+      source_target_output.append(src_tgt)
     else:
       thrown_out_count += 1
   return source_target_output, thrown_out_count

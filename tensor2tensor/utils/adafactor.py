@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -326,7 +326,7 @@ def adafactor_optimizer_from_hparams(hparams, lr):
   Raises:
     ValueError: on illegal values
   """
-  if hparams.optimizer_adafactor_decay_type == "Adam":
+  if hparams.optimizer_adafactor_decay_type == "adam":
     decay_rate = adafactor_decay_rate_adam(
         hparams.optimizer_adafactor_beta2)
   elif hparams.optimizer_adafactor_decay_type == "pow":

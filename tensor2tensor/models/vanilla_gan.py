@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -199,7 +199,7 @@ class SlicedGan(AbstractGAN):
 def sliced_gan():
   """Basic parameters for a vanilla_gan."""
   hparams = common_hparams.basic_params1()
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"

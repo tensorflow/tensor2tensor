@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -84,8 +84,8 @@ class AlgorithmicProblem(problem.Problem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     vocab_size = self.num_symbols + text_encoder.NUM_RESERVED_TOKENS
-    p.modality = {"inputs": modalities.SymbolModality,
-                  "targets": modalities.SymbolModality}
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.SYMBOL}
     p.vocab_size = {"inputs": vocab_size,
                     "targets": vocab_size}
     p.input_space_id = problem.SpaceID.DIGIT_0
@@ -129,6 +129,27 @@ class AlgorithmicIdentityDecimal40(AlgorithmicIdentityBinary40):
   @property
   def num_symbols(self):
     return 10
+
+
+@registry.register_problem
+class AlgorithmicIdentityVocab95Train20Eval30(AlgorithmicIdentityBinary40):
+  """Problem spec for algorithmic decimal identity task."""
+
+  @property
+  def num_symbols(self):
+    return 95
+
+  @property
+  def train_length(self):
+    return 20
+
+  @property
+  def dev_length(self):
+    return 30
+
+  @property
+  def train_size(self):
+    return 1000000
 
 
 @registry.register_problem

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -58,6 +58,8 @@ flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 flags.DEFINE_bool("decode_in_memory", False, "Decode in memory.")
+flags.DEFINE_bool("disable_grappler_optimizations", False,
+                  "Disable Grappler if need be to avoid tensor format errors.")
 
 
 def create_hparams():
@@ -87,8 +89,6 @@ def decode(estimator, hparams, decode_hp):
     decoding.decode_interactively(estimator, hparams, decode_hp,
                                   checkpoint_path=FLAGS.checkpoint_path)
   elif FLAGS.decode_from_file:
-    if estimator.config.use_tpu:
-      raise ValueError("TPU can only decode from dataset.")
     decoding.decode_from_file(estimator, FLAGS.decode_from_file, hparams,
                               decode_hp, FLAGS.decode_to_file,
                               checkpoint_path=FLAGS.checkpoint_path)
@@ -102,7 +102,8 @@ def decode(estimator, hparams, decode_hp):
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-        dataset_split="test" if FLAGS.eval_use_test_set else None)
+        dataset_split="test" if FLAGS.eval_use_test_set else None,
+        checkpoint_path=FLAGS.checkpoint_path)
 
 
 def score_file(filename):
@@ -118,10 +119,10 @@ def score_file(filename):
     batch_inputs = tf.reshape(inputs_ph, [1, -1, 1, 1])  # Make it 4D.
   targets_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
   batch_targets = tf.reshape(targets_ph, [1, -1, 1, 1])  # Make it 4D.
-  features = {
-      "inputs": batch_inputs,
-      "targets": batch_targets,
-  } if has_inputs else {"targets": batch_targets}
+  if has_inputs:
+    features = {"inputs": batch_inputs, "targets": batch_targets}
+  else:
+    features = {"targets": batch_targets}
 
   # Prepare the model and the graph when model runs on features.
   model = registry.model(FLAGS.model)(hparams, tf.estimator.ModeKeys.EVAL)
@@ -130,8 +131,11 @@ def score_file(filename):
 
   with tf.Session() as sess:
     # Load weights from checkpoint.
-    ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
-    ckpt = ckpts.model_checkpoint_path
+    if FLAGS.checkpoint_path is None:
+      ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
+      ckpt = ckpts.model_checkpoint_path
+    else:
+      ckpt = FLAGS.checkpoint_path
     saver.restore(sess, ckpt)
     # Run on each line.
     with tf.gfile.Open(filename) as f:
@@ -152,10 +156,10 @@ def score_file(filename):
       if has_inputs:
         inputs_numpy = encoders["inputs"].encode(inputs) + [text_encoder.EOS_ID]
       # Prepare the feed.
-      feed = {
-          inputs_ph: inputs_numpy,
-          targets_ph: targets_numpy
-      } if has_inputs else {targets_ph: targets_numpy}
+      if has_inputs:
+        feed = {inputs_ph: inputs_numpy, targets_ph: targets_numpy}
+      else:
+        feed = {targets_ph: targets_numpy}
       # Get the score.
       np_loss = sess.run(losses["training"], feed)
       results.append(np_loss)
@@ -183,11 +187,18 @@ def main(_):
 
   hp = create_hparams()
   decode_hp = create_decode_hparams()
+  run_config = t2t_trainer.create_run_config(hp)
+  if FLAGS.disable_grappler_optimizations:
+    run_config.session_config.graph_options.rewrite_options.disable_meta_optimizer = True
+
+  # summary-hook in tf.estimator.EstimatorSpec requires
+  # hparams.model_dir to be set.
+  hp.add_hparam("model_dir", run_config.model_dir)
 
   estimator = trainer_lib.create_estimator(
       FLAGS.model,
       hp,
-      t2t_trainer.create_run_config(hp),
+      run_config,
       decode_hparams=decode_hp,
       use_tpu=FLAGS.use_tpu)
 

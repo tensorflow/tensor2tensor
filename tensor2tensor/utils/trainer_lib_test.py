@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,8 +21,8 @@ from __future__ import print_function
 
 import os
 from tensor2tensor.data_generators import algorithmic
-from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.models import transformer  # pylint: disable=unused-import
+from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
@@ -82,7 +82,7 @@ class TrainerLibTest(tf.test.TestCase):
                               algorithmic.TinyAlgo.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
-    features = problem_lib.standardize_shapes(features)
+    features = data_reader.standardize_shapes(features)
 
     # Model
     model = registry.model("transformer")(hparams, tf.estimator.ModeKeys.TRAIN)
@@ -111,6 +111,11 @@ class TrainerLibTest(tf.test.TestCase):
         "targets_A": hparams.problem_hparams.modality["targets"],
         "targets_B": hparams.problem_hparams.modality["targets"],
     }
+    hparams.problem_hparams.vocab_size = {
+        "targets": hparams.problem_hparams.vocab_size["targets"],
+        "targets_A": hparams.problem_hparams.vocab_size["targets"],
+        "targets_B": hparams.problem_hparams.vocab_size["targets"],
+    }
     hparams.problem._hparams = hparams.problem_hparams
 
     # Dataset
@@ -119,7 +124,7 @@ class TrainerLibTest(tf.test.TestCase):
                               algorithmic.TinyAlgo.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
-    features = problem_lib.standardize_shapes(features)
+    features = data_reader.standardize_shapes(features)
     features["targets_A"] = features["targets_B"] = features["targets"]
 
     # Model
@@ -142,7 +147,8 @@ class TrainerLibTest(tf.test.TestCase):
 
   def testCreateHparams(self):
     # Get json_path
-    pkg, _ = os.path.split(__file__)
+    pkg = os.path.abspath(__file__)
+    pkg, _ = os.path.split(pkg)
     pkg, _ = os.path.split(pkg)
     json_path = os.path.join(
         pkg, "test_data", "transformer_test_ckpt", "hparams.json")
@@ -156,17 +162,6 @@ class TrainerLibTest(tf.test.TestCase):
     # Compare with base hparams
     base_hparams = trainer_lib.create_hparams("transformer_big")
     self.assertEqual(len(base_hparams.values()), len(hparams.values()))
-
-  def testCreateHparamsFromJson(self):
-    # Get json_path
-    pkg, _ = os.path.split(__file__)
-    pkg, _ = os.path.split(pkg)
-    json_path = os.path.join(
-        pkg, "test_data", "transformer_test_ckpt", "hparams.json")
-
-    # Create hparams
-    hparams = trainer_lib._create_hparams_from_json(json_path)
-    self.assertEqual(75, len(hparams.values()))
 
 
 if __name__ == "__main__":

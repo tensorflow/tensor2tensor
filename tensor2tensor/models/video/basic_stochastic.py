@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 tfl = tf.layers
+_MAX_BATCH = 128
 
 
 @registry.register_model
@@ -66,12 +67,17 @@ class NextFrameBasicStochasticDiscrete(
     basic_deterministic.NextFrameBasicDeterministic):
   """Basic next-frame model with a tiny discrete latent."""
 
+  @property
+  def is_recurrent_model(self):
+    return True
+
   def init_internal_states(self):
     if not self.hparams.concat_internal_states:
       return None
     # Hardcoded frame shapes.
-    max_batch_size = max(64, self.hparams.batch_size)
-    shape = [max_batch_size] + self.hparams.problem.frame_shape[:-1] + [32]
+    max_batch_size = max(_MAX_BATCH, self.hparams.batch_size)
+    shape = [max_batch_size] + self.hparams.problem.frame_shape[:-1] + [
+        self.hparams.recurrent_state_size]
     with tf.variable_scope("clean_scope_for_internal_state"):
       v = tf.get_variable("state", shape, trainable=False,
                           initializer=tf.zeros_initializer())
@@ -102,13 +108,14 @@ class NextFrameBasicStochasticDiscrete(
     internal_state = internal_states[0][0][:batch_size, :, :, :]
     state_activation = tf.concat([internal_state, frames[0]], axis=-1)
     state_gate_candidate = tf.layers.conv2d(
-        state_activation, 64, (3, 3), padding="SAME", name="state_conv")
+        state_activation, 2 * self.hparams.recurrent_state_size,
+        (3, 3), padding="SAME", name="state_conv")
     state_gate, state_candidate = tf.split(state_gate_candidate, 2, axis=-1)
     state_gate = tf.nn.sigmoid(state_gate)
     state_candidate = tf.tanh(state_candidate)
     internal_state = internal_state * state_gate
     internal_state += state_candidate * (1.0 - state_gate)
-    max_batch_size = max(64, self.hparams.batch_size)
+    max_batch_size = max(_MAX_BATCH, self.hparams.batch_size)
     diff_batch_size = max_batch_size - batch_size
     internal_state = tf.pad(
         internal_state, [[0, diff_batch_size], [0, 0], [0, 0], [0, 0]])
@@ -121,6 +128,9 @@ class NextFrameBasicStochasticDiscrete(
     filters = hparams.hidden_size
     kernel = (4, 4)
     layer_shape = common_layers.shape_list(layer)
+    activation_fn = common_layers.belu
+    if hparams.activation_fn == "relu":
+      activation_fn = tf.nn.relu
 
     def add_bits(layer, bits):
       z_mul = tfl.dense(bits, final_filters, name="unbottleneck_mul")
@@ -162,7 +172,7 @@ class NextFrameBasicStochasticDiscrete(
             filters *= 2
           x = common_attention.add_timing_signal_nd(x)
           x = tfl.conv2d(x, filters, kernel,
-                         activation=common_layers.belu,
+                         activation=activation_fn,
                          strides=(2, 2), padding="SAME")
           x = common_layers.layer_norm(x)
     else:
@@ -257,16 +267,18 @@ def next_frame_basic_stochastic_discrete():
   hparams.learning_rate_warmup_steps = 2000
   hparams.learning_rate_schedule = "linear_warmup * constant"
   hparams.concat_internal_states = True
-  hparams.add_hparam("bottleneck_bits", 256)
+  hparams.video_modality_loss_cutoff = 0.03
+  hparams.add_hparam("bottleneck_bits", 128)
   hparams.add_hparam("bottleneck_noise", 0.1)
   hparams.add_hparam("discretize_warmup_steps", 40000)
   hparams.add_hparam("latent_rnn_warmup_steps", 40000)
-  hparams.add_hparam("latent_rnn_max_sampling", 0.6)
+  hparams.add_hparam("latent_rnn_max_sampling", 0.5)
   hparams.add_hparam("latent_use_max_probability", 0.8)
   hparams.add_hparam("full_latent_tower", False)
   hparams.add_hparam("latent_predictor_state_size", 128)
-  hparams.add_hparam("latent_predictor_temperature", 0.9)
+  hparams.add_hparam("latent_predictor_temperature", 1.0)
   hparams.add_hparam("complex_addn", True)
+  hparams.add_hparam("recurrent_state_size", 64)
   return hparams
 
 

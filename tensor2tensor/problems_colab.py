@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,29 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tiny run of trainer_model_based. Smoke test."""
+"""Access T2T Problems."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-# from tensor2tensor.rl import trainer_model_based
-
-import tensorflow as tf
-
-FLAGS = tf.flags.FLAGS
+from tensor2tensor.data_generators import all_problems
+from tensor2tensor.utils import registry
 
 
-class ModelRLExperimentTest(tf.test.TestCase):
-
-  def test_dqn_basic(self):
-    # TODO(afrozm): The latest changes in Dopamine break this test, so
-    # temporarily disabling this test.
-    pass
-    # FLAGS.output_dir = tf.test.get_temp_dir()
-    # FLAGS.loop_hparams_set = "rlmb_dqn_tiny"
-    # FLAGS.schedule = "train"  # skip evaluation for world model training
-    # trainer_model_based.main(None)
+def problem(name):
+  return registry.problem(name)
 
 
-if __name__ == "__main__":
-  tf.test.main()
+def available():
+  return sorted(registry.list_problems())
+
+
+# Import problem modules
+_modules = list(all_problems.MODULES)
+
+all_problems.import_modules(_modules)

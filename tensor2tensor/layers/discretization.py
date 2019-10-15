@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import partial
+from functools import partial  # pylint: disable=g-importing-member
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention as cia
@@ -27,7 +27,7 @@ from tensor2tensor.layers import common_layers
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-from tensorflow.python.training import moving_averages
+from tensorflow.python.training import moving_averages  # pylint: disable=g-direct-tensorflow-import
 
 
 def project_hidden(x, projection_tensors, hidden_size, num_blocks):
@@ -217,8 +217,8 @@ def embedding_lookup(x,
 
   # Currently, we use the mean scaling for the commitment loss, as opposed to
   # summing across all non-batch dimensions.
-  q_loss = tf.reduce_mean(tf.square((tf.stop_gradient(x) - x_means)))
-  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  q_loss = tf.reduce_mean(tf.squared_difference(tf.stop_gradient(x), x_means))
+  e_loss = tf.reduce_mean(tf.squared_difference(x, tf.stop_gradient(x_means)))
   return x_means_hot, x_means, q_loss, e_loss, neg_q_entropy
 
 
@@ -235,9 +235,8 @@ def bit_to_int(x_bit, num_bits, base=2):
     Integer representation of this number.
   """
   x_l = tf.stop_gradient(tf.to_int32(tf.reshape(x_bit, [-1, num_bits])))
-  x_labels = []
-  for i in range(num_bits):
-    x_labels.append(x_l[:, i] * tf.to_int32(base)**tf.to_int32(i))
+  x_labels = [
+      x_l[:, i] * tf.to_int32(base)**tf.to_int32(i) for i in range(num_bits)]
   res = sum(x_labels)
   return tf.to_int32(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]))
 
@@ -254,12 +253,9 @@ def int_to_bit(x_int, num_bits, base=2):
     Corresponding number expressed in base.
   """
   x_l = tf.to_int32(tf.expand_dims(x_int, axis=-1))
-  x_labels = []
-  for i in range(num_bits):
-    x_labels.append(
-        tf.floormod(
-            tf.floordiv(tf.to_int32(x_l),
-                        tf.to_int32(base)**i), tf.to_int32(base)))
+  x_labels = [tf.floormod(
+      tf.floordiv(tf.to_int32(x_l), tf.to_int32(base)**i), tf.to_int32(base))
+              for i in range(num_bits)]
   res = tf.concat(x_labels, axis=-1)
   return tf.to_float(res)
 
@@ -313,6 +309,8 @@ def embed(x,
       h1a = tf.layers.dense(c, filter_size, name="vch1a")
       h1b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
       h1 = h1a + h1b
+      h1 = tf.layers.dense(h1, hidden_size, name="vch_final_linear")
+
     elif bottleneck_kind == "gumbel-softmax":
       hot = tf.one_hot(x, 2**z_size)
       h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
@@ -379,7 +377,7 @@ def vae(x, z_size, name=None):
     epsilon = tf.random_normal([shape[0], shape[1], 1, z_size])
     z = mu + tf.exp(log_sigma / 2) * epsilon
     kl = 0.5 * tf.reduce_mean(
-        tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
+        tf.expm1(log_sigma) + tf.square(mu) - log_sigma, axis=-1)
     free_bits = z_size // 4
     kl_loss = tf.reduce_mean(tf.maximum(kl - free_bits, 0.0))
     return z, kl_loss, mu, log_sigma
@@ -469,11 +467,12 @@ def gumbel_softmax(x,
     # Add losses that prevent too few being used.
     distrib = tf.reshape(logsm, [-1, 2**z_size]) * maxvhot
     d_mean = tf.reduce_mean(distrib, axis=[0], keep_dims=True)
-    d_variance = tf.reduce_mean(tf.square(distrib - d_mean), axis=[0])
+    d_variance = tf.reduce_mean(
+        tf.squared_difference(distrib, d_mean), axis=[0])
     d_dev = -tf.reduce_mean(d_variance)
     ret = s
 
-    if mode != tf.contrib.learn.ModeKeys.TRAIN:
+    if mode != tf.estimator.ModeKeys.TRAIN:
       ret = tf.reshape(maxvhot, common_layers.shape_list(s))  # Just hot @eval.
     return m, ret, d_dev * 5.0 + tf.reduce_mean(kl) * 0.002
 
@@ -776,6 +775,9 @@ def discrete_bottleneck(inputs,
       outputs_dense_a = tf.layers.dense(c, filter_size, name="vch1a")
       outputs_dense_b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
       outputs_dense = outputs_dense_a + outputs_dense_b
+      outputs_dense = tf.layers.dense(outputs_dense, hidden_size,
+                                      name="vch_final_linear")
+
       dx = tf.to_int32(tf.stop_gradient(d))
       outputs_discrete = bit_to_int(dx, z_size)
       extra_loss = tf.constant(0.0)
@@ -792,8 +794,8 @@ def discrete_bottleneck(inputs,
 
 
 def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
-                           target_bits=None, bits_at_once=8, temperature=1.0,
-                           dropout=0.1):
+                           target_bits=None, extra_inputs=None,
+                           bits_at_once=8, temperature=1.0, dropout=0.1):
   """Predict a sequence of bits (a latent) with LSTM, both training and infer.
 
   Given a tensor on which the predictions are based (prediction_source), we use
@@ -810,6 +812,8 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
     total_num_bits: python integer, how many bits in total to predict.
     target_bits: a tensor of shape [batch_size, total_num_bits] used during
       training as the target to predict; each element should be -1 or 1.
+    extra_inputs: a Tensor [batch_size, total_num_bits // bits_at_once, d]
+      of additional inputs, passed as additional LSTM inputs.
     bits_at_once: pytho integer, how many bits to predict at once.
     temperature: python float, temperature used for sampling during inference.
     dropout: float, the amount of dropout to aply during training (0.1 default).
@@ -822,12 +826,12 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
 
   with tf.variable_scope("predict_bits_with_lstm"):
     # Layers and cell state creation.
-    lstm_cell = tf.contrib.rnn.LSTMCell(state_size)
+    lstm_cell = tf.nn.rnn_cell.LSTMCell(state_size)
     discrete_predict = tf.layers.Dense(2**bits_at_once, name="discrete_predict")
     discrete_embed = tf.layers.Dense(state_size, name="discrete_embed")
     batch_size = common_layers.shape_list(prediction_source)[0]
     layer_pred = tf.layers.flatten(prediction_source)
-    prediction = tf.layers.dense(layer_pred, state_size, name="istate")
+    first_lstm_input = tf.layers.dense(layer_pred, state_size, name="istate")
     c_state = tf.layers.dense(layer_pred, state_size, name="cstate")
     m_state = tf.layers.dense(layer_pred, state_size, name="mstate")
     state = (c_state, m_state)
@@ -835,13 +839,16 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
     # Prediction mode if no targets are given.
     if target_bits is None:
       outputs = []
+      lstm_input = first_lstm_input
       for i in range(total_num_bits // bits_at_once):
-        output, state = lstm_cell(prediction, state)
+        if extra_inputs is not None:
+          lstm_input = tf.concat([lstm_input, extra_inputs[:, i, :]], axis=1)
+        output, state = lstm_cell(lstm_input, state)
         discrete_logits = discrete_predict(output)
         discrete_samples = common_layers.sample_with_temperature(
             discrete_logits, temperature)
         outputs.append(tf.expand_dims(discrete_samples, axis=1))
-        prediction = discrete_embed(tf.one_hot(discrete_samples, 256))
+        lstm_input = discrete_embed(tf.one_hot(discrete_samples, 256))
       outputs = tf.concat(outputs, axis=1)
       outputs = int_to_bit(outputs, bits_at_once)
       outputs = tf.reshape(outputs, [batch_size, total_num_bits])
@@ -849,25 +856,29 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
 
     # Training mode, calculating loss.
     assert total_num_bits % bits_at_once == 0
-    d_pred = tf.reshape(tf.maximum(tf.stop_gradient(target_bits), 0), [
+    target_bits = tf.reshape(tf.maximum(tf.stop_gradient(target_bits), 0), [
         batch_size, total_num_bits // bits_at_once, bits_at_once])
-    d_int = bit_to_int(d_pred, bits_at_once)
-    tf.summary.histogram("target_integers", tf.reshape(d_int, [-1]))
-    d_hot = tf.one_hot(d_int, 2**bits_at_once, axis=-1)
-    d_pred = discrete_embed(d_hot)
-    d_pred = tf.nn.dropout(d_pred, 1.0 - dropout)
-    pred = tf.concat([tf.expand_dims(prediction, axis=1), d_pred], axis=1)
+    target_ints = bit_to_int(target_bits, bits_at_once)
+    tf.summary.histogram("target_integers", tf.reshape(target_ints, [-1]))
+    target_hot = tf.one_hot(target_ints, 2**bits_at_once, axis=-1)
+    target_embedded = discrete_embed(target_hot)
+    target_embedded = tf.nn.dropout(target_embedded, 1.0 - dropout)
+    teacher_input = tf.concat(
+        [tf.expand_dims(first_lstm_input, axis=1), target_embedded], axis=1)
     outputs = []
     for i in range(total_num_bits // bits_at_once):
-      output, state = lstm_cell(pred[:, i, :], state)
+      lstm_input = teacher_input[:, i, :]
+      if extra_inputs is not None:
+        lstm_input = tf.concat([lstm_input, extra_inputs[:, i, :]], axis=1)
+      output, state = lstm_cell(lstm_input, state)
       outputs.append(tf.expand_dims(output, axis=1))
     outputs = tf.concat(outputs, axis=1)
     outputs = tf.nn.dropout(outputs, 1.0 - dropout)
     d_int_pred = discrete_predict(outputs)
     pred_loss = tf.losses.sparse_softmax_cross_entropy(
-        logits=d_int_pred, labels=d_int)
+        logits=d_int_pred, labels=target_ints)
     pred_loss = tf.reduce_mean(pred_loss)
-    return target_bits, pred_loss
+    return d_int_pred, pred_loss
 
 
 # New API for discretization bottlenecks:
@@ -924,7 +935,7 @@ def vq_nearest_neighbor(x, means,
     x_means_hot = tf.one_hot(x_means_idx, bottleneck_size)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, bottleneck_size])
   x_means = tf.matmul(x_means_hot_flat, means)
-  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  e_loss = tf.reduce_mean(tf.squared_difference(x, tf.stop_gradient(x_means)))
   return x_means_hot, e_loss, dist
 
 
@@ -989,7 +1000,7 @@ def vq_body(x,
         return beta * e_loss
 
   # Loss, also do update if requested.
-  if do_update is True:
+  if do_update:
     loss = loss_with_update()
   else:
     loss = tf.cond(do_update, loss_with_update, lambda: beta * e_loss)
@@ -1333,7 +1344,8 @@ def gumbel_softmax_discrete_bottleneck(x,
   x_means_assignments_flat = tf.reshape(x_means_assignments,
                                         [-1, bottleneck_size])
   x_means = tf.matmul(x_means_assignments_flat, means)
-  commitment_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  commitment_loss = tf.reduce_mean(
+      tf.squared_difference(x, tf.stop_gradient(x_means)))
 
   # Update the ema variables.
   updated_ema_count = moving_averages.assign_moving_average(

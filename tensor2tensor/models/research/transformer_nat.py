@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ from tensor2tensor.utils import beam_search
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow as tf
-from tensorflow.python.training import moving_averages
+from tensorflow.python.training import moving_averages  # pylint: disable=g-direct-tensorflow-import
 
 
 def init_vq_bottleneck(bottleneck_size, hidden_size):
@@ -65,7 +65,7 @@ def vq_nearest_neighbor(x, hparams):
     x_means_idx = tf.argmax(-dist, axis=-1)
     x_means_hot = tf.one_hot(x_means_idx, depth=bottleneck_size)
   x_means = tf.matmul(x_means_hot, means)
-  e_loss = tf.reduce_mean(tf.square(x - tf.stop_gradient(x_means)))
+  e_loss = tf.reduce_mean(tf.squared_difference(x, tf.stop_gradient(x_means)))
   return x_means_hot, e_loss
 
 
@@ -228,7 +228,7 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
 
   initial_ids = tf.zeros([tf.shape(latents_dense_in)[0]], dtype=tf.int32)
   length = tf.shape(latents_dense_in)[1]
-  ids, _ = beam_search.beam_search(
+  ids, _, _ = beam_search.beam_search(
       symbols_to_logits_fn,
       initial_ids,
       beam_size=1,
@@ -392,7 +392,7 @@ def transformer_nat_small():
   hparams.filter_size = 2048
   hparams.label_smoothing = 0.0
   hparams.force_full_predict = True
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997

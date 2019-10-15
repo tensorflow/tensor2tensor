@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -92,6 +92,16 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
             self.assertAllCloseAccordingToType(
                 self.evaluate(singlestep_var1),
                 self.evaluate(multistep_var1))
+
+  def testResourceVariables(self):
+    v1 = tf.Variable([1., 2.], use_resource=True)
+    v2 = tf.Variable([3., 4.], use_resource=True)
+    with tf.GradientTape() as tape:
+      tape.watch([v1, v2])
+      loss = tf.reduce_sum(tf.gather(params=v1, indices=[0]) + v2)
+    v1_grad, v2_grad = tape.gradient(loss, [v1, v2])
+    multistep_opt = multistep_optimizer.MultistepAdamOptimizer(0.1)
+    multistep_opt.apply_gradients(((v1_grad, v1), (v2_grad, v2)))
 
 
 if __name__ == '__main__':

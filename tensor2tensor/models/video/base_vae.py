@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -105,7 +105,7 @@ class NextFrameBaseVae(object):
     latent_num_frames = self.hparams.latent_num_frames
     tf.logging.info("Creating latent tower with %d frames." % latent_num_frames)
     if latent_num_frames > 0:
-      images = images[:latent_num_frames]
+      images = images[:, :latent_num_frames]
 
     return common_video.conv_latent_tower(
         images=images,

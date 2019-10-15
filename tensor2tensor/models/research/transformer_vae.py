@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -103,7 +103,7 @@ def top_k_softmax(x, k):
 def top_k_experts(x, k, hparams):
   x_shape = common_layers.shape_list(x)
   x_flat = tf.reshape(x, [-1, common_layers.shape_list(x)[-1]])
-  is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
+  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
   gates, load = expert_utils.noisy_top_k_gating(
       x_flat, 2 ** hparams.z_size, is_training, k)
   gates_shape = [x_shape[0], x_shape[1], x_shape[2], 2 ** hparams.z_size]
@@ -290,7 +290,7 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
 
   initial_ids = tf.zeros([tf.shape(latents_dense_in)[0]], dtype=tf.int32)
   length = tf.shape(latents_dense_in)[1]
-  ids, _ = beam_search.beam_search(
+  ids, _, _ = beam_search.beam_search(
       symbols_to_logits_fn, initial_ids, beam_size, length,
       vocab_size, alpha=0.0, eos_id=-1, stop_early=False)
 
@@ -436,7 +436,8 @@ def ae_transformer_internal(inputs,
         losses["neg_q_entropy"] = neg_q_entropy * hparams.entropy_scale
       else:
         inputs_c = decode_transformer(inputs, ed, targets_c, hparams, "dec_c")
-        losses["latent_pred"] = tf.reduce_mean((inputs_c - targets_c)**2) * 20
+        losses["latent_pred"] = tf.reduce_mean(
+            tf.squared_difference(inputs_c, targets_c)) * 20
         def bn_inputs():
           with tf.variable_scope(tf.get_variable_scope(), reuse=True):
             bn, _, _, _, _ = hparams.bottleneck(
@@ -506,6 +507,8 @@ def ae_transformer_internal(inputs,
       # reshape back to 4d here
       if hparams.task == "image":
         targets = tf.reshape(targets, original_targets_shape)
+    else:
+      targets = d
 
   res = decode_transformer(inputs, ed, targets, hparams, "decoder",
                            causal=hparams.causal)
@@ -587,7 +590,7 @@ class TransformerAE(t2t_model.T2TModel):
                 self._hparams.num_residuals, self._hparams.num_blocks,
                 self._hparams.hidden_size, block_dim
             ],
-            initializer=tf.contrib.layers.xavier_initializer(),
+            initializer=tf.initializers.glorot_uniform(),
             trainable=self._hparams.trainable_projections)
 
         self._hparams.bottleneck = functools.partial(
@@ -767,7 +770,7 @@ def transformer_ae_small():
   hparams.filter_size = 2048
   hparams.add_hparam("compress_filter_size", 2048 * 2)
   hparams.label_smoothing = 0.0
-  hparams.optimizer = "Adam"  # Can be unstable, maybe try Adam.
+  hparams.optimizer = "adam"  # Can be unstable, maybe try Adam.
   hparams.optimizer_adam_epsilon = 1e-9
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997  # Needs tuning, try 0.98 to 0.999.
@@ -895,7 +898,8 @@ def imagetransformer_ae_cifar():
 
   hparams.add_hparam("unconditional", False)  # unconditional generation
 
-  hparams.modality["targets"] = modalities.ImageChannelEmbeddingsBottom
+  hparams.bottom["targets"] = modalities.image_channel_embeddings_bottom
+  hparams.top["targets"] = modalities.image_channel_embeddings_top
   hparams.drop_inputs = True
   hparams.do_attend_compress = False
   hparams.do_attend_decompress = False
@@ -941,7 +945,7 @@ def transformer_ae_a3():
 def transformer_ae_a6():
   """Best hparams for transformer with semhash."""
   hparams = transformer_ae_a3()
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.noise_dev = 0.5
   return hparams
 

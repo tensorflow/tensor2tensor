@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,15 +27,21 @@ from tensor2tensor.utils import registry
 def next_frame_sv2p():
   """SV2P model hparams."""
   hparams = basic_stochastic.next_frame_basic_stochastic()
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-3
   hparams.video_num_input_frames = 1
   hparams.video_num_target_frames = 3
   hparams.batch_size = 16
-  hparams.modality = {
-      "inputs": modalities.VideoModalityL2Raw,
-      "targets": modalities.VideoModalityL2Raw,
+  hparams.bottom = {
+      "inputs": modalities.video_raw_bottom,
+      "targets": modalities.video_raw_targets_bottom,
+  }
+  hparams.loss = {
+      "targets": modalities.video_l2_raw_loss,
+  }
+  hparams.top = {
+      "targets": modalities.video_raw_top,
   }
   hparams.video_modality_loss_cutoff = 0.0
   hparams.scheduled_sampling_mode = "count"
@@ -91,10 +97,9 @@ def next_frame_sv2p_atari():
 def next_frame_sv2p_atari_softmax():
   """SV2P model for atari with softmax."""
   hparams = next_frame_sv2p_atari()
-  hparams.modality = {
-      "inputs": modalities.VideoModality,
-      "targets": modalities.VideoModality,
-  }
+  hparams.bottom = {}
+  hparams.loss = {}
+  hparams.top = {}
   hparams.internal_loss = True
   return hparams
 

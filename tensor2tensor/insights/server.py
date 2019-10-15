@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -145,13 +145,12 @@ def main(_):
     Returns:
       JSON for the supported models.
     """
-    configuration_list = []
-    for source_code, target_code, label in processors:
-      configuration_list.append({
-          "id": label,
-          "source_language": languages[source_code],
-          "target_language": languages[target_code],
-      })
+    # pylint: disable=g-complex-comprehension
+    configuration_list = [{
+        "id": label,
+        "source_language": languages[source_code],
+        "target_language": languages[target_code],
+        } for source_code, target_code, label in processors]
     return jsonify({
         "configuration": configuration_list
     })
@@ -185,7 +184,6 @@ def main(_):
       The landing page html text.
     """
     if (path == "index.js" or
-        path == "webcomponentsjs/custom-elements-es5-adapter.js" or
         path == "webcomponentsjs/webcomponents-lite.js"):
       # Some vulcanizing methods bundle the javascript into a index.js file
       # paired with index.html but leave two important webcomponents js files

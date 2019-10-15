@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -79,58 +79,44 @@ def bottleneck_block(inputs,
   """
   shortcut = inputs
 
-  filter_h_dim = mtf.Dimension("filter_height", 3)
-  filter_w_dim = mtf.Dimension("filter_width", 3)
-  one_h_dim = mtf.Dimension("filter_height", 1)
-  one_w_dim = mtf.Dimension("filter_width", 1)
-
   if projection_shortcut is not None:
     filters_dim = mtf.Dimension("filtersp", filters)
-    kernel = mtf.get_variable(
-        inputs.mesh, "kernel", mtf.Shape(
-            [one_h_dim, one_w_dim, inputs.shape.dims[-1], filters_dim]))
-    shortcut = projection_shortcut(inputs, kernel)
+    shortcut = projection_shortcut(inputs, filters_dim)
 
   # First conv block
-  filters1_dim = mtf.Dimension("filters1", filters)
-  kernel1 = mtf.get_variable(
-      inputs.mesh, "kernel1", mtf.Shape(
-          [one_h_dim, one_w_dim, inputs.shape.dims[-1], filters1_dim]))
-  inputs = mtf.conv2d_with_blocks(
+  inputs = mtf.layers.conv2d_with_blocks(
       inputs,
-      kernel1,
-      strides=[1, 1, 1, 1],
+      mtf.Dimension("filters1", filters),
+      filter_size=[1, 1],
+      strides=[1, 1],
       padding="SAME",
-      h_blocks_dim=None, w_blocks_dim=col_blocks_dim)
+      h_blocks_dim=None, w_blocks_dim=col_blocks_dim,
+      name="conv0")
 
   # TODO(nikip): Add Dropout?
   inputs = batch_norm_relu(inputs, is_training)
 
   # Second conv block
-  filters2_dim = mtf.Dimension("filters2", 4*filters)
-  kernel2 = mtf.get_variable(
-      inputs.mesh, "kernel2", mtf.Shape(
-          [filter_h_dim, filter_w_dim, filters1_dim, filters2_dim]))
-  inputs = mtf.conv2d_with_blocks(
+  inputs = mtf.layers.conv2d_with_blocks(
       inputs,
-      kernel2,
-      strides=[1, 1, 1, 1],
+      mtf.Dimension("filters2", 4 * filters),
+      filter_size=[3, 3],
+      strides=[1, 1],
       padding="SAME",
-      h_blocks_dim=row_blocks_dim, w_blocks_dim=col_blocks_dim)
+      h_blocks_dim=row_blocks_dim, w_blocks_dim=col_blocks_dim,
+      name="conv1")
 
   inputs = batch_norm_relu(inputs, is_training)
 
   # Third wide conv filter block
-  filters3_dim = mtf.Dimension("filters3", filters)
-  filters3_kernel = mtf.get_variable(
-      inputs.mesh, "wide_kernel", mtf.Shape(
-          [one_h_dim, one_w_dim, filters2_dim, filters3_dim]))
-  inputs = mtf.conv2d_with_blocks(
+  inputs = mtf.layers.conv2d_with_blocks(
       inputs,
-      filters3_kernel,
-      strides,
+      mtf.Dimension("filters3", filters),
+      filter_size=[1, 1],
+      strides=strides,
       padding="SAME",
-      h_blocks_dim=None, w_blocks_dim=col_blocks_dim)
+      h_blocks_dim=None, w_blocks_dim=col_blocks_dim,
+      name="conv2")
 
   # TODO(nikip): Althought the original resnet code has this batch norm, in our
   # setup this is causing no gradients to be passed. Investigate further.
@@ -170,14 +156,16 @@ def block_layer(inputs,
   """
   with tf.variable_scope(name, default_name="block_layer"):
     # Only the first block per block_layer uses projection_shortcut and strides
-    def projection_shortcut(inputs, kernel):
+    def projection_shortcut(inputs, output_dim):
       """Project identity branch."""
-      inputs = mtf.conv2d_with_blocks(
+      inputs = mtf.layers.conv2d_with_blocks(
           inputs,
-          kernel,
+          output_dim,
+          filter_size=[1, 1],
           strides=strides,
           padding="SAME",
-          h_blocks_dim=None, w_blocks_dim=col_blocks_dim)
+          h_blocks_dim=None, w_blocks_dim=col_blocks_dim,
+          name="shortcut0")
       return batch_norm_relu(
           inputs, is_training, relu=False)
 
@@ -231,9 +219,7 @@ class MtfResNet(mtf_model.MtfModel):
     # Declare all the dimensions
     batch_dim = mtf.Dimension("batch", hparams.batch_size)
     hidden_dim = mtf.Dimension("hidden", hparams.hidden_size)
-    filter_h_dim = mtf.Dimension("filter_height", 7)
-    filter_w_dim = mtf.Dimension("filter_width", 7)
-    filters = mtf.Dimension("filters", hparams.filter_sizes[0])
+    filter_dim = mtf.Dimension("filters", hparams.filter_sizes[0])
     rows_dim = mtf.Dimension("rows_size", hparams.rows_size)
     cols_dim = mtf.Dimension("cols_size", hparams.cols_size)
     row_blocks_dim = mtf.Dimension("row_blocks", hparams.row_blocks)
@@ -258,15 +244,14 @@ class MtfResNet(mtf_model.MtfModel):
                           rows_dim, cols_dim, channels_dim])
 
     x = mtf.to_float(x)
-    initial_filters = mtf.get_variable(
-        mesh, "init_filters",
-        mtf.Shape([filter_h_dim, filter_w_dim, channels_dim, filters]))
-    x = mtf.conv2d_with_blocks(
+    x = mtf.layers.conv2d_with_blocks(
         x,
-        initial_filters,
-        strides=[1, 1, 1, 1],
+        filter_dim,
+        filter_size=[3, 3],
+        strides=[1, 1],
         padding="SAME",
-        h_blocks_dim=None, w_blocks_dim=col_blocks_dim)
+        h_blocks_dim=None, w_blocks_dim=col_blocks_dim,
+        name="initial_filter")
 
     x = batch_norm_relu(x, is_training)
 
@@ -280,7 +265,7 @@ class MtfResNet(mtf_model.MtfModel):
             inputs=x,
             filters=hparams.filter_sizes[0],
             blocks=hparams.layer_sizes[0],
-            strides=[1, 1, 1, 1],
+            strides=[1, 1],
             is_training=is_training,
             name="block_layer1",
             row_blocks_dim=None,
@@ -289,7 +274,7 @@ class MtfResNet(mtf_model.MtfModel):
             inputs=x,
             filters=hparams.filter_sizes[1],
             blocks=hparams.layer_sizes[1],
-            strides=[1, 1, 1, 1],
+            strides=[1, 1],
             is_training=is_training,
             name="block_layer2",
             row_blocks_dim=None,
@@ -298,7 +283,7 @@ class MtfResNet(mtf_model.MtfModel):
             inputs=x,
             filters=hparams.filter_sizes[2],
             blocks=hparams.layer_sizes[2],
-            strides=[1, 1, 1, 1],
+            strides=[1, 1],
             is_training=is_training,
             name="block_layer3",
             row_blocks_dim=None,

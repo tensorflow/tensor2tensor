@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,9 +29,15 @@ def next_frame_epva():
   hparams = basic_deterministic_params.next_frame_basic_deterministic()
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
-  hparams.modality = {
-      "inputs": modalities.VideoModalityL2Raw,
-      "targets": modalities.VideoModalityL2Raw,
+  hparams.bottom = {
+      "inputs": modalities.video_raw_bottom,
+      "targets": modalities.video_raw_targets_bottom,
+  }
+  hparams.loss = {
+      "targets": modalities.video_l2_raw_loss,
+  }
+  hparams.top = {
+      "targets": modalities.video_raw_top,
   }
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-05

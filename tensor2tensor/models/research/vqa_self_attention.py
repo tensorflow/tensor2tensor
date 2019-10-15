@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from six.moves import xrange
+from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
@@ -657,7 +657,7 @@ def iterative_encoder_decoder(encoder_input,
                               query,
                               hparams):
   """Iterative encoder decoder."""
-  for _ in xrange(hparams.num_rec_steps):
+  for _ in range(hparams.num_rec_steps):
     with tf.variable_scope("step", reuse=tf.AUTO_REUSE):
       encoder_output = image_question_encoder(
           encoder_input,
@@ -684,7 +684,7 @@ def vqa_self_attention_base():
   hparams = common_hparams.basic_params1()
   hparams.batch_size = 128
   hparams.use_fixed_batch_size = True,
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.997
   hparams.optimizer_adam_epsilon = 1e-9

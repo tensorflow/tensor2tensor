@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,14 +20,15 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import contextlib
 import json
 import os
 import random
 import numpy as np
 
-from tensor2tensor.data_generators.problem import Problem
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
+from tensor2tensor.utils import hparams_lib
 from tensor2tensor.utils import metrics_hook
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
@@ -35,8 +36,13 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+from tensorflow.contrib.tpu.python.tpu import tpu_estimator
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
+
+
+create_hparams = hparams_lib.create_hparams
+add_problem_hparams = hparams_lib.add_problem_hparams
 
 
 def next_checkpoint(model_dir, timeout_mins=240):
@@ -128,51 +134,9 @@ def create_session_config(log_device_placement=False,
       gpu_options=gpu_options,
       log_device_placement=log_device_placement,
       inter_op_parallelism_threads=inter_op_parallelism_threads,
-      intra_op_parallelism_threads=intra_op_parallelism_threads)
+      intra_op_parallelism_threads=intra_op_parallelism_threads,
+      isolate_session_state=True)
   return config
-
-
-def create_hparams(hparams_set,
-                   hparams_overrides_str="",
-                   data_dir=None,
-                   problem_name=None,
-                   hparams_path=None):
-  """Create HParams with data_dir and problem hparams, if kwargs provided."""
-  hparams = registry.hparams(hparams_set)
-  if hparams_path and tf.gfile.Exists(hparams_path):
-    hparams = _create_hparams_from_json(hparams_path, hparams)
-  if data_dir:
-    hparams.add_hparam("data_dir", data_dir)
-  if hparams_overrides_str:
-    tf.logging.info("Overriding hparams in %s with %s", hparams_set,
-                    hparams_overrides_str)
-    hparams = hparams.parse(hparams_overrides_str)
-  if problem_name:
-    add_problem_hparams(hparams, problem_name)
-  return hparams
-
-
-def _create_hparams_from_json(json_path, hparams=None):
-  """Loading hparams from json; can also start from hparams if specified."""
-  tf.logging.info("Loading hparams from existing json %s" % json_path)
-  with tf.gfile.Open(json_path, "r") as f:
-    hparams_values = json.load(f)
-    new_hparams = tf.contrib.training.HParams(**hparams_values)
-    # Some keys are in new_hparams but not hparams, so we need to be more
-    #   careful than simply using parse_json() from HParams
-    if hparams:  # hparams specified, so update values from json
-      for key in sorted(new_hparams.values().keys()):
-        if hasattr(hparams, key):  # Overlapped keys
-          value = getattr(hparams, key)
-          new_value = getattr(new_hparams, key)
-          if value != new_value:  # Different values
-            tf.logging.info("Overwrite key %s: %s -> %s" % (
-                key, value, new_value))
-            setattr(hparams, key, new_value)
-    else:
-      hparams = new_hparams
-
-  return hparams
 
 
 def is_cloud_async_distributed():
@@ -323,7 +287,9 @@ def create_estimator(model_name,
                      decode_hparams=None,
                      use_tpu=False,
                      use_tpu_estimator=False,
-                     use_xla=False):
+                     use_xla=False,
+                     export_saved_model_api_version=1,
+                     use_guarantee_const_getter=False):
   """Create a T2T Estimator."""
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       model_name, hparams, decode_hparams=decode_hparams, use_tpu=use_tpu)
@@ -345,14 +311,71 @@ def create_estimator(model_name,
     if decode_hparams and run_config.tpu_config:
       decode_hparams.add_hparam("iterations_per_loop",
                                 run_config.tpu_config.iterations_per_loop)
+    if export_saved_model_api_version == 1:
+      api_version_enum_name = tpu_estimator.ExportSavedModelApiVersion.V1
+      estimator_model_fn = model_fn
+    elif export_saved_model_api_version == 2:
+      api_version_enum_name = tpu_estimator.ExportSavedModelApiVersion.V2
+
+      def maybe_use_guarantee_const_getter_model_fn(features, labels, mode,
+                                                    params):
+        """Wrapper model_fn with guarantee_const getter."""
+        if not use_guarantee_const_getter:
+          return model_fn(features, labels, mode, params)
+
+        # It marks all weights as constant, which may improves TPU inference
+        # performance because it prevents the weights being transferred to the
+        # TPU. It will increase HBM "program" usage and reduce HBM "arguments"
+        # usage during TPU model serving.
+        def guarantee_const_getter(getter, name, *args, **kwargs):
+          with tf.control_dependencies(None):
+            return tf.guarantee_const(
+                getter(name, *args, **kwargs), name=name + "/GuaranteeConst")
+
+        @contextlib.contextmanager
+        def guarantee_const_scope():
+          var_scope = tf.get_variable_scope()
+          prev_custom_getter = var_scope.custom_getter
+          prev_caching_device = var_scope.caching_device
+          var_scope.set_custom_getter(guarantee_const_getter)
+          var_scope.set_caching_device(lambda op: op.device)
+          yield
+          var_scope.set_custom_getter(prev_custom_getter)
+          var_scope.set_caching_device(prev_caching_device)
+
+        with guarantee_const_scope():
+          return model_fn(features, labels, mode, params)
+
+      def tpu_model_fn(features, labels, mode, params):
+        """Wrapper model_fn with tpu.rewrite / TPUPartitionedCall."""
+        if mode == tf.estimator.ModeKeys.PREDICT and params["use_tpu"]:
+          batch_config = tpu_estimator.BatchConfig(
+              num_batch_threads=2,
+              max_batch_size=predict_batch_size,
+              batch_timeout_micros=60 * 1000,
+              allowed_batch_sizes=[predict_batch_size])
+          return tpu_estimator.model_fn_inference_on_tpu(
+              maybe_use_guarantee_const_getter_model_fn,
+              features=features,
+              labels=labels,
+              config=None,
+              params=params,
+              batch_config=batch_config)
+        else:
+          return model_fn(features, labels, mode, params)
+
+      estimator_model_fn = tpu_model_fn
+    else:
+      raise ValueError("Flag export_saved_model_api_version must be 1 or 2.")
     estimator = tf.contrib.tpu.TPUEstimator(
-        model_fn=model_fn,
+        model_fn=estimator_model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
         use_tpu=use_tpu,
         train_batch_size=batch_size,
         eval_batch_size=batch_size if "eval" in schedule else None,
-        predict_batch_size=predict_batch_size)
+        predict_batch_size=predict_batch_size,
+        export_saved_model_api_version=api_version_enum_name)
   else:
     estimator = tf.estimator.Estimator(
         model_fn=model_fn,
@@ -470,10 +493,12 @@ class T2TExperiment(object):
           self._train_spec.input_fn,
           steps=eval_steps,
           hooks=self._train_spec.hooks)
+      self._set_eval_dir_name("eval")
       self._estimator.evaluate(
           self._eval_spec.input_fn,
           steps=self._eval_spec.steps,
-          hooks=self._eval_spec.hooks)
+          hooks=self._eval_spec.hooks,
+          name="eval")
       if packed_dataset:
         problem = registry.problem(
             self._hparams.problem.name.replace("_packed", ""))
@@ -495,33 +520,55 @@ class T2TExperiment(object):
       mlperf_log.transformer_print(
           key=mlperf_log.RUN_STOP, value={"success": "false"})
 
+  def _set_eval_dir_name(self, eval_dir_name):
+    attr = "eval_dir_name"
+    hp = self._hparams
+    if attr not in hp:
+      hp.add_hparam(attr, "")
+    hp.eval_dir_name = eval_dir_name
+
   def evaluate(self):
+    name = "eval"
+    self._set_eval_dir_name("eval")
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
-        hooks=self._eval_spec.hooks)
+        hooks=self._eval_spec.hooks,
+        name=name)
 
   def evaluate_on_train_data(self):
+    name = "eval_train"
+    self._set_eval_dir_name(name)
     self._estimator.evaluate(
         self._train_spec.input_fn,
         steps=self._eval_spec.steps,
         hooks=self._eval_spec.hooks,
-        name="eval_train")
+        name=name)
 
   def continuous_eval(self):
     """Evaluate until checkpoints stop being produced."""
-    for _ in next_checkpoint(self._hparams.model_dir,
-                             self._hparams.eval_timeout_mins):
+    for ckpt_path in next_checkpoint(self._hparams.model_dir,
+                                     self._hparams.eval_timeout_mins):
+      # Skip zero'th step.
+      train_step = decoding.get_step_from_ckpt_path(ckpt_path)
+      if train_step == 0:
+        tf.logging.info("Skipping evaluation at step 0")
+        continue
       self.evaluate()
 
   def continuous_eval_on_train_data(self):
     """Evaluate on train data until checkpoints stop being produced."""
-    for _ in next_checkpoint(self._hparams.model_dir,
-                             self._hparams.eval_timeout_mins):
+    for ckpt_path in next_checkpoint(self._hparams.model_dir,
+                                     self._hparams.eval_timeout_mins):
+      # Skip zero'th step.
+      train_step = decoding.get_step_from_ckpt_path(ckpt_path)
+      if train_step == 0:
+        tf.logging.info("Skipping evaluation at step 0")
+        continue
       self.evaluate_on_train_data()
 
   def test(self):
-    """Perform 1 step of train and 2 step of eval."""
+    """Perform 1 train step and 1 eval step."""
     if self._use_validation_monitor:
       return self.train_and_evaluate()
 
@@ -545,7 +592,7 @@ class T2TExperiment(object):
         config.cluster_spec,
         job_name=config.task_type,
         task_index=config.task_id,
-        protocol=self._hparams.std_server_protocol)
+        protocol=config.protocol)
     server.join()
 
   def decode(self,
@@ -570,23 +617,27 @@ class T2TExperiment(object):
 
   def continuous_decode(self):
     """Decode from dataset on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode()
 
   def continuous_decode_on_train_data(self):
     """Decode from dataset on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode(dataset_split=tf.estimator.ModeKeys.TRAIN)
 
   def continuous_decode_on_eval_data(self):
     """Decode from dataset on new checkpoint."""
     if self._hparams.mlperf_mode:
-      ckpt_generator = next_undecoded_checkpoint(self._hparams.model_dir)
+      ckpt_generator = next_undecoded_checkpoint(
+          self._hparams.model_dir, self._decode_hparams.decode_timeout_mins)
     else:
-      ckpt_generator = next_checkpoint(self._hparams.model_dir)
+      ckpt_generator = next_checkpoint(self._hparams.model_dir,
+                                       self._decode_hparams.decode_timeout_mins)
 
     for ckpt in ckpt_generator:
-      current_step = int(os.path.basename(ckpt).split("-")[1])
+      current_step = decoding.get_step_from_ckpt_path(ckpt)
       tf.logging.info("Decoding step %d" % current_step)
       # Skip checkpoint 0.
       if current_step == 0:
@@ -614,7 +665,8 @@ class T2TExperiment(object):
 
   def continuous_decode_from_file(self):
     """Decode from file on new checkpoint."""
-    for _ in next_checkpoint(self._hparams.model_dir):
+    for _ in next_checkpoint(self._hparams.model_dir,
+                             self._decode_hparams.decode_timeout_mins):
       self.decode(decode_from_file=True)
 
 
@@ -638,15 +690,18 @@ def create_experiment(
     eval_early_stopping_metric_delta=None,
     eval_early_stopping_metric_minimize=True,
     eval_timeout_mins=240,
+    eval_use_test_set=False,
     use_tpu=False,
     use_tpu_estimator=False,
     use_xla=False,
+    export_saved_model_api_version=1,
+    use_guarantee_const_getter=False,
     additional_train_hooks=None,
     additional_eval_hooks=None,
     warm_start_from=None,
-    decode_from_file=None,
-    decode_to_file=None,
-    decode_reference=None,
+    decode_from_file="",
+    decode_to_file="",
+    decode_reference="",
     std_server_protocol=None):
   """Create Experiment."""
   # HParams
@@ -661,8 +716,10 @@ def create_experiment(
   hparams.add_hparam("eval_timeout_mins", eval_timeout_mins)
   if decode_hparams is not None:
     decode_hparams.add_hparam("decode_from_file", decode_from_file)
-    decode_hparams.add_hparam("decode_to_file", decode_to_file)
-    decode_hparams.add_hparam("decode_reference", decode_reference)
+    if decode_to_file and not decode_hparams.decode_to_file:
+      decode_hparams.decode_to_file = decode_to_file
+    if decode_reference and not decode_hparams.decode_reference:
+      decode_hparams.decode_reference = decode_reference
   add_problem_hparams(hparams, problem_name)
 
   # Estimator
@@ -674,14 +731,20 @@ def create_experiment(
       decode_hparams=decode_hparams,
       use_tpu=use_tpu,
       use_tpu_estimator=use_tpu_estimator,
-      use_xla=use_xla)
+      use_xla=use_xla,
+      export_saved_model_api_version=export_saved_model_api_version,
+      use_guarantee_const_getter=use_guarantee_const_getter)
 
   # Input fns from Problem
   problem = hparams.problem
   train_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.TRAIN,
                                                    hparams)
+
+  dataset_split = "test" if eval_use_test_set else None
+  dataset_kwargs = {"dataset_split": dataset_split}
   eval_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.EVAL,
-                                                  hparams)
+                                                  hparams,
+                                                  dataset_kwargs=dataset_kwargs)
 
   # Export
   exporter = None
@@ -690,9 +753,12 @@ def create_experiment(
       metric = eval_early_stopping_metric or "loss"
       return current_eval_result[metric] < best_eval_result[metric]
 
+    def serving_input_receiver_fn(hparams, decode_hparams, use_tpu):
+      return problem.serving_input_fn(hparams, decode_hparams, use_tpu)
+
     exporter = tf.estimator.BestExporter(
         name="best",
-        serving_input_receiver_fn=lambda: problem.serving_input_fn(hparams),
+        serving_input_receiver_fn=serving_input_receiver_fn,
         compare_fn=compare_fn,
         assets_extra=problem.export_assets)
 
@@ -772,17 +838,6 @@ def create_experiment_fn(*args, **kwargs):
     return create_experiment(run_config, hparams, *args, **kwargs)
 
   return experiment_fn
-
-
-def add_problem_hparams(hparams, problem_name_or_instance):
-  """Add problem hparams for the problems."""
-  if isinstance(problem_name_or_instance, Problem):
-    problem = problem_name_or_instance
-  else:
-    problem = registry.problem(problem_name_or_instance)
-  p_hparams = problem.get_hparams(hparams)
-  hparams.problem = problem
-  hparams.problem_hparams = p_hparams
 
 
 def set_random_seed(seed):

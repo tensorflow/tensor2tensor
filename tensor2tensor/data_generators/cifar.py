@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ from six.moves import cPickle
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import mnist
+from tensor2tensor.data_generators import problem
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
@@ -180,6 +181,27 @@ class ImageCifar10PlainGen(ImageCifar10Plain):
 
 
 @registry.register_problem
+class ImageCifar10PlainGenFlat(ImageCifar10PlainGen):
+  """CIFAR-10 for image generation as a flat array of 64*64*3=12228 elements."""
+
+  def preprocess_example(self, example, mode, unused_hparams):
+    example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
+    example["inputs"] = tf.to_int64(example["inputs"])
+    example["inputs"] = tf.reshape(example["inputs"], (-1,))
+
+    del example["targets"]  # Ensure unconditional generation
+
+    return example
+
+  def hparams(self, defaults, model_hparams):
+    super(ImageCifar10PlainGenFlat, self).hparams(defaults, model_hparams)
+    # Switch to symbol modality
+    p = defaults
+    p.modality["inputs"] = modalities.ModalityType.SYMBOL_WEIGHTS_ALL
+    p.input_space_id = problem.SpaceID.GENERIC
+
+
+@registry.register_problem
 class ImageCifar10PlainRandomShift(ImageCifar10Plain):
   """CIFAR-10 32x32 for image generation with random shift data-augmentation."""
 
@@ -240,8 +262,8 @@ class Img2imgCifar10(ImageCifar10):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.IdentityModality,
-                  "targets": modalities.IdentityModality}
+    p.modality = {"inputs": modalities.ModalityType.IDENTITY,
+                  "targets": modalities.ModalityType.IDENTITY}
     p.vocab_size = {"inputs": 256,
                     "targets": 256}
     p.batch_size_multiplier = 256
@@ -450,8 +472,8 @@ class Img2imgCifar100(ImageCifar100):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.modality = {"inputs": modalities.IdentityModality,
-                  "targets": modalities.IdentityModality}
+    p.modality = {"inputs": modalities.ModalityType.IDENTITY,
+                  "targets": modalities.ModalityType.IDENTITY}
     p.vocab_size = {"inputs": 256,
                     "targets": 256}
     p.batch_size_multiplier = 256

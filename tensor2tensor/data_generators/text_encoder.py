@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -78,13 +78,7 @@ def unicode_to_native(s):
 
 
 def is_unicode(s):
-  if six.PY2:
-    if isinstance(s, unicode):
-      return True
-  else:
-    if isinstance(s, str):
-      return True
-  return False
+  return isinstance(s, six.text_type)
 
 
 def to_unicode(s, ignore_errors=False):
@@ -96,6 +90,10 @@ def to_unicode(s, ignore_errors=False):
 
 def to_unicode_ignore_errors(s):
   return to_unicode(s, ignore_errors=True)
+
+
+def to_unicode_utf8(s):
+  return unicode(s, "utf-8") if six.PY2 else s.decode("utf-8")
 
 
 def strip_ids(ids, ids_to_strip):
@@ -926,7 +924,7 @@ class SubwordTextEncoder(TextEncoder):
     """
     subtoken_strings = []
     for line in f:
-      s = line.strip()
+      s = line.rstrip()
       # Some vocab files wrap words in single quotes, but others don't
       if ((s.startswith("'") and s.endswith("'")) or
           (s.startswith("\"") and s.endswith("\""))):

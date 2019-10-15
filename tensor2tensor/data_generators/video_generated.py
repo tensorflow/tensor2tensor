@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -93,8 +93,8 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.modality = {
-        "inputs": modalities.VideoModality,
-        "targets": modalities.VideoModality,
+        "inputs": modalities.ModalityType.VIDEO,
+        "targets": modalities.ModalityType.VIDEO,
     }
     p.vocab_size = {
         "inputs": 256,

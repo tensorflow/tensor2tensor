@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,12 +21,15 @@ from __future__ import print_function
 
 from tensor2tensor.layers import ngram
 
+from tensor2tensor.utils import test_utils
+
 import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
 
 
 class NGramTest(tf.test.TestCase):
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testNGramLayerShape(self):
     batch_size = 2
     length = 8
@@ -41,7 +44,7 @@ class NGramTest(tf.test.TestCase):
     num_ngrams = sum([vocab_size**n for n in range(minval, maxval)])
     self.assertEqual(outputs_val.shape, (batch_size, num_ngrams))
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @test_utils.run_in_graph_and_eager_modes()
   def testNGramLayerOutput(self):
     inputs = tf.constant(
         [[0, 0, 0, 0, 1],

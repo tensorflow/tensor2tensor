@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -215,6 +215,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       x = tfcl.layer_norm(x)
       x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
                      activation=tf.nn.relu, name="reward_conv3")
+    return x
 
   def get_extra_loss(self,
                      latent_means=None, latent_stds=None,
@@ -314,7 +315,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
 
       if self.hparams.model_options == "CDNA":
         # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
-        cdna_input = tfcl.flatten(hidden5)
+        cdna_input = tfl.flatten(hidden5)
         transformed += common_video.cdna_transformation(
             input_image, cdna_input, num_masks, int(color_channels),
             self.hparams.dna_kernel_size, self.hparams.relu_shift)
@@ -367,6 +368,10 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
   def next_frame(self, frames, actions, rewards, target_frame,
                  internal_states, video_features):
     del target_frame
+
+    if self.has_policies or self.has_values:
+      raise NotImplementedError("Parameter sharing with policy not supported.")
+
     latent, latent_mean, latent_std = video_features
     frames, actions, rewards = frames[0], actions[0], rewards[0]
 
@@ -380,11 +385,11 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
         frames, None, actions, internal_states, latent)
 
     if not self.has_rewards:
-      return pred_image, None, extra_loss, internal_states
+      return pred_image, None, None, None, extra_loss, internal_states
 
     pred_reward = self.reward_prediction(
         pred_image, actions, rewards, latent, mid_outputs)
-    return pred_image, pred_reward, extra_loss, internal_states
+    return pred_image, pred_reward, None, None, extra_loss, internal_states
 
 
 @registry.register_model
@@ -435,6 +440,10 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
   def next_frame(self, frames, actions, rewards, target_frame,
                  internal_states, video_features):
     del video_features
+
+    if self.has_pred_actions or self.has_values:
+      raise NotImplementedError("Parameter sharing with policy not supported.")
+
     frames, actions, rewards = frames[0], actions[0], rewards[0]
 
     if internal_states is None:
@@ -451,7 +460,7 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
 
     pred_reward = self.reward_prediction(
         pred_image, actions, rewards, latent)
-    return pred_image, pred_reward, extra_loss, internal_states
+    return pred_image, pred_reward, None, None, extra_loss, internal_states
 
 
 @registry.register_model
