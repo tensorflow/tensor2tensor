@@ -141,13 +141,16 @@ class ProblemTest(tf.test.TestCase):
   def testChunkPadding(self):
     chunk_size = 4
     with tf.Session() as sess:
-      ex_1_inputs = tf.convert_to_tensor([0, 1 , 2])
+      ex_1_inputs = tf.convert_to_tensor([0, 1, 2])
       ex1_targets = tf.convert_to_tensor([2, 3])
       example = {'inputs': ex_1_inputs,
-               'targets': ex1_targets}
+                 'targets': ex1_targets}
 
       padded_example = sess.run(
-        pad_to_next_chunk_length(chunk_size, axis=0)(example))
+        pad_to_next_chunk_length(
+            chunk_length=chunk_size,
+            axis=0,
+            features_to_pad=['inputs'])(example))
       assert padded_example['inputs'].shape == (4, )
       # Should be unchanged
       assert padded_example['targets'].shape == (2, )
