@@ -38,6 +38,7 @@ from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
 # Fathom imports
+from fh_platform import fh_logging
 from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
 from fathomt2t.monitors import FathomValidationMonitor
 
@@ -625,6 +626,7 @@ def create_experiment(
   use_early_stopping = (
       schedule not in local_schedules and eval_early_stopping_steps)
 
+  fh_logging.info(f'Schedule: {schedule}; eval_steps: {eval_steps}')
   # Fathom
   # Can't add early stopping on TPU
   if use_tpu:
