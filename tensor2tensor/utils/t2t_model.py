@@ -1457,11 +1457,13 @@ class T2TModel(base.Layer):
       print('----outside logits', logits, labels)
       # Fathom
       # is this a problem because our logits are dict by default????
-      '''
       if isinstance(logits, dict):
         eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
         # For TPU, logits dict will be passed as keyword arguments to
         # eval_metrics_fn. Here we add the labels to those arguments.
+        labels = tf.reshape(
+            tensor=labels,
+            shape=[-1, hparams.max_target_seq_length, 1, 1])
         logits.update({"labels": labels})
         print('----dict logits', logits)
         return tf.contrib.tpu.TPUEstimatorSpec(
@@ -1469,8 +1471,6 @@ class T2TModel(base.Layer):
             eval_metrics=(eval_metrics_fn, logits),
             loss=loss)
       else:
-      '''
-      if True:
         print('----not dict logits', logits)
         logits = logits['logits']
         eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
