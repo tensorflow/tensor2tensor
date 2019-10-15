@@ -1413,7 +1413,7 @@ def standardize_shapes(features, batch_size=None):
       t.get_shape().assert_is_fully_defined()
 
   for n, t in features.items():
-      tf.logging.info(f'Shape for {n}: {t}, {t.get_shape().as_list()}')
+      tf.logging.info(f'Standardized shape for {n}: {t}, {t.get_shape().as_list()}')
 
   return features
 
