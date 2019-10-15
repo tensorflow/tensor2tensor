@@ -146,7 +146,8 @@ class ProblemTest(tf.test.TestCase):
       example = {'inputs': ex_1_inputs,
                'targets': ex1_targets}
 
-      padded_example = sess.run(pad_to_next_chunk_length(example, chunk_size))
+      padded_example = sess.run(
+        pad_to_next_chunk_length(chunk_size, axis=0)(example))
       assert padded_example['inputs'].shape == (4, )
       # Should be unchanged
       assert padded_example['targets'].shape == (2, )
