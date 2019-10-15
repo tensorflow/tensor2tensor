@@ -1708,6 +1708,8 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
     """Construct metrics dictionary."""
     metrics_dict = {}
 
+    print('loggits in allm etrics', logits)
+    print('kwargs', kwargs)
     if logits is None:
       logits = kwargs
 
