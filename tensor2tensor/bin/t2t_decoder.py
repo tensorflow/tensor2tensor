@@ -65,6 +65,7 @@ flags.DEFINE_bool("keep_timestamp", False,
 flags.DEFINE_bool("decode_interactive", False,
                   "Interactive local inference mode.")
 flags.DEFINE_integer("decode_shards", 1, "Number of decoding replicas.")
+flags.DEFINE_string("problems", "", "Problem to use in decode")
 flags.DEFINE_string("score_file", "", "File to score. Each line in the file "
                     "must be in the format input \t target.")
 # Fathom start

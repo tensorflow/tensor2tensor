@@ -39,6 +39,7 @@ import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
+from fathomt2t_dependencies.common_t2t_utils import pad_to_next_chunk_length
 
 
 class DatasetSplit(object):
@@ -951,12 +952,32 @@ class Problem(object):
         dataset = dataset.batch(batch_size)
     else:
       # batch_size means tokens per datashard
+
+      packed = hasattr(self, 'packed_length')
+
       if config and config.use_tpu:
+          assert packed, ('If we use TPU, we should used packed datasets.')
+
+      # if dataset is packed (TPU requires packed dataset)
+      if packed:
         dataset = dataset.filter(tpu_valid_size)
         padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
-        # on TPU, we use params["batch_size"], which specifies the number of
-        # examples across all datashards
-        batch_size = params["batch_size"]
+        tf.logging.info(f'Padding features for fixed inputs: {padded_shapes}')
+
+        # on TPU, params["batch_size"] is assigned in
+        # https://github.com/medicode/tensor2tensor/blob/1525870c3a8ebc37240824a87532328e31d66887/tensor2tensor/utils/trainer_lib.py#L270
+        # to specify the number of examples for all datashards
+        # on GPU, num_shards specifies the number datashards and, thus in the
+        # packed case, also the number of examples for all datashards
+        batch_size = params.get('batch_size', num_shards)
+        if config and config.use_tpu:
+          batch_size = params.get('batch_size')
+          assert batch_size
+        else:
+          batch_size = num_shards
+        tf.logging.info(
+            f'Batch size per shard: {batch_size} / {num_shards}')
+
         if hparams.pad_batch:
           tf.logging.warn(
               "Padding the batch to ensure that remainder eval batches are "
@@ -972,13 +993,21 @@ class Problem(object):
           dataset = dataset.padded_batch(
               batch_size, padded_shapes, drop_remainder=True)
       else:
-        # On GPU, bucket by length
+        # for unpacked datasets, bucket by length
         dataset = dataset.filter(gpu_valid_size)
         batching_scheme = self._get_batching_scheme(hparams, num_shards)
 
+        # if unpacked (variable length sequences) and we are chunking
+        # input features, we need to pad the features that we
+        # chunk to the next neares multiple of the chunk length,
         if hasattr(hparams, 'bert_max_length'):
-          dataset = dataset.map(lambda x: pad_inputs_to_chunk_len(
-            x, hparams.bert_max_length))
+          dataset = dataset.map(
+            pad_to_next_chunk_length(
+              features_to_pad=['inputs'],
+              chunk_length=hparams.bert_max_length,
+              axis=0),
+            num_parallel_calls=num_threads
+          )
         dataset = dataset.apply(
             tf.contrib.data.bucket_by_sequence_length(
                 element_length_func=data_reader.example_length,
@@ -1088,7 +1117,17 @@ class Problem(object):
         features=features, receiver_tensors=serialized_example)
 
   def _pad_for_tpu(self, shapes_dict, hparams):
-    """Pads unknown features' dimensions for TPU."""
+    """Pads unknown features' dimensions for TPU.
+
+    If self.packed_length is specified, this will pad out features
+    for packed datasets appropriately so that they are a multiple
+    of chunk length
+
+    features:
+        inputs_chunk_mask [num_chunks * max_docs_per_pack]
+        inputs_* [max_length
+
+    """
     max_length = self.max_length(hparams)
     padded_shapes = {}
 
@@ -1112,6 +1151,34 @@ class Problem(object):
         padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
       else:
         padded_shapes[key] = pad_one_shape(shape, max_length)
+
+    # Fathom
+    # override shapes for packed datsets that will be chunked
+    packed_length = getattr(self, 'packed_length', False)
+    if packed_length:
+      assert packed_length == max_length
+
+      # TODO: rename inputs_chunk_mask as it behaves differently
+      # from other inputs_*
+      # https://app.asana.com/0/1137246510213018/1143626077249181/f
+      padded_shapes['inputs_chunk_mask'] = [
+        packed_length // self.chunk_len *
+        self.max_examples_per_pack]
+
+      # if dataset is packed, pad targets out to max_target_seq_length
+      # multiplied by number of docs per pack
+      # TODO: i think we can just pad this out normally to max_target_seq_length
+      # even for packed, but need to verify and change problem to not do
+      # max_target_seq_length for each doc
+      # https://app.asana.com/0/1137246510213018/1143626077249177/f
+      padded_shapes['targets'] = [
+          hparams.max_target_seq_length * self.max_examples_per_pack]
+
+      # if dataset is packed, pad out to other inputs_* to packed_length
+      padded_shapes['inputs'] = [packed_length]
+      padded_shapes['inputs_example'] = [packed_length]
+      padded_shapes['inputs_chunk'] = [packed_length]
+
     return padded_shapes
 
 
@@ -1321,15 +1388,20 @@ def _summarize_features(features, num_shards=1):
 def standardize_shapes(features, batch_size=None):
   """Set the right shapes for the features."""
 
-  for fname in ["inputs", "targets"]:
-    if fname not in features:
+  # TODO: think of better abstraction for this, presumably should
+  # pull this from the problem instance
+  # these features require expansion because of t2t assumptions
+  # that input features are rank 4
+  features_to_expand = [
+        'inputs', 'targets', 'inputs_example', 'inputs_chunk']
+  for fname in features:
+    if fname not in features_to_expand:
       continue
 
-    f = features[fname]
-    while len(f.get_shape()) < 4:
-      f = tf.expand_dims(f, axis=-1)
-
-    features[fname] = f
+    feature = features[fname]
+    while len(feature.get_shape()) < 4:
+      feature = tf.expand_dims(feature, axis=-1)
+    features[fname] = feature
 
   if batch_size:
     # Ensure batch size is set on all features
@@ -1339,6 +1411,9 @@ def standardize_shapes(features, batch_size=None):
       t.set_shape(t.get_shape().merge_with(shape))
       # Assert shapes are fully known
       t.get_shape().assert_is_fully_defined()
+
+  for n, t in features.items():
+      tf.logging.info(f'Shape for {n}: {t}, {t.get_shape().as_list()}')
 
   return features
 
@@ -1387,13 +1462,3 @@ def skip_random_fraction(dataset, data_file):
   # replicas reading the same data in lock-step.
   num_skip = random.randint(0, _file_num_records_cached(data_file))
   return dataset.skip(num_skip)
-
-def pad_inputs_to_chunk_len(example: Dict[str, Tensor], chunk_len):
-  # TODO: Refactor this code to use pad_to_length
-  #   Once https://github.com/medicode/diseaseTools/pull/4809/files#diff-e19b57d46806e65dae73365376ca62cdR123
-  #   is merged in. See https://app.asana.com/0/823468737354222/1141184554148001
-  example_length = data_reader.example_length(example)
-  chunked_len = ((example_length // chunk_len) + 1) * chunk_len
-  amount_to_pad = chunked_len - example_length
-  example['inputs'] = tf.pad(example['inputs'], [[0, amount_to_pad]])
-  return example
