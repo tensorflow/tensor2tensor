@@ -969,7 +969,6 @@ class Problem(object):
         # to specify the number of examples for all datashards
         # on GPU, num_shards specifies the number datashards and, thus in the
         # packed case, also the number of examples for all datashards
-        batch_size = params.get('batch_size', num_shards)
         if config and config.use_tpu:
           batch_size = params.get('batch_size')
           assert batch_size
