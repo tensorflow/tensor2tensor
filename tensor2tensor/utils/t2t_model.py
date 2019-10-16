@@ -1661,7 +1661,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
   metric_fns = []
-  eval_metrics = problem.eval_metric_fns(model_hparams)
+  eval_metrics = problem.eval_metric_fns()
 
   tm = problem.get_hparams(model_hparams).target_modality
   if isinstance(tm, dict):

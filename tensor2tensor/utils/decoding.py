@@ -21,7 +21,6 @@ from __future__ import print_function
 import collections
 import operator
 import os
-import pdb
 import re
 import time
 
@@ -203,7 +202,6 @@ def decode_from_dataset(estimator,
   ##############
 
   # Get the predictions as an iterable
-  print("Problem is", problem_name)
   predictions = estimator.predict(infer_input_fn, yield_single_examples =
   'packed' not in problem_name)
 
@@ -265,12 +263,8 @@ def decode_once(estimator,
                 checkpoint_path=None):
   """Decodes once."""
 
-  # Get the predictions as an iterable
-  # TODO: Find a better way to yield single examples
-
   predictions = estimator.predict(infer_input_fn,
                                   checkpoint_path=checkpoint_path)
-  # pdb.set_trace()
 
   if not log_results:
     return list(predictions)
