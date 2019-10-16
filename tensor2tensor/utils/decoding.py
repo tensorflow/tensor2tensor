@@ -35,6 +35,7 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
+from fathomairflow.dags.dag_management.common import problem_is_packed
 FLAGS = tf.flags.FLAGS
 
 # Number of samples to draw for an image input (in such cases as captioning)
@@ -202,8 +203,9 @@ def decode_from_dataset(estimator,
   ##############
 
   # Get the predictions as an iterable
+  problem_is_packed = problem_is_packed(problem_name)
   predictions = estimator.predict(
-      infer_input_fn, yield_single_examples='packed' not in problem_name)
+      infer_input_fn, yield_single_examples=not problem_is_packed)
 
   # Just return the generator directly if requested
   if return_generator:
