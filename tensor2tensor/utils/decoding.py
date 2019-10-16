@@ -261,6 +261,7 @@ def decode_once(estimator,
                 output_dir,
                 log_results=True,
                 checkpoint_path=None):
+
   """Decodes once."""
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn,
