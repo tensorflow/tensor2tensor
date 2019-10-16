@@ -1245,6 +1245,7 @@ class T2TModel(base.Layer):
         v = tf.tile(v, tf.to_int32([self._num_datashards]))
       sharded_features[k] = self._data_parallelism(
           tf.identity, tf.split(v, self._num_datashards, 0))
+
     return sharded_features
 
   def _to_features_per_datashard(self, features):
@@ -1502,6 +1503,16 @@ class T2TModel(base.Layer):
             # like actions or rewards.
             tf.logging.warning("No key %s in logits for evaluation." % k)
         else:
+          # if dataset is packed, reshape targets
+          if hasattr(problem, 'packed_length'):
+            assert hasattr(problem, 'max_examples_per_pack')
+            # TODO: should be able to reshape from
+            # [batch_size, max_target_seq_length] -> [batch_size, max_examples_per_pack, -1, 1, 1]
+            # https://app.asana.com/0/1137246510213018/1143626077249177/f
+            features['targets'] = tf.reshape(
+                tensor=features['targets'],
+                shape=[-1, hparams.max_target_seq_length, 1, 1])
+
           # FATHOM
           # NOTE: right now the tf.logging.warning will not trigger.
           # ...consider if we should add
@@ -1650,7 +1661,7 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
   """Create the metrics_fn that TPUEstimatorSpec expects."""
 
   metric_fns = []
-  eval_metrics = problem.eval_metrics()
+  eval_metrics = problem.eval_metric_fns(model_hparams)
 
   tm = problem.get_hparams(model_hparams).target_modality
   if isinstance(tm, dict):
