@@ -35,8 +35,6 @@ from __future__ import print_function
 import os
 
 # Fathom start
-import pdb
-
 import fathomt2t
 from fathomt2t.common_flags import setup_decoder_flags, dataset_to_t2t_mode
 from fathomtf.services.model_management import fathom_t2t_model_setup
@@ -128,14 +126,11 @@ def decode(estimator, hparams, decode_hp):
         # in situations where we are calling decode without write permissions
         # to the model directory
         output_dir=os.path.splitext(FLAGS.decode_output_file)[0])
-    # pdb.set_trace()
-    # print("Predictions are", list(predictions))
     # Fathom
     if FLAGS.fathom_output_predictions:
       print('Assuming only one problem...')
       assert '-' not in FLAGS.problems
       problem = registry.problem(FLAGS.problems)
-      print("Problem here is: ", problem)
       problem.output_predictions(
           predictions=predictions,
           num_examples=FLAGS.num_examples)
