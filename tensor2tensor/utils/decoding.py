@@ -203,9 +203,9 @@ def decode_from_dataset(estimator,
   ##############
 
   # Get the predictions as an iterable
-  problem_is_packed = problem_is_packed(problem_name)
+  packed_problem = problem_is_packed(problem_name)
   predictions = estimator.predict(
-      infer_input_fn, yield_single_examples=not problem_is_packed)
+      infer_input_fn, yield_single_examples=not packed_problem)
 
   # Just return the generator directly if requested
   if return_generator:
