@@ -954,6 +954,10 @@ class Problem(object):
       # batch_size means tokens per datashard
 
       packed = hasattr(self, 'packed_length')
+
+      if config and config.use_tpu:
+          assert packed, ('If we use TPU, we should used packed datasets.')
+
       # if dataset is packed (TPU requires packed dataset)
       if packed:
         dataset = dataset.filter(tpu_valid_size)
@@ -993,10 +997,9 @@ class Problem(object):
         dataset = dataset.filter(gpu_valid_size)
         batching_scheme = self._get_batching_scheme(hparams, num_shards)
 
-        # if GPU and we are chunking input features,
-        # we need to pad the features that we chunk to the next nearest
-        # multiple of the chunk length,
-        # this can differ on the GPU as we do have variable input lengths
+        # if unpacked (variable length sequences) and we are chunking
+        # input features, we need to pad the features that we
+        # chunk to the next neares multiple of the chunk length,
         if hasattr(hparams, 'bert_max_length'):
           dataset = dataset.map(
             pad_to_next_chunk_length(
@@ -1116,8 +1119,10 @@ class Problem(object):
   def _pad_for_tpu(self, shapes_dict, hparams):
     """Pads unknown features' dimensions for TPU.
 
-    If self.packed_length is specified, this will handling packed datasets
-    that are to be chunked.
+    If self.packed_length is specified, this will pad out features
+    for packed datasets appropriately so that they are a multiple
+    of chunk length
+
     features:
         inputs_chunk_mask [num_chunks * max_docs_per_pack]
         inputs_* [max_length
@@ -1385,6 +1390,8 @@ def standardize_shapes(features, batch_size=None):
 
   # TODO: think of better abstraction for this, presumably should
   # pull this from the problem instance
+  # these features require expansion because of t2t assumptions
+  # that input features are rank 4
   features_to_expand = [
         'inputs', 'targets', 'inputs_example', 'inputs_chunk']
   for fname in features:
