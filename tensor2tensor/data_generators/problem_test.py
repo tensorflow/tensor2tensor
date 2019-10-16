@@ -21,11 +21,12 @@ from __future__ import print_function
 
 import numpy as np
 
+from fathomt2t_dependencies.common_t2t_utils import pad_to_next_chunk_length
+
 from tensor2tensor.data_generators import algorithmic
 from tensor2tensor.data_generators import problem as problem_module
 from tensor2tensor.data_generators import problem_hparams
-from tensor2tensor.data_generators.problem import default_model_hparams, \
-  pad_inputs_to_chunk_len
+from tensor2tensor.data_generators.problem import default_model_hparams
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
@@ -140,12 +141,16 @@ class ProblemTest(tf.test.TestCase):
   def testChunkPadding(self):
     chunk_size = 4
     with tf.Session() as sess:
-      ex_1_inputs = tf.convert_to_tensor([0, 1 , 2])
+      ex_1_inputs = tf.convert_to_tensor([0, 1, 2])
       ex1_targets = tf.convert_to_tensor([2, 3])
       example = {'inputs': ex_1_inputs,
-               'targets': ex1_targets}
+                 'targets': ex1_targets}
 
-      padded_example = sess.run(pad_inputs_to_chunk_len(example, chunk_size))
+      padded_example = sess.run(
+        pad_to_next_chunk_length(
+            chunk_length=chunk_size,
+            axis=0,
+            features_to_pad=['inputs'])(example))
       assert padded_example['inputs'].shape == (4, )
       # Should be unchanged
       assert padded_example['targets'].shape == (2, )

@@ -969,7 +969,6 @@ class Problem(object):
         # to specify the number of examples for all datashards
         # on GPU, num_shards specifies the number datashards and, thus in the
         # packed case, also the number of examples for all datashards
-        batch_size = params.get('batch_size', num_shards)
         if config and config.use_tpu:
           batch_size = params.get('batch_size')
           assert batch_size
@@ -1125,7 +1124,7 @@ class Problem(object):
 
     features:
         inputs_chunk_mask [num_chunks * max_docs_per_pack]
-        inputs_* [max_length
+        inputs_* [packed_length]
 
     """
     max_length = self.max_length(hparams)
@@ -1413,7 +1412,7 @@ def standardize_shapes(features, batch_size=None):
       t.get_shape().assert_is_fully_defined()
 
   for n, t in features.items():
-      tf.logging.info(f'Shape for {n}: {t}, {t.get_shape().as_list()}')
+      tf.logging.info(f'Standardized shape for {n}: {t}, {t.get_shape().as_list()}')
 
   return features
 
