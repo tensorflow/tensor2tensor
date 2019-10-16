@@ -202,8 +202,8 @@ def decode_from_dataset(estimator,
   ##############
 
   # Get the predictions as an iterable
-  predictions = estimator.predict(infer_input_fn, yield_single_examples =
-  'packed' not in problem_name)
+  predictions = estimator.predict(
+      infer_input_fn, yield_single_examples='packed' not in problem_name)
 
   # Just return the generator directly if requested
   if return_generator:
@@ -262,7 +262,7 @@ def decode_once(estimator,
                 log_results=True,
                 checkpoint_path=None):
   """Decodes once."""
-
+  # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn,
                                   checkpoint_path=checkpoint_path)
 

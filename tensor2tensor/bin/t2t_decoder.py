@@ -126,6 +126,7 @@ def decode(estimator, hparams, decode_hp):
         # in situations where we are calling decode without write permissions
         # to the model directory
         output_dir=os.path.splitext(FLAGS.decode_output_file)[0])
+
     # Fathom
     if FLAGS.fathom_output_predictions:
       print('Assuming only one problem...')
