@@ -297,8 +297,8 @@ def calculate_depthwise_channel_multiplier(input_depth, output_depth):
   # and output_depth % input_depth == 0. If this is the case then we
   # can satify the output_depth constraint, so the channel multiplier
   # will be set accordingly.
-  if ((output_depth >= input_depth) and (output_depth % input_depth == 0)):
-    return output_depth / input_depth
+  if output_depth >= input_depth and output_depth % input_depth == 0:
+    return output_depth // input_depth
   return 1
 
 
@@ -350,7 +350,7 @@ class LightweightConvLayer(ConvLayerBase):
     channel_multiplier = calculate_depthwise_channel_multiplier(
         input_depth, output_depth)
 
-    num_input_variables = input_depth / self._num_repeat
+    num_input_variables = input_depth // self._num_repeat
     kernel_base = tf.get_variable(
         "kernel_base",
         [self._conv_width, 1, num_input_variables, channel_multiplier])
@@ -374,7 +374,7 @@ class LightweightConvLayer(ConvLayerBase):
   def num_params(self, input_depth, output_depth, **unused_kwargs):
     channel_multiplier = calculate_depthwise_channel_multiplier(
         input_depth, output_depth)
-    return self._conv_width * (int(input_depth / self._num_repeat) + (
+    return self._conv_width * (input_depth // self._num_repeat + (
         input_depth % self._num_repeat)) * channel_multiplier
 
 
