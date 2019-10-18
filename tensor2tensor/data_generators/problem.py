@@ -1014,7 +1014,10 @@ class Problem(object):
                 bucket_batch_sizes=batching_scheme['bucket_batch_sizes']))
 
         if not is_training:
-          batch_multiple = num_shards
+          if config and config.use_tpu:
+            batch_multiple = batch_size
+          else:
+            batch_multiple = num_shards
           if hparams.use_fixed_batch_size:
             # Make sure the last batch has the same fixed size as the rest.
             batch_multiple *= hparams.batch_size
