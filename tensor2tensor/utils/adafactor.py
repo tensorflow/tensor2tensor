@@ -24,7 +24,7 @@ from tensor2tensor.utils import quantization
 import tensorflow as tf
 
 
-class AdafactorOptimizer(tf.train.Optimizer):
+class AdafactorOptimizer(tf.compat.v1.train.Optimizer):
   """Optimizer that implements the Adafactor algorithm.
 
   Adafactor is described in https://arxiv.org/abs/1804.04235.
