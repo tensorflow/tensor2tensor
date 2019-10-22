@@ -205,9 +205,9 @@ def decode_from_dataset(estimator,
 
   # When our problems are packed, a single example corresponds to multiple docs
   # As a consequence, when we feed a single example into our model, it will
-  #   return multiple logits. When estimator sees a discrepancy between examples
-  #   coming in and predictions going out, it will throw an error unless told
-  #   to yield multiple examples
+  # return multiple logits. When estimator sees a discrepancy between examples
+  # coming in and predictions going out, it will throw an error unless told
+  # to yield multiple examples
   packed_problem = problem_name in PACKED_TO_PREDICTION_PROBLEM.values()
 
   # Get the predictions as an iterable
@@ -270,7 +270,6 @@ def decode_once(estimator,
                 output_dir,
                 log_results=True,
                 checkpoint_path=None):
-
   """Decodes once."""
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn,
