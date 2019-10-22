@@ -1469,7 +1469,6 @@ class T2TModel(base.Layer):
             eval_metrics=(eval_metrics_fn, logits),
             loss=loss)
       else:
-        logits = logits['logits']
         eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
         return tf.contrib.tpu.TPUEstimatorSpec(
             tf.estimator.ModeKeys.EVAL,
