@@ -1013,7 +1013,7 @@ class Problem(object):
                 bucket_boundaries=batching_scheme['bucket_boundaries'],
                 bucket_batch_sizes=batching_scheme['bucket_batch_sizes']))
 
-        if not is_training and not packed:
+        if not is_training:
           batch_multiple = num_shards
           if hparams.use_fixed_batch_size:
             # Make sure the last batch has the same fixed size as the rest.

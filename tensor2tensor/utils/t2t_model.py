@@ -1454,7 +1454,6 @@ class T2TModel(base.Layer):
     problem = hparams.problem
     if common_layers.is_xla_compiled():
       remove_summaries()
-      print('----outside logits', logits, labels)
       # Fathom
       # is this a problem because our logits are dict by default????
       if isinstance(logits, dict):
@@ -1465,13 +1464,11 @@ class T2TModel(base.Layer):
             tensor=labels,
             shape=[-1, hparams.max_target_seq_length, 1, 1])
         logits.update({"labels": labels})
-        print('----dict logits', logits)
         return tf.contrib.tpu.TPUEstimatorSpec(
             tf.estimator.ModeKeys.EVAL,
             eval_metrics=(eval_metrics_fn, logits),
             loss=loss)
       else:
-        print('----not dict logits', logits)
         logits = logits['logits']
         eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
         return tf.contrib.tpu.TPUEstimatorSpec(
@@ -1712,24 +1709,19 @@ def create_tpu_eval_metrics_fn(problem, model_hparams):
     """Construct metrics dictionary."""
     metrics_dict = {}
 
-    print('loggits in allm etrics', logits)
-    print('kwargs', kwargs)
     if logits is None:
       logits = kwargs
 
     for name, fn in metric_fns:
       if isinstance(logits, dict) and isinstance(labels, dict):
-        print('-- logits and labels dict', logits, labels)
         for k, v in six.iteritems(logits):
           metrics_dict["%s/%s" % (k, name)] = fn(v, labels[k])
       elif isinstance(logits, dict):
-        print('-- logits dict', logits, labels)
         tf.logging.warning("Logits is a dict, but labels is not; only "
                            "evaluating logits['targets'] against labels.")
         metrics_dict["%s/%s" % ("targets", name)] = fn(logits["targets"],
                                                        labels)
       else:
-        print('--- logits and lables not dict', logits, labels)
         metrics_dict[name] = fn(logits, labels)
 
     return metrics_dict
