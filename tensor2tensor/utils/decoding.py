@@ -33,6 +33,8 @@ from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
+
+from fathomairflow.dags.dag_management.common import PACKED_TO_PREDICTION_PROBLEM
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -202,7 +204,7 @@ def decode_from_dataset(estimator,
   ##############
 
   # Get the predictions as an iterable
-  packed_problem = 'packed_prediction' in problem_name
+  packed_problem = problem_name in PACKED_TO_PREDICTION_PROBLEM.values()
   predictions = estimator.predict(
       infer_input_fn, yield_single_examples=not packed_problem)
 
