@@ -1460,6 +1460,8 @@ class T2TModel(base.Layer):
         eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
         # For TPU, logits dict will be passed as keyword arguments to
         # eval_metrics_fn. Here we add the labels to those arguments.
+        # NOTE: for TPU, we use pack our data, here we reshape
+        # so that eval is on a per doc basis for the example
         labels = tf.reshape(
             tensor=labels,
             shape=[-1, hparams.max_target_seq_length, 1, 1])
