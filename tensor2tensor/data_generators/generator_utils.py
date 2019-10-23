@@ -49,6 +49,10 @@ def to_example(dictionary):
   for (k, v) in six.iteritems(dictionary):
     if not v:
       raise ValueError("Empty generated field: %s" % str((k, v)))
+    # Subtly in PY2 vs PY3, map is not scriptable in py3. As a result,
+    # map objects will fail with TypeError, unless converted to a list.
+    if six.PY3 and isinstance(v, map):
+      v = list(v)
     if (isinstance(v[0], six.integer_types) or
         np.issubdtype(type(v[0]), np.integer)):
       features[k] = tf.train.Feature(int64_list=tf.train.Int64List(value=v))
