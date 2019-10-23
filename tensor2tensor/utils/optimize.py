@@ -118,6 +118,9 @@ class ConditionalOptimizer(tf.train.Optimizer):
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
     def cast_grad_tpu(g, v):
+      """Should match upstream t2t
+      https://github.com/tensorflow/tensor2tensor/blob/1547c25571633f828ddd74accba76d07d8d043af/tensor2tensor/utils/optimize.py#L232
+      """
       if v is not None and g is not None:
         g = common_layers.cast_like(g, v)
       if self._zero_grads and g is None:
@@ -136,7 +139,7 @@ class ConditionalOptimizer(tf.train.Optimizer):
       Sept 30 2019: We tried removing this since we are off word embeddings
           but slowdown seems to still be around
       """
-      if v is not None or g is None:
+      if v is None or g is None:
         return (g, v)
       if v.dtype.base_dtype == g.dtype.base_dtype:
         return (g, v)
