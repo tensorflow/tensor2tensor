@@ -34,6 +34,9 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
+# Note: The PACKED_TO_PREDICTION_PROBLEM dict should not be in the
+#  dag_management code, and should instead be fathomt2t/problems/
+# Once dag code is allowed to import non-dag code again, please move this dict
 from fathomairflow.dags.dag_management.common import PACKED_TO_PREDICTION_PROBLEM
 import tensorflow as tf
 
