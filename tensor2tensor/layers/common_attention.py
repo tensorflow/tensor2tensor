@@ -1916,8 +1916,9 @@ def dot_product_self_attention_relative_v2(q,
 
     # This calculation only works for self attention.
     # q, k and v must therefore have the same shape.
+    # (Except v can have different depth.)
     q.get_shape().assert_is_compatible_with(k.get_shape())
-    q.get_shape().assert_is_compatible_with(v.get_shape())
+    q.get_shape()[:-1].assert_is_compatible_with(v.get_shape()[:-1])
 
     # Use separate embeddings suitable for keys and values.
     _, num_heads, length, depth_k = common_layers.shape_list(k)
