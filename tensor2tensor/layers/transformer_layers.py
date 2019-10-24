@@ -33,7 +33,8 @@ def layers():
 
 
 def transformer_prepare_encoder(inputs, target_space, hparams, features=None,
-                                type_ids=None, num_types=None):
+                                type_ids=None, num_types=None,
+                                reuse_target_embedding=tf.AUTO_REUSE):
   """Prepare one shard of the model for the encoder.
 
   Args:
@@ -45,6 +46,8 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None,
     type_ids: optional, an int64 Tensor of shape [batch, length] that allows
       for adding type embeddings, similar to positional embeddings.
     num_types: optional, an int that decides the number of types in type_ids.
+    reuse_target_embedding: option to reuse variable name in the case that
+      symbol modalities are reused between inputs/targets.
 
   Returns:
     encoder_input: a Tensor, bottom of encoder stack
@@ -98,7 +101,8 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None,
         32,
         ishape_static[-1],
         name="target_space_embedding",
-        dtype=hparams.get("activation_dtype", "float32"))
+        dtype=hparams.get("activation_dtype", "float32"),
+        reuse=reuse_target_embedding)
     emb_target_space = tf.reshape(emb_target_space, [1, 1, -1])
     encoder_input += emb_target_space
   if hparams.pos == "timing":
