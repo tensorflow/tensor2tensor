@@ -183,7 +183,7 @@ for _name, _opt in tf.contrib.layers.OPTIMIZER_CLS_NAMES.items():
   _register_base_optimizer(_name, _opt)
 
 
-class ConditionalOptimizer(tf.train.Optimizer):
+class ConditionalOptimizer(tf.compat.v1.train.Optimizer):
   """Conditional optimizer."""
 
   def __init__(self, optimizer_name, lr, hparams, use_tpu=False):  # pylint: disable=super-init-not-called
