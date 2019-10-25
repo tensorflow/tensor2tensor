@@ -2737,7 +2737,7 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
   Returns:
     fn(*inputs)
   """
-  vs = tf.get_variable_scope()
+  vs = tf.compat.v1.get_variable_scope()
   get_vars_fn = (
       vs.global_variables if use_global_vars else vs.trainable_variables)
   len_before_vars = len(get_vars_fn())
@@ -3064,7 +3064,7 @@ def _recompute_grad(fn, args):
 
   @fn_with_custom_grad(grad_fn)
   def fn_with_recompute(*args):
-    cached_vs.append(tf.get_variable_scope())
+    cached_vs.append(tf.compat.v1.get_variable_scope())
     cached_arg_scope.append(tf.contrib.framework.current_arg_scope())
     return fn(*args)
 
@@ -3079,7 +3079,7 @@ def dense(x, units, **kwargs):
     # We need to find the layer parameters using scope name for the layer, so
     # check that the layer is named. Otherwise parameters for different layers
     # may get mixed up.
-    layer_name = tf.get_variable_scope().name
+    layer_name = tf.compat.v1.get_variable_scope().name
     if (not layer_name) or ("name" not in kwargs):
       raise ValueError(
           "Variable scope and layer name cannot be empty. Actual: "
@@ -3410,7 +3410,7 @@ def should_generate_summaries():
   if name_scope and "while/" in name_scope:
     # Summaries don't work well within tf.while_loop()
     return False
-  if tf.get_variable_scope().reuse:
+  if tf.compat.v1.get_variable_scope().reuse:
     # Avoid generating separate summaries for different data shards
     return False
   return True
