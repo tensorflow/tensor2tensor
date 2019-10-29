@@ -1572,7 +1572,7 @@ def dot_product_attention(q,
   """
   with tf.variable_scope(
       name, default_name="dot_product_attention", values=[q, k, v]) as scope:
-    logits = tf.einsum("...kd,...qd->...qk", k, q)
+    logits = tf.matmul(q, k, transpose_b=True)  # [..., length_q, length_kv]
     if bias is not None:
       bias = common_layers.cast_like(bias, logits)
       logits += bias
