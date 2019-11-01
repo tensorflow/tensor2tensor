@@ -427,12 +427,12 @@ class T2TExperiment(object):
   def evaluate(self):
     flags = tf.flags
     FLAGS = flags.FLAGS
-    print(f"Path is {FLAGS.checkpoint_path}")
+    print(f"Path is {FLAGS.eval_checkpoint_path}")
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
         hooks=self._eval_spec.hooks,
-        checkpoint_path=FLAGS.checkpoint_path,
+        checkpoint_path=FLAGS.eval_checkpoint_path,
     )
 
   def evaluate_on_train_data(self):
