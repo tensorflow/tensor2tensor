@@ -427,7 +427,6 @@ class T2TExperiment(object):
   def evaluate(self):
     flags = tf.flags
     FLAGS = flags.FLAGS
-    print(f"Path is {FLAGS.eval_checkpoint_path}")
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
