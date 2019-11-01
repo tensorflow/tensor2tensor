@@ -766,6 +766,15 @@ def add_evolved_transformer_hparams(hparams):
 
 
 @registry.register_hparams
+def evolved_transformer_tiny():
+  """Base parameters for Evolved Transformer model."""
+  hparams = add_evolved_transformer_hparams(transformer.transformer_tiny())
+  hparams.learning_rate_schedule = (
+      "constant*single_cycle_cos_decay")
+  return hparams
+
+
+@registry.register_hparams
 def evolved_transformer_base():
   """Base parameters for Evolved Transformer model."""
   return add_evolved_transformer_hparams(transformer.transformer_base())
@@ -804,4 +813,20 @@ def evolved_transformer_big_tpu():
   hparams.learning_rate_constant = 1 / hparams.learning_rate_warmup_steps ** 0.5
   hparams.learning_rate_schedule = (
       "constant*single_cycle_cos_decay")
+  return hparams
+
+
+@registry.register_hparams
+def evolved_transformer_tpu_basic():
+  """Basic Seq2Seq TPU hyper-parameters."""
+  hparams = transformer.transformer_big_tpu()
+  hparams.add_hparam("print_vars", False)
+  hparams.batch_size = 8192
+  hparams.max_length = 256
+
+  # N < 0 means all weights in the model are trainable.
+  # N >= 0 means all weights are frozen except N top decoder layers +
+  # (pre-)softmax matrix (that projects from hidden size to vocab size).
+  hparams.add_hparam("num_trainable_top_decoder_layers", -1)
+
   return hparams
