@@ -63,11 +63,15 @@ flags.DEFINE_bool("disable_grappler_optimizations", False,
 
 
 def create_hparams():
+  hparams_path = None
+  if FLAGS.output_dir:
+    hparams_path = os.path.join(FLAGS.output_dir, "hparams.json")
   return trainer_lib.create_hparams(
       FLAGS.hparams_set,
       FLAGS.hparams,
       data_dir=os.path.expanduser(FLAGS.data_dir),
-      problem_name=FLAGS.problem)
+      problem_name=FLAGS.problem,
+      hparams_path=hparams_path)
 
 
 def create_decode_hparams():
