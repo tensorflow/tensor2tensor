@@ -69,7 +69,8 @@ flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
 flags.DEFINE_string("eval_checkpoint_path", None,
-                    "Use this path when doing eval")
+                    "The model path our trainer should do eval with. "
+                    "If set, model exporting after eval is disabled")
 # TODO(hinsu): Enable DistributionStrategy by default once performance gap
 # between DistributionStrategy and Parallelism is resolved.
 flags.DEFINE_bool(
