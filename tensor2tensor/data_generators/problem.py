@@ -395,7 +395,7 @@ class Problem(object):
   def preprocess(self, dataset, mode, hparams, interleave=True):
     """Runtime preprocessing on the whole dataset.
 
-    Return a tf.data.Datset -- the preprocessed version of the given one.
+    Return a tf.data.Dataset -- the preprocessed version of the given one.
     By default this function calls preprocess_example.
 
     Args:
