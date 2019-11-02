@@ -733,7 +733,7 @@ def iaf_flow(one_hot_assignments,
     padded_assignments = tf.pad(
         one_hot_assignments, [[0, 0], [0, 0], [1, 0], [0, 0]])[:, :, :-1, :]
     scale_bijector = tfp.distributions.bijectors.Affine(
-        scale_tril=tfp.distributions.fill_triangular(scale_weights))
+        scale_tril=tfp.math.fill_triangular(scale_weights))
     scale = scale_bijector.forward(
         tf.transpose(padded_assignments, [0, 1, 3, 2]))
     # Transpose the bijector output since it performs a batch matmul.
