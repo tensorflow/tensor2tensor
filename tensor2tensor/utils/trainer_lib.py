@@ -425,10 +425,14 @@ class T2TExperiment(object):
         max_steps=max_steps or self._train_spec.max_steps)
 
   def evaluate(self):
+    flags = tf.flags
+    FLAGS = flags.FLAGS
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
-        hooks=self._eval_spec.hooks)
+        hooks=self._eval_spec.hooks,
+        checkpoint_path=FLAGS.eval_checkpoint_path,
+    )
 
   def evaluate_on_train_data(self):
     self._estimator.evaluate(
