@@ -45,6 +45,7 @@ class Metrics(object):
   APPROX_BLEU = "approx_bleu_score"
   APPROX_SARI = "approx_sari_score"
   RMSE = "rmse"
+  UNPADDED_MSE = "unpadded_mse"
   LOG_POISSON = "log_poisson"
   PEARSON = "pearson"
   R2 = "r_squared"
@@ -61,6 +62,8 @@ class Metrics(object):
   SIGMOID_RECALL_ONE_HOT = "sigmoid_recall_one_hot"
   SIGMOID_PRECISION_ONE_HOT = "sigmoid_precision_one_hot"
   SIGMOID_CROSS_ENTROPY_ONE_HOT = "sigmoid_cross_entropy_one_hot"
+  TWO_CLASS_ACCURACY = "two_class_accuracy"
+  TWO_CLASS_LOG_LIKELIHOOD = "two_class_log_likelihood"
   ROC_AUC = "roc_auc"
   IMAGE_SUMMARY = "image_summary"
   DMOL_PERPLEXITY = "disc_mol_neg_log_perplexity"
@@ -85,6 +88,15 @@ def padded_rmse(predictions, labels, weights_fn=common_layers.weights_all):
   error = tf.pow(predictions - labels, 2)
   error_sqrt = tf.sqrt(tf.reduce_mean(error * weights))
   return error_sqrt, tf.reduce_sum(weights)
+
+
+def unpadded_mse(predictions, labels, weights_fn=common_layers.weights_all):
+  predictions = tf.to_float(predictions)
+  labels = tf.to_float(labels)
+  weights = weights_fn(labels)
+  error = tf.pow(predictions - labels, 2)
+  mean_error = tf.reduce_mean(error * weights)
+  return mean_error, tf.reduce_sum(weights)
 
 
 def abs_error(predictions, labels, weights_fn=None):
@@ -161,6 +173,43 @@ def rounding_sequence_accuracy(predictions,
   axis = list(range(1, len(outputs.get_shape())))
   correct_seq = 1.0 - tf.minimum(1.0, tf.reduce_sum(not_correct, axis=axis))
   return correct_seq, tf.constant(1.0)
+
+
+def two_class_accuracy(predictions, labels, weights_fn=None):
+  """Accuracy for two class classification with 0/1 labels."""
+  with tf.variable_scope("two_class_accuracy", values=[predictions, labels]):
+    del weights_fn
+    hard_predictions = tf.to_int32(tf.math.round(tf.squeeze(predictions)))
+    int_labels = tf.to_int32(labels)
+    _, accuracy = tf.metrics.accuracy(labels=int_labels,
+                                      predictions=hard_predictions)
+    return accuracy, tf.constant(1.0)
+
+
+def two_class_log_likelihood(predictions, labels, weights_fn=None):
+  """Log-likelihood for two class classification with 0/1 labels.
+
+  Args:
+    predictions: A float valued tensor of shape [`batch_size`].  Each
+      component should be between 0 and 1.
+    labels: An int valued tensor of shape [`batch_size`].  Each component
+      should either be 0 or 1.
+    weights_fn: unused.
+
+  Returns:
+    A pair, with the average log likelihood in the first component.
+  """
+  del weights_fn
+  float_labels = tf.cast(labels, dtype=tf.float64)
+  # likelihood should be just p for class 1, and 1 - p for class 0.
+  # signs is 1 for class 1, and -1 for class 0
+  signs = 2 * float_labels - tf.ones_like(float_labels)
+  # constant_term is 1 for class 0, and 0 for class 1.
+  constant_term = tf.ones_like(float_labels) - float_labels
+  likelihoods = constant_term + signs * tf.squeeze(predictions)
+  log_likelihoods = tf.log(likelihoods)
+  avg_log_likelihood = tf.reduce_mean(log_likelihoods)
+  return avg_log_likelihood, tf.constant(1.0)
 
 
 def padded_sequence_accuracy(predictions,
@@ -847,6 +896,7 @@ METRICS_FNS = {
     Metrics.APPROX_BLEU: bleu_hook.bleu_score,
     Metrics.APPROX_SARI: sari_hook.sari_score,
     Metrics.RMSE: padded_rmse,
+    Metrics.UNPADDED_MSE: unpadded_mse,
     Metrics.LOG_POISSON: padded_log_poisson,
     Metrics.PEARSON: pearson_correlation_coefficient,
     Metrics.R2: padded_variance_explained,
@@ -861,6 +911,8 @@ METRICS_FNS = {
     Metrics.SIGMOID_CROSS_ENTROPY_ONE_HOT: sigmoid_cross_entropy_one_hot,
     Metrics.SET_PRECISION: set_precision,
     Metrics.SET_RECALL: set_recall,
+    Metrics.TWO_CLASS_ACCURACY: two_class_accuracy,
+    Metrics.TWO_CLASS_LOG_LIKELIHOOD: two_class_log_likelihood,
     Metrics.ROC_AUC: roc_auc,
     Metrics.IMAGE_SUMMARY: image_summary,
     Metrics.DMOL_PERPLEXITY: dmol_neg_log_perplexity,

@@ -90,6 +90,27 @@ class MetricsTest(tf.test.TestCase):
       actual = session.run(a)
     self.assertEqual(actual, expected)
 
+  def testTwoClassAccuracyMetric(self):
+    predictions = tf.constant([0.0, 0.2, 0.4, 0.6, 0.8, 1.0], dtype=tf.float32)
+    targets = tf.constant([0, 0, 1, 0, 1, 1], dtype=tf.int32)
+    expected = 2.0 / 3.0
+    with self.test_session() as session:
+      accuracy, _ = metrics.two_class_accuracy(predictions, targets)
+      session.run(tf.global_variables_initializer())
+      session.run(tf.local_variables_initializer())
+      actual = session.run(accuracy)
+    self.assertAlmostEqual(actual, expected)
+
+  def testTwoClassLogLikelihood(self):
+    predictions = np.array([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    targets = np.array([0, 0, 1, 0, 1, 1])
+    expected = (2.0 * np.log(0.8) + 2.0 * np.log(0.4)) / 6.0
+    with self.test_session() as session:
+      avg_log_likelihood, _ = metrics.two_class_log_likelihood(
+          predictions, targets)
+      actual = session.run(avg_log_likelihood)
+    self.assertAlmostEqual(actual, expected)
+
   def testRMSEMetric(self):
     predictions = np.full((10, 1), 1)  # All 1's
     targets = np.full((10, 1), 3)  # All 3's
@@ -100,6 +121,18 @@ class MetricsTest(tf.test.TestCase):
           tf.constant(targets, dtype=tf.int32))
       session.run(tf.global_variables_initializer())
       actual = session.run(rmse)
+    self.assertEqual(actual, expected)
+
+  def testUnpaddedRMSEMetric(self):
+    predictions = np.full((10, 1), 1)  # All 1's
+    targets = np.full((10, 1), 3)  # All 3's
+    expected = np.mean((predictions - targets)**2)  # MSE = 4.0
+    with self.test_session() as session:
+      mse, _ = metrics.unpadded_mse(
+          tf.constant(predictions, dtype=tf.int32),
+          tf.constant(targets, dtype=tf.int32))
+      session.run(tf.global_variables_initializer())
+      actual = session.run(mse)
     self.assertEqual(actual, expected)
 
   def testSequenceEditDistanceMetric(self):
