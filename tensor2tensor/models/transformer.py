@@ -1491,41 +1491,44 @@ def transformer_self_attention_layer(decoder_input,
               tf.estimator.ModeKeys.TRAIN) == tf.estimator.ModeKeys.TRAIN))
       x = common_layers.layer_postprocess(x, y, hparams)
     if encoder_output is not None:
+      if not isinstance(encoder_output, (list,)):
+        encoder_output = [encoder_output]
       with tf.variable_scope("encdec_attention"):
-        y = common_attention.multihead_attention(
-            common_layers.layer_preprocess(
-                x, hparams, layer_collection=layer_collection),
-            encoder_output,
-            encoder_decoder_attention_bias,
-            hparams.attention_key_channels or hparams.hidden_size,
-            hparams.attention_value_channels or hparams.hidden_size,
-            hparams.hidden_size,
-            hparams.num_heads,
-            hparams.attention_dropout,
-            max_relative_position=hparams.max_relative_position,
-            heads_share_relative_embedding=(
-                hparams.heads_share_relative_embedding),
-            add_relative_to_values=hparams.add_relative_to_values,
-            save_weights_to=save_weights_to,
-            cache=layer_cache,
-            make_image_summary=make_image_summary,
-            dropout_broadcast_dims=attention_dropout_broadcast_dims,
-            max_length=hparams.get("max_length"),
-            vars_3d=hparams.get("attention_variables_3d"),
-            activation_dtype=hparams.get("activation_dtype", "float32"),
-            weight_dtype=hparams.get("weight_dtype", "float32"),
-            layer_collection=layer_collection,
-            hard_attention_k=hparams.get("hard_attention_k", 0),
-            gumbel_noise_weight=hparams.get("gumbel_noise_weight", 0.0),
-            max_area_width=max_area_width,
-            max_area_height=max_area_height,
-            memory_height=memory_height,
-            area_key_mode=hparams.get("area_key_mode", "none"),
-            area_value_mode=hparams.get("area_value_mode", "none"),
-            training=(hparams.get(
-                "mode",
-                tf.estimator.ModeKeys.TRAIN) == tf.estimator.ModeKeys.TRAIN))
-        x = common_layers.layer_postprocess(x, y, hparams)
+        for enc_output in encoder_output:
+          y = common_attention.multihead_attention(
+              common_layers.layer_preprocess(
+                  x, hparams, layer_collection=layer_collection),
+              enc_output,
+              encoder_decoder_attention_bias,
+              hparams.attention_key_channels or hparams.hidden_size,
+              hparams.attention_value_channels or hparams.hidden_size,
+              hparams.hidden_size,
+              hparams.num_heads,
+              hparams.attention_dropout,
+              max_relative_position=hparams.max_relative_position,
+              heads_share_relative_embedding=(
+                  hparams.heads_share_relative_embedding),
+              add_relative_to_values=hparams.add_relative_to_values,
+              save_weights_to=save_weights_to,
+              cache=layer_cache,
+              make_image_summary=make_image_summary,
+              dropout_broadcast_dims=attention_dropout_broadcast_dims,
+              max_length=hparams.get("max_length"),
+              vars_3d=hparams.get("attention_variables_3d"),
+              activation_dtype=hparams.get("activation_dtype", "float32"),
+              weight_dtype=hparams.get("weight_dtype", "float32"),
+              layer_collection=layer_collection,
+              hard_attention_k=hparams.get("hard_attention_k", 0),
+              gumbel_noise_weight=hparams.get("gumbel_noise_weight", 0.0),
+              max_area_width=max_area_width,
+              max_area_height=max_area_height,
+              memory_height=memory_height,
+              area_key_mode=hparams.get("area_key_mode", "none"),
+              area_value_mode=hparams.get("area_value_mode", "none"),
+              training=(hparams.get(
+                  "mode",
+                  tf.estimator.ModeKeys.TRAIN) == tf.estimator.ModeKeys.TRAIN))
+          x = common_layers.layer_postprocess(x, y, hparams)
     return x, layer_cache
 
 
