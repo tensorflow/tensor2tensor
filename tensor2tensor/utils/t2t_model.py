@@ -1515,6 +1515,7 @@ class T2TModel(base.Layer):
             # TODO: should be able to reshape from
             # [batch_size, max_target_seq_length] -> [batch_size, max_examples_per_pack, -1, 1, 1]
             # https://app.asana.com/0/1137246510213018/1143626077249177/f
+            print("RESHAPING TARGETS")
             features['targets'] = tf.reshape(
                 tensor=features['targets'],
                 shape=[-1, hparams.max_target_seq_length, 1, 1])
