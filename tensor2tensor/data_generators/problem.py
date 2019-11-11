@@ -156,7 +156,7 @@ def preprocess_example_common(example, hparams, mode):
     else:
       example["targets"] = tf.concat(
           [example["inputs"], [0], example["targets"]], 0)
-  if hparams.max_target_seq_length > 0:
+  if hparams.max_target_seq_length > 0 and not hasattr(hparams, 'packed_length'):
     example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
     example["targets"] = tf.reshape(example["targets"],
@@ -961,11 +961,17 @@ class Problem(object):
 
       # if dataset is packed (TPU requires packed dataset)
       if packed:
+        # def print_fn(x):
+          # x['targets'] = debug_tfprint(message="targets before are", tvar=x['targets'])
+          # x['inputs'] = debug_tfprint(message="inputs are", tvar=x['inputs'])
+          # return x
+        # dataset = dataset.map(print_fn)
         dataset = dataset.filter(tpu_valid_size)
-        def print_fn(x):
-          x['targets'] = debug_tfprint(message="targets are", tvar=x['targets'])
-          return x
-        dataset = dataset.map(print_fn)
+        # def print_fn(x):
+        #   x['targets'] = debug_tfprint(message="targets after are", tvar=x['targets'])
+        #   # x['inputs'] = debug_tfprint(message="inputs are", tvar=x['inputs'])
+        #   return x
+        # dataset = dataset.map(print_fn)
         padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
         tf.logging.info(f'Padding features for fixed inputs: {padded_shapes}')
         # on TPU, params["batch_size"] is assigned in
