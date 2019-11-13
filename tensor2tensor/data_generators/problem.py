@@ -155,7 +155,10 @@ def preprocess_example_common(example, hparams, mode):
     else:
       example["targets"] = tf.concat(
           [example["inputs"], [0], example["targets"]], 0)
-  if hparams.max_target_seq_length > 0:
+  # TODO: We should maybe refactor packed problems to not use max_target_seq_len
+  #   the way they currently do.
+  #   See https://app.asana.com/0/823468737354222/1149459228825153
+  if hparams.max_target_seq_length > 0 and not hasattr(hparams, 'packed_length'):
     example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
     example["targets"] = tf.reshape(example["targets"],
