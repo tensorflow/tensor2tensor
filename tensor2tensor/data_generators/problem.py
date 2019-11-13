@@ -40,7 +40,6 @@ from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
 from fathomt2t_dependencies.common_t2t_utils import pad_to_next_chunk_length
-from fathomtf.utils.tfutils import debug_tfprint
 
 
 class DatasetSplit(object):
@@ -961,17 +960,7 @@ class Problem(object):
 
       # if dataset is packed (TPU requires packed dataset)
       if packed:
-        # def print_fn(x):
-          # x['targets'] = debug_tfprint(message="targets before are", tvar=x['targets'])
-          # x['inputs'] = debug_tfprint(message="inputs are", tvar=x['inputs'])
-          # return x
-        # dataset = dataset.map(print_fn)
         dataset = dataset.filter(tpu_valid_size)
-        # def print_fn(x):
-        #   x['targets'] = debug_tfprint(message="targets after are", tvar=x['targets'])
-        #   # x['inputs'] = debug_tfprint(message="inputs are", tvar=x['inputs'])
-        #   return x
-        # dataset = dataset.map(print_fn)
         padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
         tf.logging.info(f'Padding features for fixed inputs: {padded_shapes}')
         # on TPU, params["batch_size"] is assigned in
