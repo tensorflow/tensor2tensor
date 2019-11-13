@@ -155,6 +155,9 @@ def preprocess_example_common(example, hparams, mode):
     else:
       example["targets"] = tf.concat(
           [example["inputs"], [0], example["targets"]], 0)
+  # TODO: We should maybe refactor packed problems to not use max_target_seq_len
+  #   the way they currently do.
+  #   See https://app.asana.com/0/823468737354222/1149459228825153
   if hparams.max_target_seq_length > 0 and not hasattr(hparams, 'packed_length'):
     example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
@@ -963,6 +966,7 @@ class Problem(object):
         dataset = dataset.filter(tpu_valid_size)
         padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
         tf.logging.info(f'Padding features for fixed inputs: {padded_shapes}')
+
         # on TPU, params["batch_size"] is assigned in
         # https://github.com/medicode/tensor2tensor/blob/1525870c3a8ebc37240824a87532328e31d66887/tensor2tensor/utils/trainer_lib.py#L270
         # to specify the number of examples for all datashards
