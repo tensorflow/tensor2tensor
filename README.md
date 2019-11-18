@@ -16,14 +16,10 @@ welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CO
 of deep learning models and datasets designed to make deep learning more
 accessible and [accelerate ML
 research](https://research.googleblog.com/2017/06/accelerating-deep-learning-research.html).
-T2T is actively used and maintained by researchers and engineers within the
+T2T was developed by researchers and engineers in the
 [Google Brain team](https://research.google.com/teams/brain/) and a community
-of users. We're eager to collaborate with you too, so feel free to
-[open an issue on GitHub](https://github.com/tensorflow/tensor2tensor/issues)
-or send along a pull request (see [our contribution doc](CONTRIBUTING.md)).
-You can chat with us on
-[Gitter](https://gitter.im/tensor2tensor/Lobby) and join the
-[T2T Google Group](https://groups.google.com/forum/#!forum/tensor2tensor).
+of users. It is now in maintenance mode &mdash; we keep it running and welcome
+bug-fixes, but encourage users to use the successor library [Trax](https://github.com/google/trax).
 
 ### Quick Start
 
