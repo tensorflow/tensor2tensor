@@ -1462,7 +1462,9 @@ class T2TModel(base.Layer):
       if use_tpu:
         inputs = features.get("inputs")
         if inputs is None:
-          inputs = features["targets"]
+          inputs = features.get("targets")
+        if inputs is None:
+          inputs = features["infer_targets"]
         shape = inputs.get_shape().as_list()
         if shape[0] is None:
           shape[0] = decode_hparams.batch_size or hparams.batch_size
