@@ -694,7 +694,6 @@ class Text2RealProblem(Text2TextProblem):
     return metrics_list
 
 
-
 def txt_line_iterator(txt_path):
   """Iterate through lines of file."""
   with tf.gfile.Open(txt_path) as f:
