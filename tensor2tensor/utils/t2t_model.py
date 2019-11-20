@@ -808,7 +808,8 @@ class T2TModel(base.Layer):
         target_modality = self._problem_hparams.modality["targets"]
       if (target_modality == modalities.ModalityType.CLASS_LABEL or
           self._problem_hparams.get("regression_targets")):
-          beam_size = 1  # No use to run beam-search for classification or regression.
+        # No use to run beam-search for classification or regression.
+        beam_size = 1
       if beam_size == 1:
         log_info("Greedy Decoding")
         results = self._greedy_infer(features, decode_length, use_tpu)

@@ -605,7 +605,7 @@ class TextConcat2ClassProblem(Text2ClassProblem):
       label = sample["label"]
       yield {"inputs": inputs, "targets": [label]}
 
-      
+
 class Text2RealProblem(Text2TextProblem):
   """Base class for text regression problems with one or more tasks.
     Suitable for text-based problems where targets are continuous, real values.
