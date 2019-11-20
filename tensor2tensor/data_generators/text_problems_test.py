@@ -75,7 +75,6 @@ class TextProblems(tf.test.TestCase):
     cls.targets_file = os.path.join(cls.tmp_dir, "targets.train.txt")
     cls.labels_file = os.path.join(cls.tmp_dir, "labels.train.txt")
     cls.labels_str_file = os.path.join(cls.tmp_dir, "labels_str.train.txt")
-
     data = [(cls.inputs, cls.inputs_file), (cls.targets, cls.targets_file),
             (cls.labels, cls.labels_file), (cls.labels_strs,
                                             cls.labels_str_file)]
