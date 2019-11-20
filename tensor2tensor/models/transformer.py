@@ -462,7 +462,7 @@ class Transformer(t2t_model.T2TModel):
 
     if self.has_input:
       inputs_shape = common_layers.shape_list(features["inputs"])
-      if target_modality == modalities.ModalityType.CLASS_LABEL:
+      if target_modality == modalities.ModalityType.CLASS_LABEL or self._problem_hparams.get("regression_targets"):
         decode_length = 1
       else:
         decode_length = (
@@ -704,7 +704,7 @@ class Transformer(t2t_model.T2TModel):
           " of the dataset when decoding.")
     if self.has_input:
       inputs_shape = common_layers.shape_list(features["inputs"])
-      if target_modality == modalities.ModalityType.CLASS_LABEL:
+      if target_modality == modalities.ModalityType.CLASS_LABEL or self._problem_hparams.get("regression_targets"):
         decode_length = 1
       else:
         decode_length = (
