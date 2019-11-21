@@ -927,13 +927,6 @@ def _interactive_input_tensor_to_features_dict(feature_map, hparams):
   features["decode_length"] = (
       IMAGE_DECODE_LENGTH if input_is_image else inputs[1])
   features["inputs"] = x
-  # Save inputs to "partial_targets" when prepending inputs to targets. Also
-  # keep "inputs" as some models crash if they don't exist.
-  if getattr(hparams, "prepend_mode", "none") != "none":
-    shape = tf.shape(x)
-    partial_targets = tf.reshape(x, [shape[0], shape[1]])
-    partial_targets = tf.pad(partial_targets, [[0, 0], [0, 1]])
-    features["partial_targets"] = partial_targets
   return features
 
 
@@ -964,13 +957,6 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
   features["decode_length"] = (
       IMAGE_DECODE_LENGTH if input_is_image else tf.shape(x)[1] + 50)
   features["inputs"] = x
-  # Save inputs to "partial_targets" when prepending inputs to targets. Also
-  # keep "inputs" as some models crash if they don't exist.
-  if getattr(hparams, "prepend_mode", "none") != "none":
-    shape = tf.shape(x)
-    partial_targets = tf.reshape(x, [shape[0], shape[1]])
-    partial_targets = tf.pad(partial_targets, [[0, 0], [0, 1]])
-    features["partial_targets"] = partial_targets
   return features
 
 
