@@ -865,9 +865,15 @@ class Transformer(t2t_model.T2TModel):
         vocab_size = tf.shape(ret)[1]
 
         def forced_logits():
+          # Workaround for: tf.one_hot(
+          #               tf.repeat(partial_targets[:, i], [beam_size]), vocab_size, 0.0,
+          #               -1e9)
+          # Can be replaced by the above in future versions (from tf 1.15).
           return tf.one_hot(
-              tf.tile(partial_targets[:, i], [beam_size]), vocab_size, 0.0,
-              -1e9)
+              tf.reshape(tf.tile(
+                  tf.reshape(partial_targets[:, i], [-1, 1]),
+                  [1, beam_size]), [-1]),
+              vocab_size, 0.0, -1e9)
 
         ret = tf.cond(
             tf.less(i, partial_targets_length), forced_logits, lambda: ret)
@@ -1170,9 +1176,6 @@ def fast_decode(encoder_output,
           "scores": decoding log probs from the beam search,
               None if using greedy decoding (beam_size=1)
       }
-
-    Raises:
-      NotImplementedError: If beam size > 1 with partial targets.
   """
   if encoder_output is not None:
     batch_size = common_layers.shape_list(encoder_output)[0]
