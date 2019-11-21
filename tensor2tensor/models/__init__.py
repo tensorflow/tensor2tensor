@@ -73,6 +73,7 @@ from tensor2tensor.models.research import universal_transformer
 from tensor2tensor.models.research import vqa_attention
 from tensor2tensor.models.research import vqa_recurrent_self_attention
 from tensor2tensor.models.research import vqa_self_attention
+from tensor2tensor.models.research import shuffle_network
 
 from tensor2tensor.models.video import basic_deterministic
 from tensor2tensor.models.video import basic_recurrent
