@@ -70,7 +70,6 @@ setup(
             'attrs>=17.4.0',
             'pytest>=3.8.0',
             'mock',
-            'pylint',
             'jupyter',
             'matplotlib',
             # Need atari extras for Travis tests, but because gym is already in
