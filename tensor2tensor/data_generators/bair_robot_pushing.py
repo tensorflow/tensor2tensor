@@ -36,6 +36,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import tf_slim as slim
 
 DATA_URL = (
     "http://rail.eecs.berkeley.edu/datasets/bair_robot_pushing_dataset_v0.tar")
@@ -102,7 +103,7 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
         "frame_number": tf.FixedLenFeature([1], tf.int64),
     }
     decoders = {
-        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
+        "frame_number": slim.tfexample_decoder.Tensor(
             tensor_key="frame_number"),
     }
     return data_fields, decoders
@@ -187,9 +188,9 @@ class VideoBairRobotPushingWithActions(VideoBairRobotPushing):
         "action": tf.FixedLenFeature([4], tf.float32),
     }
     decoders = {
-        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
+        "frame_number": slim.tfexample_decoder.Tensor(
             tensor_key="frame_number"),
-        "action": tf.contrib.slim.tfexample_decoder.Tensor(tensor_key="action"),
+        "action": slim.tfexample_decoder.Tensor(tensor_key="action"),
     }
     return data_fields, decoders
 

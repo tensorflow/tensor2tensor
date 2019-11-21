@@ -32,6 +32,7 @@ from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
+import tf_slim as slim
 
 FLAGS = tf.flags.FLAGS
 
@@ -278,8 +279,8 @@ class TranslateDistillProblem(TranslateProblem):
 
     # hack: ignoring true targets and putting dist_targets in targets
     data_items_to_decoders = {
-        "inputs": tf.contrib.slim.tfexample_decoder.Tensor("inputs"),
-        "targets": tf.contrib.slim.tfexample_decoder.Tensor("dist_targets"),
+        "inputs": slim.tfexample_decoder.Tensor("inputs"),
+        "targets": slim.tfexample_decoder.Tensor("dist_targets"),
     }
 
     return (data_fields, data_items_to_decoders)

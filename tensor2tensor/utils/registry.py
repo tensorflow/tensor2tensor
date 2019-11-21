@@ -546,13 +546,6 @@ pruning_strategy = Registries.pruning_strategies.__getitem__
 list_pruning_strategies = lambda: sorted(Registries.pruning_strategies)
 register_pruning_strategy = Registries.pruning_strategies.register
 
-# deprecated functions - plurals inconsistent with rest
-# deprecation decorators added 2019-01-25
-attacks = tf.contrib.framework.deprecated(None, "Use registry.attack")(attack)
-pruning_strategies = tf.contrib.framework.deprecated(
-    None, "Use registry.pruning_strategy")(
-        pruning_strategy)
-
 
 def display_list_by_prefix(names_list, starting_spaces=0):
   """Creates a help string for names_list grouped by prefix."""

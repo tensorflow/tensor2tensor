@@ -44,6 +44,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import tf_slim as slim
 
 _BASE_EXAMPLE_IMAGE_SIZE = 64
 
@@ -350,7 +351,7 @@ class Img2imgAllenBrain(problem.Problem):
 
     data_items_to_decoders = {
         "targets":
-            tf.contrib.slim.tfexample_decoder.Image(
+            slim.tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),

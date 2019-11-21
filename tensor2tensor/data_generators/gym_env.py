@@ -36,6 +36,7 @@ from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import tf_slim as slim
 
 
 Frame = collections.namedtuple(
@@ -377,7 +378,7 @@ class T2TEnv(EnvSimulationProblem):
         name: tf.FixedLenFeature([1], tf.int64) for name in field_names
     }
     decoders = {
-        name: tf.contrib.slim.tfexample_decoder.Tensor(tensor_key=name)
+        name: slim.tfexample_decoder.Tensor(tensor_key=name)
         for name in field_names
     }
     return (data_fields, decoders)

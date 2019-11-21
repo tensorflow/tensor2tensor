@@ -28,6 +28,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+import tf_slim as slim
 
 try:
   import matplotlib  # pylint: disable=g-import-not-at-top
@@ -85,7 +86,7 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
         "frame_number": tf.FixedLenFeature([1], tf.int64),
     }
     decoders = {
-        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
+        "frame_number": slim.tfexample_decoder.Tensor(
             tensor_key="frame_number"),
     }
     return data_fields, decoders

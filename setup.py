@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.14.1',
+    version='1.15.0',
     description='Tensor2Tensor',
     author='Google Inc.',
     author_email='no-reply@google.com',
@@ -57,11 +57,11 @@ setup(
         'tensorflow-datasets',
         'tensorflow-gan',
         'tensorflow-probability==0.7.0',
+        'tf_slim',
         'tqdm',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.14.0'],
-        'tensorflow_gpu': ['tensorflow-gpu>=1.14.0'],
+        'tensorflow': ['tensorflow>=1.15.0'],
         'tensorflow-hub': ['tensorflow-hub>=0.1.1'],
         'tests': [
             'absl-py',
@@ -77,10 +77,6 @@ setup(
             # install_requires, pip skips the atari extras, so we instead do an
             # explicit pip install gym[atari] for the tests.
             # 'gym[atari]',
-        ],
-        'trax': [
-            'jax',
-            'jaxlib',
         ],
         'allen': ['Pillow==5.1.0', 'pandas==0.23.0'],
     },

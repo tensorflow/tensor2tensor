@@ -35,6 +35,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import video_metrics
 
 import tensorflow as tf
+import tf_slim as slim
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -384,7 +385,7 @@ class VideoProblem(problem.Problem):
 
     data_items_to_decoders = {
         "frame":
-            tf.contrib.slim.tfexample_decoder.Image(
+            slim.tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 shape=[self.frame_height, self.frame_width, self.num_channels],
@@ -676,7 +677,7 @@ class VideoProblemOld(problem.Problem):
 
     data_items_to_decoders = {
         "inputs":
-            tf.contrib.slim.tfexample_decoder.Image(
+            slim.tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),
@@ -766,7 +767,7 @@ class Video2ClassProblem(VideoProblemOld):
         super(Video2ClassProblem, self).example_reading_spec())
     data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
     data_items_to_decoders[
-        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+        "targets"] = slim.tfexample_decoder.Tensor(label_key)
     return data_fields, data_items_to_decoders
 
   def hparams(self, defaults, unused_model_hparams):
