@@ -806,10 +806,8 @@ class T2TModel(base.Layer):
 
       if self._problem_hparams:
         target_modality = self._problem_hparams.modality["targets"]
-      if (target_modality == modalities.ModalityType.CLASS_LABEL or
-          self._problem_hparams.get("regression_targets")):
-        # No use to run beam-search for classification or regression.
-        beam_size = 1
+        if target_modality == modalities.ModalityType.CLASS_LABEL:
+          beam_size = 1  # No use to run beam-search for a single class.
       if beam_size == 1:
         log_info("Greedy Decoding")
         results = self._greedy_infer(features, decode_length, use_tpu)
@@ -1066,8 +1064,7 @@ class T2TModel(base.Layer):
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               common_layers.shape_list(initial_output))
     target_modality = self._problem_hparams.modality["targets"]
-    if (target_modality == modalities.ModalityType.CLASS_LABEL or
-        self._problem_hparams.get("regression_targets")):
+    if target_modality == modalities.ModalityType.CLASS_LABEL:
       decode_length = 1
     else:
       if "partial_targets" in features:
@@ -1246,8 +1243,7 @@ class T2TModel(base.Layer):
     initial_output = tf.slice(initial_output, [0, 0, 0, 0],
                               common_layers.shape_list(initial_output))
     target_modality = self._problem_hparams.modality["targets"]
-    if (target_modality == modalities.ModalityType.CLASS_LABEL or
-        self._problem_hparams.get("regression_targets")):
+    if target_modality == modalities.ModalityType.CLASS_LABEL:
       decode_length = 1
     else:
       if "partial_targets" in features:

@@ -94,13 +94,6 @@ class TextProblems(tf.test.TestCase):
     tf.gfile.Copy(cls.targets_file, os.path.join(cls.tmp_dir,
                                                  "targets.eval.txt"))
 
-    cls.targets_regr = [[1.23, 2.34], [4.56, 5.67]]
-    cls.targets_regr_file = os.path.join(cls.tmp_dir, "targets_regr.train.txt")
-    with tf.gfile.Open(cls.targets_regr_file, "w") as f:
-      for targets in cls.targets_regr:
-        f.write(" ".join([str(x) for x in targets]) + "\n")
-
-
   def testTxtLineIterator(self):
     lines = [line for line in text_problems.txt_line_iterator(self.inputs_file)]
     self.assertEqual(lines, self.inputs)
@@ -142,16 +135,6 @@ class TextProblems(tf.test.TestCase):
       labels.append(entry["label"])
     self.assertEqual(inputs, self.inputs)
     self.assertEqual(labels, self.labels)
-
-  def testText2RealTxtIterator(self):
-    inputs = []
-    targets = []
-    for entry in text_problems.text2real_txt_iterator(self.inputs_file,
-                                                      self.targets_regr_file):
-      inputs.append(entry["inputs"])
-      targets.append(entry["targets"])
-    self.assertEqual(inputs, self.inputs)
-    self.assertEqual(targets, self.targets_regr)
 
   def testText2TextTxtTabIterator(self):
     inputs = []
