@@ -1170,9 +1170,6 @@ def fast_decode(encoder_output,
           "scores": decoding log probs from the beam search,
               None if using greedy decoding (beam_size=1)
       }
-
-    Raises:
-      NotImplementedError: If beam size > 1 with partial targets.
   """
   if encoder_output is not None:
     batch_size = common_layers.shape_list(encoder_output)[0]
