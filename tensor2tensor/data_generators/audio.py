@@ -19,14 +19,12 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-from subprocess import call
+import subprocess
 import tarfile
 import wave
-# from tensor2tensor.data_generators import generator_utils
-
+from absl import flags
 import tensorflow as tf
 
-flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("timit_paths", "",
@@ -78,7 +76,7 @@ def _get_audio_data(filepath):
   # Construct a true .wav file.
   out_filepath = filepath.strip(".WAV") + ".wav"
   # Assumes sox is installed on system. Sox converts from NIST SPHERE to WAV.
-  call(["sox", filepath, out_filepath])
+  subprocess.call(["sox", filepath, out_filepath])
   wav_file = wave.open(open(out_filepath))
   frame_count = wav_file.getnframes()
   byte_array = wav_file.readframes(frame_count)

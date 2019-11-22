@@ -33,6 +33,7 @@ setup(
         'tensor2tensor/bin/t2t-translate-all',
     ],
     install_requires=[
+        'absl-py',
         'bz2file',
         'dopamine-rl',
         'flask',
@@ -64,7 +65,6 @@ setup(
         'tensorflow': ['tensorflow>=1.15.0'],
         'tensorflow-hub': ['tensorflow-hub>=0.1.1'],
         'tests': [
-            'absl-py',
             # Needed to fix a Travis pytest error.
             # https://github.com/Julian/jsonschema/issues/449#issuecomment-411406525
             'attrs>=17.4.0',
