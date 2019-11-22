@@ -22,9 +22,10 @@ import os
 import subprocess
 import tarfile
 import wave
-from absl import flags
+
 import tensorflow as tf
 
+flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("timit_paths", "",

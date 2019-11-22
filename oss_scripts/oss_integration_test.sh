@@ -40,7 +40,7 @@ then
   sleep 10
 
   # Query
-  pip install tensorflow-serving-api
+  pip install tensorflow-serving-api=="$TF_VERSION"
   t2t-query-server \
       --server=localhost:$server_port \
       --servable_name=$model_name \
