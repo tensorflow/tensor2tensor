@@ -108,6 +108,8 @@ pytest --disable-warnings \
   tensor2tensor/layers/ngram_test.py \
   tensor2tensor/utils/t2t_model_test.py \
   tensor2tensor/utils/test_utils_test.py \
+  --deselect=tensor2tensor/layers/common_layers_test.py::CommonLayersTest::testFactoredTensorImplicitConversion \
+  --deselect=tensor2tensor/layers/modalities_test.py::ModalityTest::testSymbolModalityTargetsFactored \
   --deselect=tensor2tensor/layers/common_video_test.py::CommonVideoTest::testGifSummary
 set_status
 
