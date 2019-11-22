@@ -5,8 +5,16 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.15.0',
+    version='1.15.1',
     description='Tensor2Tensor',
+    long_description=(
+        'Tensor2Tensor, or T2T for short, is a library of '
+        'deep learning models and datasets designed to make deep '
+        'learning more accessible and accelerate ML research. '
+        'T2T was developed by researchers and engineers in the Google '
+        'Brain team and a community of users. It is now in maintenance '
+        'mode -- we keep it running and welcome bug-fixes, but encourage '
+        'users to use the successor library Trax.'),
     author='Google Inc.',
     author_email='no-reply@google.com',
     url='http://github.com/tensorflow/tensor2tensor',
@@ -33,6 +41,7 @@ setup(
         'tensor2tensor/bin/t2t-translate-all',
     ],
     install_requires=[
+        'absl-py',
         'bz2file',
         'dopamine-rl',
         'flask',
@@ -64,7 +73,6 @@ setup(
         'tensorflow': ['tensorflow>=1.15.0'],
         'tensorflow-hub': ['tensorflow-hub>=0.1.1'],
         'tests': [
-            'absl-py',
             # Needed to fix a Travis pytest error.
             # https://github.com/Julian/jsonschema/issues/449#issuecomment-411406525
             'attrs>=17.4.0',

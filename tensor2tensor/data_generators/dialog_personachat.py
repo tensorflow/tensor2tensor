@@ -27,9 +27,7 @@ import zipfile
 from tensor2tensor.data_generators import dialog_abstract
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import registry
-import tensorflow as tf
 
-FLAGS = tf.flags.FLAGS
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID

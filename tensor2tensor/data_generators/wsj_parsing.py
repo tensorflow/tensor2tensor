@@ -21,15 +21,16 @@ from __future__ import print_function
 
 import os
 
+from absl import flags
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
-tf.flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
+flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
 
 
-FLAGS = tf.flags.FLAGS
+FLAGS = flags.FLAGS
 
 
 @registry.register_problem

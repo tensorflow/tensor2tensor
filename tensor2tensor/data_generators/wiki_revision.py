@@ -31,6 +31,7 @@ from __future__ import print_function
 import math
 import random
 
+from absl import flags
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
@@ -40,7 +41,6 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-flags = tf.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("wiki_revision_num_train_shards", 50,

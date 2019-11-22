@@ -34,8 +34,6 @@ from tensor2tensor.utils import mlperf_log
 import tensorflow as tf
 import tf_slim as slim
 
-FLAGS = tf.flags.FLAGS
-
 
 class TranslateProblem(text_problems.Text2TextProblem):
   """Base class for translation problems."""

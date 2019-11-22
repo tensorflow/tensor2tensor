@@ -27,7 +27,6 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 import tensorflow as tf
 
-FLAGS = tf.flags.FLAGS
 
 pkg_dir, _ = os.path.split(__file__)
 _TESTDATA = os.path.join(pkg_dir, "test_data")
