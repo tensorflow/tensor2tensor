@@ -31,7 +31,6 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 
 import tensorflow as tf
-import tf_slim as slim
 
 
 def matplotlib_pyplot():
@@ -173,7 +172,7 @@ class ImageProblem(problem.Problem):
 
     data_items_to_decoders = {
         "inputs":
-            slim.tfexample_decoder.Image(
+            tf.contrib.slim.tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),
@@ -240,7 +239,7 @@ class Image2ClassProblem(ImageProblem):
     data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
 
     data_items_to_decoders[
-        "targets"] = slim.tfexample_decoder.Tensor(label_key)
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
     return data_fields, data_items_to_decoders
 
   def hparams(self, defaults, unused_model_hparams):
@@ -344,7 +343,7 @@ class Image2TextProblem(ImageProblem):
         super(Image2TextProblem, self).example_reading_spec())
     data_fields[label_key] = tf.VarLenFeature(tf.int64)
     data_items_to_decoders[
-        "targets"] = slim.tfexample_decoder.Tensor(label_key)
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
     return data_fields, data_items_to_decoders
 
   def feature_encoders(self, data_dir):

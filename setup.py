@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.15.1',
+    version='1.15.2',
     description='Tensor2Tensor',
     long_description=(
         'Tensor2Tensor, or T2T for short, is a library of '
@@ -66,7 +66,6 @@ setup(
         'tensorflow-datasets',
         'tensorflow-gan',
         'tensorflow-probability==0.7.0',
-        'tf_slim',
         'tqdm',
     ],
     extras_require={

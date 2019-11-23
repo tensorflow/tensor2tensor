@@ -25,7 +25,6 @@ from tensor2tensor.data_generators import video_utils
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import gym_env_problem
 import tensorflow as tf
-import tf_slim as slim
 
 _IMAGE_ENCODED_FIELD = "image/encoded"
 _IMAGE_FORMAT_FIELD = "image/format"
@@ -81,7 +80,7 @@ class RenderedEnvProblem(gym_env_problem.GymEnvProblem,
     # Add frame number spec and decoder.
     env_fields[_FRAME_NUMBER_FIELD] = tf.FixedLenFeature((1,), tf.int64)
     env_decoders[
-        _FRAME_NUMBER_FIELD] = slim.tfexample_decoder.Tensor(
+        _FRAME_NUMBER_FIELD] = tf.contrib.slim.tfexample_decoder.Tensor(
             _FRAME_NUMBER_FIELD)
 
     # Add video fields and decoders

@@ -33,9 +33,12 @@ try:
 except ImportError:
   distribute_summary_op_util = summary_op_util
 
-
-tfl = tf.layers
-tfcl = tf.contrib.layers
+tfl = common_layers.layers()
+tfcl = None
+try:
+  tfcl = tf.contrib.layers
+except AttributeError:
+  pass
 
 
 def swap_time_and_batch_axes(inputs):

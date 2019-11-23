@@ -23,6 +23,7 @@ import contextlib
 import functools
 import math
 
+from absl import logging
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 
@@ -44,11 +45,15 @@ def layers():
   global _cached_layers
   if _cached_layers is not None:
     return _cached_layers
-  layers_module = tf.layers
+  layers_module = None
+  try:
+    layers_module = tf.layers
+  except AttributeError:
+    logging.info("Cannot access tf.layers, trying TF2 layers.")
   try:
     from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
     if tf2.enabled():
-      tf.logging.info("Running in V2 mode, using Keras layers.")
+      logging.info("Running in V2 mode, using Keras layers.")
       layers_module = tf.keras.layers
   except ImportError:
     pass

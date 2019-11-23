@@ -29,7 +29,6 @@ from tensor2tensor.utils import sari_hook
 
 import tensorflow as tf
 
-from tensorflow.contrib.eager.python import tfe
 from tensorflow.python.util import tf_inspect as inspect
 
 
@@ -786,6 +785,9 @@ def create_eager_metrics_internal(metric_fns,
     (accum_fn(predictions, targets) => None,
      result_fn() => dict<str metric_name, float avg_val>
   """
+
+  from tensorflow.contrib.eager.python import tfe  # pylint: disable=g-import-not-at-top
+
   tfe_metrics = {}
 
   for name in metric_fns:

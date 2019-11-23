@@ -36,7 +36,6 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
-from tensorflow.contrib.tpu.python.tpu import tpu_estimator
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
@@ -297,6 +296,7 @@ def create_estimator(model_name,
 
   del use_xla
   if use_tpu or use_tpu_estimator:
+    from tensorflow.contrib.tpu.python.tpu import tpu_estimator  # pylint: disable=g-import-not-at-top
     problem = hparams.problem
     batch_size = (
         problem.tpu_batch_size_per_shard(hparams) *

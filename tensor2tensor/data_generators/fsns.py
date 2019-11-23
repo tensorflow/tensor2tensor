@@ -28,7 +28,6 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-import tf_slim as slim
 
 
 @registry.register_problem
@@ -77,5 +76,5 @@ class ImageFSNS(image_utils.ImageProblem):
         super(ImageFSNS, self).example_reading_spec())
     data_fields[label_key] = tf.VarLenFeature(tf.int64)
     data_items_to_decoders[
-        "targets"] = slim.tfexample_decoder.Tensor(label_key)
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
     return data_fields, data_items_to_decoders

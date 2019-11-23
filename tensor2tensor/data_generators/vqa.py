@@ -39,7 +39,6 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-import tf_slim as slim
 
 
 def _get_vqa_v2_annotations(directory,
@@ -218,10 +217,10 @@ class ImageVqav2Tokens10kLabels3k(ImageQuestion2MultilabelProblem):
         (), tf.int64, allow_missing=True)
 
     data_items_to_decoders[
-        "question"] = slim.tfexample_decoder.Tensor(
+        "question"] = tf.contrib.slim.tfexample_decoder.Tensor(
             "image/question")
     data_items_to_decoders[
-        "targets"] = slim.tfexample_decoder.Tensor(
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(
             "image/answer")
     return data_fields, data_items_to_decoders
 
@@ -339,23 +338,23 @@ class ImageVqav2RcnnFeatureTokens10kLabels3k(ImageVqav2Tokens10kLabels3k):
         (), tf.int64, allow_missing=True)
 
     data_items_to_decoders[
-        "inputs"] = slim.tfexample_decoder.Tensor(
+        "inputs"] = tf.contrib.slim.tfexample_decoder.Tensor(
             "image/feature")
     data_items_to_decoders[
-        "question_id"] = slim.tfexample_decoder.Tensor(
+        "question_id"] = tf.contrib.slim.tfexample_decoder.Tensor(
             "image/question_id")
     data_items_to_decoders[
-        "image_id"] = slim.tfexample_decoder.Tensor(
+        "image_id"] = tf.contrib.slim.tfexample_decoder.Tensor(
             "image/image_id")
 
     data_items_to_decoders[
-        "spatial_feature"] = slim.tfexample_decoder.Tensor(
+        "spatial_feature"] = tf.contrib.slim.tfexample_decoder.Tensor(
             "image/spatial_feature")
     data_items_to_decoders[
-        "question"] = slim.tfexample_decoder.Tensor(
+        "question"] = tf.contrib.slim.tfexample_decoder.Tensor(
             "image/question")
     data_items_to_decoders[
-        "targets"] = slim.tfexample_decoder.Tensor(
+        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(
             "image/answer")
 
     return data_fields, data_items_to_decoders

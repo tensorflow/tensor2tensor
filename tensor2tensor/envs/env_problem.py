@@ -33,7 +33,6 @@ from tensor2tensor.envs import gym_spaces_utils
 from tensor2tensor.envs import trajectory
 from tensor2tensor.layers import modalities
 import tensorflow as tf
-import tf_slim as slim
 
 # Names for data fields in stored tf.Examples.
 TIMESTEP_FIELD = "timestep"
@@ -477,7 +476,7 @@ class EnvProblem(Env, problem.Problem):
     }
 
     data_items_to_decoders = {
-        field: slim.tfexample_decoder.Tensor(field)
+        field: tf.contrib.slim.tfexample_decoder.Tensor(field)
         for field in data_fields
     }
 

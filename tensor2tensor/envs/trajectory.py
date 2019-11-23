@@ -31,7 +31,7 @@ from absl import logging
 import cloudpickle
 import numpy as np
 from tensor2tensor.envs import time_step
-from tensorflow.io import gfile
+import tensorflow as tf
 
 TRAJECTORY_FILE_FORMAT = r"trajectory_epoch_{epoch}_env_id_{env_id}_temperature_{temperature}_r_{r}.pkl"
 
@@ -528,7 +528,7 @@ class BatchTrajectory(object):
         r="*",
     )
 
-    trajectory_files = gfile.glob(
+    trajectory_files = tf.io.gfile.glob(
         os.path.join(trajectory_dir, trajectory_file_glob))
 
     if n_trajectories:
@@ -543,7 +543,7 @@ class BatchTrajectory(object):
         time.sleep(sleep_time_secs)
         max_tries -= 1
         sleep_time_secs = min(10.0, sleep_time_secs * 2)
-        trajectory_files = gfile.glob(
+        trajectory_files = tf.io.gfile.glob(
             os.path.join(trajectory_dir, trajectory_file_glob))
 
       # We can't get the required number of files and we can't up-sample either.
@@ -557,7 +557,7 @@ class BatchTrajectory(object):
     # We read and load all the files, revisit if this becomes a problem.
     trajectories_buffer = []
     for trajectory_file in trajectory_files:
-      with gfile.GFile(trajectory_file, "rb") as f:
+      with tf.io.gfile.GFile(trajectory_file, "rb") as f:
         trajectory = get_pickle_module().load(f)
         assert isinstance(trajectory, Trajectory)
         trajectories_buffer.append(trajectory)

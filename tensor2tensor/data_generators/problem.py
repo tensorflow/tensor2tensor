@@ -32,8 +32,13 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
-import tf_slim as slim
-from tensorflow.contrib.tpu.python.tpu import tpu_config
+# pylint: disable=g-import-not-at-top
+try:
+  from tensorflow.contrib.tpu.python.tpu import tpu_config
+except ImportError:
+  # TF 2.0 doesn't ship with contrib.
+  tpu_config = None
+# pylint: enable=g-import-not-at-top
 
 
 
@@ -199,7 +204,7 @@ class Problem(object):
         - Mutate defaults as needed
     * example_reading_spec
         - Specify the names and types of the features on disk.
-        - Specify slim.tfexample_decoder
+        - Specify tf.contrib.slim.tfexample_decoder
     * preprocess_example(example, mode, hparams)
         - Preprocess the example feature dict from feature name to Tensor or
           SparseTensor.
@@ -643,7 +648,7 @@ class Problem(object):
 
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     tf.logging.info("Reading data files from %s", data_filepattern)
-    data_files = sorted(slim.parallel_reader.get_data_files(
+    data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
         data_filepattern))
 
     # Functions used in dataset transforms below. `filenames` can be either a
@@ -706,12 +711,12 @@ class Problem(object):
     data_fields["batch_prediction_key"] = tf.FixedLenFeature([1], tf.int64, 0)
     if data_items_to_decoders is None:
       data_items_to_decoders = {
-          field: slim.tfexample_decoder.Tensor(field)
+          field: tf.contrib.slim.tfexample_decoder.Tensor(field)
           for field in data_fields
       }
 
-    decoder = slim.tfexample_decoder.TFExampleDecoder(data_fields,
-                                                      data_items_to_decoders)
+    decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
+        data_fields, data_items_to_decoders)
 
     decode_items = list(sorted(data_items_to_decoders))
     decoded = decoder.decode(serialized_example, items=decode_items)

@@ -28,7 +28,6 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow as tf
-import tf_slim as slim
 
 
 def cast_ints_to_int32(features):
@@ -380,7 +379,7 @@ def input_fn(dataset,
     dataset = dataset.repeat()
 
   if is_training and skip_random_fraction_when_training:
-    data_files = slim.parallel_reader.get_data_files(filepattern)
+    data_files = tf.contrib.slim.parallel_reader.get_data_files(filepattern)
     #  In continuous_train_and_eval when switching between train and
     #  eval, this input_fn method gets called multiple times and it
     #  would give you the exact same samples from the last call

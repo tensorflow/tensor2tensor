@@ -37,7 +37,6 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from tensorflow_datasets.video import moving_sequence
-import tf_slim as slim
 
 
 DATA_URL = (
@@ -95,7 +94,7 @@ class VideoMovingMnist(video_utils.VideoProblem):
         "frame_number": tf.FixedLenFeature([1], tf.int64),
     }
     decoders = {
-        "frame_number": slim.tfexample_decoder.Tensor(
+        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
             tensor_key="frame_number"),
     }
     return data_fields, decoders
