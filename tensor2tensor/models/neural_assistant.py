@@ -426,6 +426,25 @@ def compute_summary_embedding(input_embeddings, input_lengths, hparams):
 
 
 @registry.register_hparams
+def neural_assistant_base():
+  """HParams for a base neural_assistant model."""
+  hparams = transformer.transformer_base()
+  hparams.add_hparam("pos_weight", 1.0)  # weight for positive triples
+  hparams.add_hparam("similarity_fuction",
+                     "bilinear")  # dot_product or bilinear
+  hparams.add_hparam("pool_technique", "average")  # avg or max pool or last
+  hparams.add_hparam("last_k", 1)  # number of last indices for averaging
+  hparams.add_hparam("max_triple_length", 30)  # max length of every triple
+  hparams.add_hparam("train_triple_num",
+                     5000)  # max number of triples during training
+  hparams.add_hparam("attend_kb", True)  # if False, it's a transformer model
+  hparams.add_hparam("kb_loss_weight", 0.0)  # weight for distant supervision
+  hparams.add_hparam("test_triple_num",
+                     28483)  # max triples of KB
+  return hparams
+
+
+@registry.register_hparams
 def neural_assistant_tiny():
   """HParams for tiny neural_assistant model."""
   hparams = transformer.transformer_tiny_tpu()
