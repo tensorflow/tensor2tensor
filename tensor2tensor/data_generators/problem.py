@@ -883,8 +883,7 @@ class Problem(object):
                           "data_parallelism") and config.data_parallelism:
       num_shards = config.data_parallelism.n
     else:
-      pass
-    num_shards = 4
+      num_shards = 1
 
     max_length = self.max_length(hparams)
 
