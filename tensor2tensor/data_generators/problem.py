@@ -883,7 +883,8 @@ class Problem(object):
                           "data_parallelism") and config.data_parallelism:
       num_shards = config.data_parallelism.n
     else:
-      num_shards = 1
+      pass
+    num_shards = 4
 
     max_length = self.max_length(hparams)
 
@@ -1158,7 +1159,9 @@ class Problem(object):
     # override shapes for packed datsets that will be chunked
     packed_length = getattr(self, 'packed_length', False)
     if packed_length:
-      assert packed_length == max_length
+      assert packed_length == max_length, (f'Problem packed len '
+                                           f'{packed_length} != the model '
+                                           f'hparam max length {max_length}')
 
       # TODO: rename inputs_chunk_mask as it behaves differently
       # from other inputs_*
