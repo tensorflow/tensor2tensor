@@ -1066,7 +1066,7 @@ class Problem(object):
 
     """
     if hasattr(hparams, 'chunk_length'):
-      tf.logging.warn('Splitting sequence into chunks for BERT.')
+      tf.logging.warn('Splitting sequence into chunks.')
       batching_scheme = (
         bert_utilities.hparams_to_bert_batching_scheme(hparams, num_shards))
     else:
