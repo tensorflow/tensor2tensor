@@ -38,6 +38,9 @@ import fathomt2t_dependencies.t2t_trainer_utils as fathom
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
+from gcloud.gcs import fhfile
+import fathomairflow.dags.dag_management.exit_codes as exit_codes
+
 flags = tf.flags
 FLAGS = flags.FLAGS
 
@@ -380,6 +383,10 @@ def main(argv):
     assert False, 'No cloudml support currently'
     cloud_mlengine.launch()
     return
+
+  path = FLAGS.eval_checkpoint_path
+  if path is not None and not fhfile.Exists(path):
+      sys.exit(exit_codes.RESOURCE_NOT_FOUND)
 
   if FLAGS.generate_data:
     generate_data()
