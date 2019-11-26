@@ -18,7 +18,6 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-
 import six
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
@@ -83,27 +82,22 @@ class NeuralAssistant(transformer.Transformer):
 
   def encode_knowledge_bottom(self, features):
     tf.logging.info("Encoding knowledge " + str(self.triple_num))
-    hparams = self._hparams
-
     # Make sure this is embeddings for triples
-    # <tf.float32>[batch_size, max_triple_num*max_triple_length, 1, emb_dim]
+    # <tf.float32>[batch_size, triple_num*max_triple_length, 1, emb_dim]
     fact_embedding = features["encoded_triples"]
-    # [batch_size, max_triple_num*max_triple_length, emb_dim]
+    # [batch_size, triple_num*max_triple_length, emb_dim]
     fact_embedding = tf.squeeze(fact_embedding, 2)
 
     kb_shape = common_layers.shape_list(fact_embedding)
     batch_size = kb_shape[0]
     embed_dim = kb_shape[2]
-    max_triple_length = hparams.max_triple_length
-    fact_embedding = fact_embedding[:, :self.triple_num * max_triple_length, :]
-    # <tf.float32>[batch_size*max_triple_num, max_triple_length, emb_dim]
+    # <tf.float32>[batch_size*triple_num, max_triple_length, emb_dim]
     re_fact_embedding = tf.reshape(
         fact_embedding, [batch_size * self.triple_num, -1, embed_dim],
         name="reshape_fact_embedding")
 
-    # <tf.int64>[batch_size, max_triple_num]
+    # <tf.int64>[batch_size, triple_num]
     input_fact_lengths = features["triple_lens"]
-    input_fact_lengths = input_fact_lengths[:, :self.triple_num]
     # Stack the fact lengths.
     # <tf.int64>[batch_size*max_triple_num]
     re_fact_lengths = tf.reshape(
@@ -119,9 +113,9 @@ class NeuralAssistant(transformer.Transformer):
     Args:
       features: features.
       encoder_output: <tf.float32>[batch_size, input_length, hidden_dim]
-      fact_embedding: <tf.float32>[batch_size*max_triple_num, max_triple_length,
+      fact_embedding: <tf.float32>[batch_size*triple_num, max_triple_length,
         emb_dim]
-      fact_lengths: # <tf.int32>[batch_size*max_triple_num]
+      fact_lengths: # <tf.int32>[batch_size*triple_num]
 
     Returns:
       knowledge_weights:
@@ -156,16 +150,16 @@ class NeuralAssistant(transformer.Transformer):
                     tf.expand_dims(context_vector_summary, 2)), -1)
     elif hparams.similarity_fuction == "bilinear":
       # Tile the context vector summary.
-      # <tf.float32>[batch_size, max_triple_num*hidden_dim]
+      # <tf.float32>[batch_size, triple_num*hidden_dim]
       tiled_context_vector = tf.tile(context_vector_summary,
                                      [1, self.triple_num])
-      # <tf.float32>[batch_size, max_triple_num, hidden_dim]
+      # <tf.float32>[batch_size, triple_num, hidden_dim]
       context_vector = tf.reshape(tiled_context_vector,
                                   [-1, self.triple_num, encoder_hidden_dim])
       # compute outer product
       context_vector = tf.expand_dims(context_vector, -1)
       knowledge_encoder_output = tf.expand_dims(knowledge_encoder_output, 2)
-      # <tf.float32>[batch_size, max_triple_num, hidden_dim, hidden_dim]
+      # <tf.float32>[batch_size, triple_num, hidden_dim, hidden_dim]
       outer_product = tf.matmul(context_vector, knowledge_encoder_output)
       outer_product = tf.reshape(
           outer_product,
@@ -175,7 +169,6 @@ class NeuralAssistant(transformer.Transformer):
 
     avg_triple_loss = 0.0
     triple_labels = features["triple_labels"]
-    triple_labels = triple_labels[:, :self.triple_num]
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       triple_losses = tf.nn.weighted_cross_entropy_with_logits(
           labels=triple_labels,
@@ -213,7 +206,7 @@ class NeuralAssistant(transformer.Transformer):
     with tf.variable_scope("knowledge"):
       with tf.name_scope("knowledge_encoding"):
         # Encode knowledge.
-        # <tf.float32>[batch_size, max_triple_num, emb_dim]
+        # <tf.float32>[batch_size, triple_num, emb_dim]
         fact_embedding, fact_lengths = self.encode_knowledge_bottom(features)
         tf.logging.info("Encoded knowledge")
 
