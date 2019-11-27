@@ -384,10 +384,12 @@ def main(argv):
     cloud_mlengine.launch()
     return
 
-  path = FLAGS.eval_checkpoint_path + ".index"
-  if path is not None and not fhfile.Exists(path):
-      tf.logging.warn(f"Path {path} was set but unable to find")
-      sys.exit(exit_codes.RESOURCE_NOT_FOUND)
+  path = FLAGS.eval_checkpoint_path
+  if path is not None:
+      path += ".index"
+      if not fhfile.Exists(path):
+          tf.logging.warn(f"Path {path} was set but unable to find")
+          sys.exit(exit_codes.RESOURCE_NOT_FOUND)
 
   if FLAGS.generate_data:
     generate_data()
