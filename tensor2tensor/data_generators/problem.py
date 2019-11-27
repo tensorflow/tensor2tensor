@@ -155,7 +155,10 @@ def preprocess_example_common(example, hparams, mode):
     else:
       example["targets"] = tf.concat(
           [example["inputs"], [0], example["targets"]], 0)
-  if hparams.max_target_seq_length > 0:
+  # TODO: We should maybe refactor packed problems to not use max_target_seq_len
+  #   the way they currently do.
+  #   See https://app.asana.com/0/823468737354222/1149459228825153
+  if hparams.max_target_seq_length > 0 and not hasattr(hparams, 'packed_length'):
     example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
     example["targets"] = tf.reshape(example["targets"],
@@ -999,11 +1002,11 @@ class Problem(object):
         # if unpacked (variable length sequences) and we are chunking
         # input features, we need to pad the features that we
         # chunk to the next neares multiple of the chunk length,
-        if hasattr(hparams, 'bert_max_length'):
+        if hasattr(hparams, 'chunk_length'):
           dataset = dataset.map(
             pad_to_next_chunk_length(
               features_to_pad=['inputs'],
-              chunk_length=hparams.bert_max_length,
+              chunk_length=hparams.chunk_length,
               axis=0),
             num_parallel_calls=num_threads
           )
@@ -1054,7 +1057,7 @@ class Problem(object):
   def _get_batching_scheme(self, hparams, num_shards):
     """Prepares batching scheme for bucketing by seq length.
 
-    If hparams.bert_max_length, see docstring of
+    If hparams.chunk_length, see docstring of
         hparams_to_bert_batching_scheme
     else uses hparams_to_batching_scheme
 
@@ -1062,8 +1065,8 @@ class Problem(object):
     the batching scheme.
 
     """
-    if hasattr(hparams, 'bert_max_length'):
-      tf.logging.warn('Splitting sequence into chunks for BERT.')
+    if hasattr(hparams, 'chunk_length'):
+      tf.logging.warn('Splitting sequence into chunks.')
       batching_scheme = (
         bert_utilities.hparams_to_bert_batching_scheme(hparams, num_shards))
     else:
