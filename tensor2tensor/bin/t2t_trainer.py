@@ -390,6 +390,9 @@ def main(argv):
       if not fhfile.Exists(path):
           tf.logging.warn(f"Path {path} was set but unable to find")
           sys.exit(exit_codes.RESOURCE_NOT_FOUND)
+      else:
+          tf.logging.info(f"Path {path} was found")
+
 
   if FLAGS.generate_data:
     generate_data()
@@ -397,7 +400,7 @@ def main(argv):
   # Fathom commented out
   # if cloud_mlengine.job_dir():
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
-    
+
   if argv:
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
