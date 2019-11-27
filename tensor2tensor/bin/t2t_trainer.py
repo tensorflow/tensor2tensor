@@ -397,9 +397,9 @@ def main(argv):
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
     
   # Fathom
-  if all(FLAGS.mock_max_docs,
-         FLAGS.mock_chunks_per_doc,
-         FLAGS.mock_chunk_length):
+  if all([FLAGS.mock_max_docs,
+          FLAGS.mock_chunks_per_doc,
+          FLAGS.mock_chunk_length]):
     hparams = PackedMocker.generate_model_hparams(
       max_docs=FLAGS.mock_max_docs,
       chunks_per_doc=FLAGS.mock_chunks_per_doc,
