@@ -398,8 +398,11 @@ def main(argv):
     
   # Fathom
   if FLAGS.mock_max_docs and FLAGS.mock_chunks_per_doc and FLAGS.mock_chunk_length:
-    tf.logging.info('Found mocking flags, proceeding to mock hparams as '
-                    'specified.')
+    tf.logging.info(f'Found mocking flags, proceeding to mock hparams as '
+                    f'specified. Mocked values: '
+                    f'max_docs = {FLAGS.mock_max_docs}, '
+                    f'chunks_per_doc = {FLAGS.mock_chunks_per_doc}, '
+                    f'chunk_length = {FLAGS.mock_chunk_length}')
     hparams = PackedMocker.generate_model_hparams(
       max_docs=FLAGS.mock_max_docs,
       chunks_per_doc=FLAGS.mock_chunks_per_doc,
