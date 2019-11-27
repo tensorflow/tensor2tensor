@@ -35,6 +35,7 @@ import tensorflow as tf
 
 # Fathom
 import fathomt2t_dependencies.t2t_trainer_utils as fathom
+from fathomt2t.problems.packed_mocker import PackedMocker
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
@@ -52,6 +53,11 @@ flags.DEFINE_integer("random_seed", None, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
+# Fathom
+flags.DEFINE_integer("mock_max_docs", None, "Mocked max number of docs.")
+flags.DEFINE_integer("mock_chunks_per_doc", None, "Mocked number of chunks per "
+                                                  "doc.")
+flags.DEFINE_integer("mock_chunk_length", None, "Mocked chunk size.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
 flags.DEFINE_bool("use_tpu_estimator", False, "Whether to use TPUEstimator. "
                   "This is always enabled when use_tpu is True.")
@@ -388,9 +394,16 @@ def main(argv):
   # if cloud_mlengine.job_dir():
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
     
-  if argv:
-    set_hparams_from_args(argv[1:])
-  hparams = create_hparams()
+  # Fathom
+  if FLAGS.mock_max_docs and FLAGS.mock_chunks_per_doc and FLAGS.mock_chunk_length:
+    hparams = PackedMocker.generate_model_hparams(
+      max_docs=FLAGS.mock_max_docs,
+      chunks_per_doc=FLAGS.mock_chunks_per_doc,
+      chunk_length=FLAGS.mock_chunk_length)
+  else:
+    if argv:
+      set_hparams_from_args(argv[1:])
+    hparams = create_hparams()
 
   # Fathom
   hparams = fathom.adjust_params_for_scaling(hparams)
