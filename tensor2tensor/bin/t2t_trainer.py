@@ -54,11 +54,6 @@ flags.DEFINE_integer("random_seed", None, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
 flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
-# Fathom
-flags.DEFINE_integer("mock_max_docs", None, "Mocked max number of docs.")
-flags.DEFINE_integer("mock_chunks_per_doc", None, "Mocked number of chunks per "
-                                                  "doc.")
-flags.DEFINE_integer("mock_chunk_length", None, "Mocked chunk size.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
 flags.DEFINE_bool("use_tpu_estimator", False, "Whether to use TPUEstimator. "
                   "This is always enabled when use_tpu is True.")
@@ -190,6 +185,8 @@ def create_hparams():
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   # Fathom
+  PackedMocker.setup_mock_flags()
+
   if PackedMocker.verify_mock_flags(
           [FLAGS.mock_max_docs,
            FLAGS.mock_chunks_per_doc,
