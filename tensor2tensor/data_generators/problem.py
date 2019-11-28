@@ -39,7 +39,7 @@ import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
-from fathomt2t_dependencies.common_t2t_utils import pad_to_next_chunk_length
+from fathomt2t_dependencies.common_t2t_utils import pad_to_next_chunk_length, override_shapes_for_packed
 
 
 class DatasetSplit(object):
@@ -1156,32 +1156,7 @@ class Problem(object):
 
     # Fathom
     # override shapes for packed datsets that will be chunked
-    packed_length = getattr(self, 'packed_length', False)
-    if packed_length:
-      assert packed_length == max_length, (f'Problem packed len '
-                                           f'{packed_length} != the model '
-                                           f'hparam max length {max_length}')
-
-      # TODO: rename inputs_chunk_mask as it behaves differently
-      # from other inputs_*
-      # https://app.asana.com/0/1137246510213018/1143626077249181/f
-      padded_shapes['inputs_chunk_mask'] = [
-        packed_length // self.chunk_len *
-        self.max_examples_per_pack]
-
-      # if dataset is packed, pad targets out to max_target_seq_length
-      # multiplied by number of docs per pack
-      # TODO: i think we can just pad this out normally to max_target_seq_length
-      # even for packed, but need to verify and change problem to not do
-      # max_target_seq_length for each doc
-      # https://app.asana.com/0/1137246510213018/1143626077249177/f
-      padded_shapes['targets'] = [
-          hparams.max_target_seq_length * self.max_examples_per_pack]
-
-      # if dataset is packed, pad out to other inputs_* to packed_length
-      padded_shapes['inputs'] = [packed_length]
-      padded_shapes['inputs_example'] = [packed_length]
-      padded_shapes['inputs_chunk'] = [packed_length]
+    override_shapes_for_packed(self, hparams, padded_shapes, max_length)
 
     return padded_shapes
 
