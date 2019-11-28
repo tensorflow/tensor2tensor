@@ -38,9 +38,6 @@ import fathomt2t_dependencies.t2t_trainer_utils as fathom
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
-from gcloud.gcs import fhfile
-import fathomairflow.dags.dag_management.exit_codes as exit_codes
-
 flags = tf.flags
 FLAGS = flags.FLAGS
 
