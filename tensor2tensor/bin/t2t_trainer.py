@@ -191,9 +191,10 @@ def create_hparams():
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   # Fathom
-  if all([FLAGS.mock_max_docs,
-          FLAGS.mock_chunks_per_doc,
-          FLAGS.mock_chunk_length]):
+  mocked_flags = [
+      FLAGS.mock_max_docs, FLAGS.mock_chunks_per_doc, FLAGS.mock_chunk_length]
+  if any(mocked_flags):
+    assert all(mocked_flags), "Some but not all mock flags were specified."
     hparams = PackedMocker.generate_model_hparams(
       max_docs=FLAGS.mock_max_docs,
       chunks_per_doc=FLAGS.mock_chunks_per_doc,
@@ -409,7 +410,7 @@ def main(argv):
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
 
   if argv:
-      set_hparams_from_args(argv[1:])
+    set_hparams_from_args(argv[1:])
   hparams = create_hparams()
 
   # Fathom
