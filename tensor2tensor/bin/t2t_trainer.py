@@ -36,7 +36,6 @@ import tensorflow as tf
 # Fathom
 import fathomt2t_dependencies.t2t_trainer_utils as fathom
 from fathomt2t.problems.packed_mocker import PackedMocker
-from fathomt2t.models.fh_transformer import fh_transformer_packed
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
