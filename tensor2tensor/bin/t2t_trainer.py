@@ -183,7 +183,8 @@ def create_hparams():
                     "e.g. transformer_tpu, if available for your model.")
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
-  # Fathom
+  # Fathom: Verify mock flags have been specified and apply accordingly, see
+  # fathomt2t/problems/packed_mocker.py for details
   if PackedMocker.verify_mock_flags(
           [FLAGS.mock_max_docs,
            FLAGS.mock_chunks_per_doc,
