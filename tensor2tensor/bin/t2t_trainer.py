@@ -185,8 +185,6 @@ def create_hparams():
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   # Fathom
-  PackedMocker.setup_mock_flags()
-
   if PackedMocker.verify_mock_flags(
           [FLAGS.mock_max_docs,
            FLAGS.mock_chunks_per_doc,
