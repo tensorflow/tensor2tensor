@@ -1157,7 +1157,6 @@ class Problem(object):
     # Fathom
     # override shapes for packed datsets that will be chunked
     override_shapes_for_packed(self, hparams, padded_shapes, max_length)
-
     return padded_shapes
 
 
