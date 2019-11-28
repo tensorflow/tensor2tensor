@@ -191,10 +191,10 @@ def create_hparams():
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   # Fathom
-  mocked_flags = [
-      FLAGS.mock_max_docs, FLAGS.mock_chunks_per_doc, FLAGS.mock_chunk_length]
-  if any(mocked_flags):
-    assert all(mocked_flags), "Some but not all mock flags were specified."
+  if PackedMocker.verify_mock_flags(
+          [FLAGS.mock_max_docs,
+           FLAGS.mock_chunks_per_doc,
+           FLAGS.mock_chunk_length]):
     hparams = PackedMocker.generate_model_hparams(
       max_docs=FLAGS.mock_max_docs,
       chunks_per_doc=FLAGS.mock_chunks_per_doc,
