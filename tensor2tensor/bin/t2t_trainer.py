@@ -71,9 +71,6 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
-flags.DEFINE_string("eval_checkpoint_path", None,
-                    "The model path our trainer should do eval with. "
-                    "If set, model exporting after eval is disabled")
 # TODO(hinsu): Enable DistributionStrategy by default once performance gap
 # between DistributionStrategy and Parallelism is resolved.
 flags.DEFINE_bool(
@@ -384,15 +381,7 @@ def main(argv):
     cloud_mlengine.launch()
     return
 
-  path = FLAGS.eval_checkpoint_path
-  if path is not None:
-      path += ".index"
-      if not fhfile.Exists(path):
-          tf.logging.warn(f"Path {path} was set but unable to find")
-          sys.exit(exit_codes.RESOURCE_NOT_FOUND)
-      else:
-          tf.logging.info(f"Path {path} was found")
-
+    fathom.exit_if_no_eval_checkpoint()
 
   if FLAGS.generate_data:
     generate_data()
