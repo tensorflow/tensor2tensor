@@ -188,7 +188,19 @@ def create_hparams():
     tf.logging.warn("Not all hyperparameter sets work on TPU. "
                     "Prefer hparams_sets with a '_tpu' suffix, "
                     "e.g. transformer_tpu, if available for your model.")
-  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
+  hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
+
+  # Fathom
+  if all([FLAGS.mock_max_docs,
+          FLAGS.mock_chunks_per_doc,
+          FLAGS.mock_chunk_length]):
+    hparams = PackedMocker.generate_model_hparams(
+      max_docs=FLAGS.mock_max_docs,
+      chunks_per_doc=FLAGS.mock_chunks_per_doc,
+      chunk_length=FLAGS.mock_chunk_length,
+      base_hparams=hparams)
+  return hparams
+
 
 
 def create_experiment_fn():
@@ -395,20 +407,10 @@ def main(argv):
   # Fathom commented out
   # if cloud_mlengine.job_dir():
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
-    
-  # Fathom
-  if all([FLAGS.mock_max_docs,
-          FLAGS.mock_chunks_per_doc,
-          FLAGS.mock_chunk_length]):
-    hparams = PackedMocker.generate_model_hparams(
-      max_docs=FLAGS.mock_max_docs,
-      chunks_per_doc=FLAGS.mock_chunks_per_doc,
-      chunk_length=FLAGS.mock_chunk_length,
-      base_hparams=fh_transformer_packed)
-  else:
-    if argv:
+
+  if argv:
       set_hparams_from_args(argv[1:])
-    hparams = create_hparams()
+  hparams = create_hparams()
 
   # Fathom
   hparams = fathom.adjust_params_for_scaling(hparams)
