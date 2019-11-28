@@ -35,7 +35,7 @@ import tensorflow as tf
 
 # Fathom
 import fathomt2t_dependencies.t2t_trainer_utils as fathom
-import fathomt2t.problems.packed_mocker as packed_mocker
+from fathomt2t.problems.packed_mocker import modify_if_mocked
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
@@ -184,12 +184,7 @@ def create_hparams():
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   # Fathom: Verify mock flags have been specified and apply accordingly
-  if packed_mocker.verify_mock_flags():
-    hparams = packed_mocker.generate_model_hparams(
-      max_docs=FLAGS.mock_max_docs,
-      chunks_per_doc=FLAGS.mock_chunks_per_doc,
-      chunk_length=FLAGS.mock_chunk_length,
-      base_hparams=hparams)
+  hparams = modify_if_mocked(hparams)
   return hparams
 
 
