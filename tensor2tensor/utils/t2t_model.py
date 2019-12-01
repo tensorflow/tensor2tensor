@@ -783,7 +783,7 @@ class T2TModel(base.Layer):
     Returns:
       A dict of decoding results {
           "outputs": integer `Tensor` of decoded ids of shape
-              [batch_size, <= decode_length] if beam_size == 1 or
+              [batch_size, <= decode_length] if top_beams == 1 or
               [batch_size, top_beams, <= decode_length]
           "scores": decoding log probs from the beam search,
               None if using greedy decoding (beam_size=1)
