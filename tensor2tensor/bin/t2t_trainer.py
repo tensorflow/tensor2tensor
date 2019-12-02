@@ -378,7 +378,7 @@ def main(argv):
     cloud_mlengine.launch()
     return
 
-    fathom.exit_if_no_eval_checkpoint()
+  fathom.exit_if_no_eval_checkpoint()
 
   if FLAGS.generate_data:
     generate_data()
