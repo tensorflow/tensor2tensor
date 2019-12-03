@@ -990,16 +990,12 @@ class Problem(object):
         batch_size = hparams.batch_size * num_shards
         dataset = dataset.batch(batch_size)
     else:
-      # batch_size means tokens per datashard
-
-      packed = hasattr(self, 'packed_length')
-
-      if config and config.use_tpu:
-          assert packed, 'If we use TPU, we should used packed datasets.'
 
       # if dataset is packed (TPU requires packed dataset)
-      self.apply_batch_settings(dataset, hparams, num_shards, num_threads,
-                                is_training, params, config)
+      self.apply_batch_settings(dataset=dataset, hparams=hparams,
+                                num_shards=num_shards, num_threads=num_threads,
+                                is_training=is_training, params=params,
+                                config=config)
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
 
