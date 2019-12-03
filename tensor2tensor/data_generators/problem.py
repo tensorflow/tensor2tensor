@@ -844,7 +844,11 @@ class Problem(object):
 
   def apply_batch_settings(self, dataset, hparams, num_shards, num_threads,
                            is_training, **kwargs):
-    """Applies padding and various other setup tasks to dataset for batching."""
+    """ Buckets dataset by length.
+
+    Filters dataset according to valid gpu sizes, batches, and applies bucketing
+    by sequence length.ßßßßß
+    """
 
     max_length = self.max_length(hparams)
 
@@ -859,7 +863,7 @@ class Problem(object):
 
     # if unpacked (variable length sequences) and we are chunking
     # input features, we need to pad the features that we
-    # chunk to the next neares multiple of the chunk length,
+    # chunk to the next nearest multiple of the chunk length,
     if hasattr(hparams, 'chunk_length'):
       dataset = dataset.map(
         pad_to_next_chunk_length(
