@@ -843,7 +843,7 @@ class Problem(object):
     return partition_id, num_partitions
 
   def apply_batch_settings(self, dataset, hparams, num_shards, num_threads,
-                           is_training, params, config):
+                           is_training, **kwargs):
     """Applies padding and various other setup tasks to dataset for batching."""
 
     max_length = self.max_length(hparams)
