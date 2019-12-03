@@ -378,7 +378,9 @@ def main(argv):
     cloud_mlengine.launch()
     return
 
-  fathom.exit_if_no_eval_checkpoint()
+  # This exists if a checkpoint is set but not found.
+  # Only takes action for an eval task.
+  fathom.exit_if_no_eval_checkpoint_found()
 
   if FLAGS.generate_data:
     generate_data()
