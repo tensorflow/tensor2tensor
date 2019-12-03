@@ -365,6 +365,11 @@ def main(argv):
   if FLAGS.fathom:
       fathom.t2t_trainer_setup(FLAGS.problem)
 
+  # This exits if a checkpoint is set but not found.
+  # Only takes action for an eval task.
+  if FLAGS.schedule == 'evaluate':
+    fathom.exit_if_no_eval_checkpoint_found(FLAGS.eval_checkpoint_path)
+
   tf.logging.set_verbosity(tf.logging.INFO)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
@@ -377,10 +382,6 @@ def main(argv):
     assert False, 'No cloudml support currently'
     cloud_mlengine.launch()
     return
-
-  # This exists if a checkpoint is set but not found.
-  # Only takes action for an eval task.
-  fathom.exit_if_no_eval_checkpoint_found()
 
   if FLAGS.generate_data:
     generate_data()
