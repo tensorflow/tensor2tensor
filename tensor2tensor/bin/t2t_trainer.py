@@ -180,15 +180,11 @@ def create_hparams():
     tf.logging.warn("Not all hyperparameter sets work on TPU. "
                     "Prefer hparams_sets with a '_tpu' suffix, "
                     "e.g. transformer_tpu, if available for your model.")
-<<<<<<< HEAD
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   # Fathom: Verify mock flags have been specified and apply accordingly
   hparams = modify_if_mocked(FLAGS, hparams)
   return hparams
-=======
-  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
->>>>>>> cb28720c2a971a2f7f587b75e00e8fd6ef8ba3c5
 
 
 def create_experiment_fn():
