@@ -844,7 +844,7 @@ class Problem(object):
 
   # Fathom
   def apply_batch_settings(self, dataset, hparams, num_shards, num_threads,
-                           is_training, **kwargs):
+                           config, is_training, **kwargs):
     """Buckets dataset by length.
 
     Filters dataset according to valid gpu sizes, batches, and applies bucketing
