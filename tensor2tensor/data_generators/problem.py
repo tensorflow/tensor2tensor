@@ -39,7 +39,7 @@ import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
-from fathomt2t_dependencies.common_t2t_utils import prepare_for_chunking
+from fathomt2t_dependencies.common_t2t_utils import maybe_prepare_for_chunking
 
 
 class DatasetSplit(object):
