@@ -861,6 +861,7 @@ class Problem(object):
     dataset = dataset.filter(gpu_valid_size)
     batching_scheme = self._get_batching_scheme(hparams, num_shards)
 
+# Fathom
     # if unpacked (variable length sequences) and we are chunking
     # input features, we need to pad the features that we
     # chunk to the next nearest multiple of the chunk length,
