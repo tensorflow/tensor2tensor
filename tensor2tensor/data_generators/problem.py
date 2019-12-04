@@ -39,7 +39,7 @@ import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
-from fathomt2t_dependencies.common_t2t_utils import pad_to_next_chunk_length
+from fathomt2t_dependencies.common_t2t_utils import prepare_for_chunking
 
 
 class DatasetSplit(object):
@@ -855,8 +855,8 @@ class Problem(object):
     def gpu_valid_size(example):
         drop_long_sequences = is_training or hparams.eval_drop_long_sequences
         return data_reader.example_valid_size(example, hparams.min_length,
-                                              max_length
-                                              if drop_long_sequences else 10 ** 9)
+                                              max_length if drop_long_sequences
+                                              else 10 ** 9)
     # for unpacked datasets, bucket by length
     dataset = dataset.filter(gpu_valid_size)
     batching_scheme = self._get_batching_scheme(hparams, num_shards)
@@ -864,14 +864,9 @@ class Problem(object):
     # if unpacked (variable length sequences) and we are chunking
     # input features, we need to pad the features that we
     # chunk to the next nearest multiple of the chunk length,
-    if hasattr(hparams, 'chunk_length'):
-      dataset = dataset.map(
-        pad_to_next_chunk_length(
-          features_to_pad=['inputs'],
-          chunk_length=hparams.chunk_length,
-          axis=0),
-        num_parallel_calls=num_threads
-      )
+    prepare_for_chunking(dataset=dataset, hparams=hparams,
+                         num_threads=num_threads)
+
     dataset = dataset.apply(
       tf.contrib.data.bucket_by_sequence_length(
         element_length_func=data_reader.example_length,
