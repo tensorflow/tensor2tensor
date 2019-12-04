@@ -184,7 +184,7 @@ def create_hparams():
   hparams = trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
 
   # Fathom: Verify mock flags have been specified and apply accordingly
-  hparams = modify_if_mocked(hparams)
+  hparams = modify_if_mocked(FLAGS, hparams)
   return hparams
 
 
