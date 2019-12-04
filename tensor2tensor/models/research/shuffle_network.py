@@ -1,5 +1,5 @@
 """
-Implementation of "Neural Shuffle-Exchange Networks − Sequence Processing in O(n log n) Time" paper
+Implementation of "Neural Shuffle-Exchange Networks - Sequence Processing in O(n log n) Time" paper
 by K.Freivalds, E.Ozolins, A.Sostaks.
 Paper: https://papers.nips.cc/paper/8889-neural-shuffle-exchange-networks-sequence-processing-in-on-log-n-time.pdf
 Original code: https://github.com/LUMII-Syslab/shuffle-exchange
@@ -65,7 +65,7 @@ def conv_linear_map(inputs, nin, nout, bias_start, prefix):
 
 class SwitchLayer:
 
-  def __init__(self, prefix, dropout, mode) -> None:
+  def __init__(self, prefix, dropout, mode):
     self.prefix = prefix
     self.dropout = dropout
     self.mode = mode
@@ -115,7 +115,7 @@ class SwitchLayer:
     initializer = tf.constant_initializer(0.5)
     residual_scale = tf.get_variable(self.prefix + "/residual_scale", [self.num_units], initializer=initializer)
 
-    shuffled_input = self.shuffle_inputs(inputs)
+    shuffled_input = self.swap_halves(inputs)
     mem_all = inputs + residual_inputs * residual_scale
 
     # calculate the new value
@@ -208,7 +208,7 @@ class ShuffleNetwork(t2t_model.T2TModel):
 
     features["inputs"] = tf.pad(inputs, [[0, 0], [0, pad_len - inputs_length], [0, 0], [0, 0]])
     features["targets"] = tf.pad(targets, [[0, 0], [0, pad_len - targets_length], [0, 0], [0, 0]])
-    return super().bottom(features)
+    return super(ShuffleNetwork, self).bottom(features)
 
   def loss(self, logits, features):
     """
