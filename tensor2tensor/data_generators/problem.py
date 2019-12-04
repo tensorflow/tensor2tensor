@@ -1000,7 +1000,7 @@ class Problem(object):
     else:
 
       # if dataset is packed (TPU requires packed dataset)
-      self.apply_batch_settings(dataset=dataset, hparams=hparams,
+      dataset = self.apply_batch_settings(dataset=dataset, hparams=hparams,
                                 num_shards=num_shards, num_threads=num_threads,
                                 is_training=is_training, params=params,
                                 config=config)
