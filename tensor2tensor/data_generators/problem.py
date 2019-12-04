@@ -848,6 +848,8 @@ class Problem(object):
 
     Filters dataset according to valid gpu sizes, batches, and applies bucketing
     by sequence length.
+    
+    Does not support TPU fixed length inputs.  Refer to PackedProblem.
     """
 
     max_length = self.max_length(hparams)
