@@ -851,7 +851,8 @@ class Problem(object):
     
     Does not support TPU fixed length inputs.  Refer to PackedProblem.
     """
-
+if config:
+    assert not config.use_tpu, ('TPU use not supported unless a PackedProblem is used')
     max_length = self.max_length(hparams)
 
     def gpu_valid_size(example):
