@@ -847,7 +847,7 @@ class Problem(object):
     """ Buckets dataset by length.
 
     Filters dataset according to valid gpu sizes, batches, and applies bucketing
-    by sequence length.ßßßßß
+    by sequence length.
     """
 
     max_length = self.max_length(hparams)
