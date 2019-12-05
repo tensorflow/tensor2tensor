@@ -7,12 +7,6 @@
 namespace tensor2tensor {
 namespace {
 
-using ::tensorflow::DT_INT64;
-using ::tensorflow::Tensor;
-using ::tensorflow::TensorShape;
-using ::tensorflow::test::AsTensor;
-using ::tensorflow::test::ExpectTensorEqual;
-
 TEST(SubwordTextEncoderTest, EncodesSubTokens) {
   SubwordTextEncoder encoder("third_party/py/tensor2tensor/"
                              "data_generators/ops/testdata/subwords");

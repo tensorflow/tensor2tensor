@@ -12,7 +12,6 @@ namespace tensor2tensor {
 namespace {
 
 using ::tensorflow::Env;
-using ::tensorflow::Tensor;
 
 // End of Sequence token ID to insert at end of encoded text.
 constexpr int64 kEosTokenId = 1;
