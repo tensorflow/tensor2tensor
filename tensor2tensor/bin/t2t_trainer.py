@@ -68,9 +68,6 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
-flags.DEFINE_string("eval_checkpoint_path", None,
-                    "The model path our trainer should do eval with. "
-                    "If set, model exporting after eval is disabled")
 # TODO(hinsu): Enable DistributionStrategy by default once performance gap
 # between DistributionStrategy and Parallelism is resolved.
 flags.DEFINE_bool(
@@ -367,6 +364,11 @@ def main(argv):
   # Fathom
   if FLAGS.fathom:
       fathom.t2t_trainer_setup(FLAGS.problem)
+
+  # This exits if a checkpoint is set but not found.
+  # Only takes action for an eval task.
+  if FLAGS.schedule == 'evaluate':
+    fathom.exit_if_no_eval_checkpoint_found(FLAGS.eval_checkpoint_path)
 
   tf.logging.set_verbosity(tf.logging.INFO)
   if FLAGS.schedule == "run_std_server":
