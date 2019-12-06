@@ -39,7 +39,7 @@ import tensorflow as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
-from fathomt2t_dependencies.common_t2t_utils import pad_to_next_chunk_length
+from fathomt2t_dependencies.common_t2t_utils import maybe_prepare_for_chunking
 
 
 class DatasetSplit(object):
@@ -842,6 +842,62 @@ class Problem(object):
     assert partition_id < num_partitions
     return partition_id, num_partitions
 
+  # Fathom
+  def apply_batch_settings(self, dataset, hparams, num_shards, num_threads,
+                           config, is_training, **kwargs):
+    """Buckets dataset by length.
+
+    Filters dataset according to valid gpu sizes, batches, and applies bucketing
+    by sequence length.
+
+    This was pulled out of input_fn as it is upstream to support better decomposition
+    for problems that manage batching differently like PackedProblem
+
+    Does not support TPU fixed length inputs.  Refer to PackedProblem.
+    """
+    if config:
+      assert not config.use_tpu, ('TPU use not supported unless a PackedProblem is used')
+
+    max_length = self.max_length(hparams)
+
+    def gpu_valid_size(example):
+        drop_long_sequences = is_training or hparams.eval_drop_long_sequences
+        return data_reader.example_valid_size(example, hparams.min_length,
+                                              max_length if drop_long_sequences
+                                              else 10 ** 9)
+    # for unpacked datasets, bucket by length
+    dataset = dataset.filter(gpu_valid_size)
+    batching_scheme = self._get_batching_scheme(hparams, num_shards)
+
+    # Fathom
+    # if unpacked (variable length sequences) and we are chunking
+    # input features, we need to pad the features that we
+    # chunk to the next nearest multiple of the chunk length,
+    maybe_prepare_for_chunking(dataset=dataset, hparams=hparams,
+                               num_threads=num_threads)
+
+    dataset = dataset.apply(
+      tf.contrib.data.bucket_by_sequence_length(
+        element_length_func=data_reader.example_length,
+        bucket_boundaries=batching_scheme['bucket_boundaries'],
+        bucket_batch_sizes=batching_scheme['bucket_batch_sizes']))
+
+    if not is_training:
+      batch_multiple = num_shards
+      if hparams.use_fixed_batch_size:
+        # Make sure the last batch has the same fixed size as the rest.
+        batch_multiple *= hparams.batch_size
+      if batch_multiple > 1:
+        tf.logging.warn(
+          "Padding the batch to ensure that remainder eval batches have "
+          "a batch size divisible by the number of data shards. This may "
+          "lead to incorrect metrics for non-zero-padded features, e.g. "
+          "images. Use a single datashard (i.e. 1 GPU) in that case.")
+        dataset = dataset.map(
+          functools.partial(pad_batch, batch_multiple=batch_multiple),
+          num_parallel_calls=num_threads)
+    return dataset
+
   def input_fn(self,
                mode,
                hparams,
@@ -884,18 +940,6 @@ class Problem(object):
       num_shards = config.data_parallelism.n
     else:
       num_shards = 1
-
-    max_length = self.max_length(hparams)
-
-    def tpu_valid_size(example):
-      return data_reader.example_valid_size(example, hparams.min_length,
-                                            max_length)
-
-    def gpu_valid_size(example):
-      drop_long_sequences = is_training or hparams.eval_drop_long_sequences
-      return data_reader.example_valid_size(example, hparams.min_length,
-                                            max_length
-                                            if drop_long_sequences else 10**9)
 
     def define_shapes(example):
       batch_size = config and config.use_tpu and params["batch_size"]
@@ -954,82 +998,12 @@ class Problem(object):
         batch_size = hparams.batch_size * num_shards
         dataset = dataset.batch(batch_size)
     else:
-      # batch_size means tokens per datashard
-
-      packed = hasattr(self, 'packed_length')
-
-      if config and config.use_tpu:
-          assert packed, ('If we use TPU, we should used packed datasets.')
 
       # if dataset is packed (TPU requires packed dataset)
-      if packed:
-        dataset = dataset.filter(tpu_valid_size)
-        padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
-        tf.logging.info(f'Padding features for fixed inputs: {padded_shapes}')
-
-        # on TPU, params["batch_size"] is assigned in
-        # https://github.com/medicode/tensor2tensor/blob/1525870c3a8ebc37240824a87532328e31d66887/tensor2tensor/utils/trainer_lib.py#L270
-        # to specify the number of examples for all datashards
-        # on GPU, num_shards specifies the number datashards and, thus in the
-        # packed case, also the number of examples for all datashards
-        if config and config.use_tpu:
-          batch_size = params.get('batch_size')
-          assert batch_size
-        else:
-          batch_size = num_shards
-        tf.logging.info(
-            f'Batch size per shard: {batch_size} / {num_shards}')
-
-        if hparams.pad_batch:
-          tf.logging.warn(
-              "Padding the batch to ensure that remainder eval batches are "
-              "processed. This may lead to incorrect metrics for "
-              "non-zero-padded features, e.g. images. Use a smaller batch "
-              "size that has no remainder in that case.")
-          dataset = dataset.padded_batch(
-              batch_size, padded_shapes, drop_remainder=False)
-          dataset = dataset.map(
-              functools.partial(pad_batch, batch_multiple=batch_size),
-              num_parallel_calls=num_threads)
-        else:
-          dataset = dataset.padded_batch(
-              batch_size, padded_shapes, drop_remainder=True)
-      else:
-        # for unpacked datasets, bucket by length
-        dataset = dataset.filter(gpu_valid_size)
-        batching_scheme = self._get_batching_scheme(hparams, num_shards)
-
-        # if unpacked (variable length sequences) and we are chunking
-        # input features, we need to pad the features that we
-        # chunk to the next neares multiple of the chunk length,
-        if hasattr(hparams, 'chunk_length'):
-          dataset = dataset.map(
-            pad_to_next_chunk_length(
-              features_to_pad=['inputs'],
-              chunk_length=hparams.chunk_length,
-              axis=0),
-            num_parallel_calls=num_threads
-          )
-        dataset = dataset.apply(
-            tf.contrib.data.bucket_by_sequence_length(
-                element_length_func=data_reader.example_length,
-                bucket_boundaries=batching_scheme['bucket_boundaries'],
-                bucket_batch_sizes=batching_scheme['bucket_batch_sizes']))
-
-        if not is_training:
-          batch_multiple = num_shards
-          if hparams.use_fixed_batch_size:
-            # Make sure the last batch has the same fixed size as the rest.
-            batch_multiple *= hparams.batch_size
-          if batch_multiple > 1:
-            tf.logging.warn(
-                "Padding the batch to ensure that remainder eval batches have "
-                "a batch size divisible by the number of data shards. This may "
-                "lead to incorrect metrics for non-zero-padded features, e.g. "
-                "images. Use a single datashard (i.e. 1 GPU) in that case.")
-            dataset = dataset.map(
-                functools.partial(pad_batch, batch_multiple=batch_multiple),
-                num_parallel_calls=num_threads)
+      dataset = self.apply_batch_settings(dataset=dataset, hparams=hparams,
+                                num_shards=num_shards, num_threads=num_threads,
+                                is_training=is_training, params=params,
+                                config=config)
 
     dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
 
@@ -1153,33 +1127,6 @@ class Problem(object):
         padded_shapes[key] = pad_one_shape(shape, targets_none_filler)
       else:
         padded_shapes[key] = pad_one_shape(shape, max_length)
-
-    # Fathom
-    # override shapes for packed datsets that will be chunked
-    packed_length = getattr(self, 'packed_length', False)
-    if packed_length:
-      assert packed_length == max_length
-
-      # TODO: rename inputs_chunk_mask as it behaves differently
-      # from other inputs_*
-      # https://app.asana.com/0/1137246510213018/1143626077249181/f
-      padded_shapes['inputs_chunk_mask'] = [
-        packed_length // self.chunk_len *
-        self.max_examples_per_pack]
-
-      # if dataset is packed, pad targets out to max_target_seq_length
-      # multiplied by number of docs per pack
-      # TODO: i think we can just pad this out normally to max_target_seq_length
-      # even for packed, but need to verify and change problem to not do
-      # max_target_seq_length for each doc
-      # https://app.asana.com/0/1137246510213018/1143626077249177/f
-      padded_shapes['targets'] = [
-          hparams.max_target_seq_length * self.max_examples_per_pack]
-
-      # if dataset is packed, pad out to other inputs_* to packed_length
-      padded_shapes['inputs'] = [packed_length]
-      padded_shapes['inputs_example'] = [packed_length]
-      padded_shapes['inputs_chunk'] = [packed_length]
 
     return padded_shapes
 

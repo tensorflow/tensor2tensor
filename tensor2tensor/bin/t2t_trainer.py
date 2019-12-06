@@ -395,7 +395,7 @@ def main(argv):
   hparams = create_hparams()
 
   # Fathom
-  hparams = fathom.adjust_params_for_scaling(hparams)
+  hparams = fathom.adjust_params(hparams)
 
   exp_fn = create_experiment_fn()
   exp = exp_fn(create_run_config(hparams), hparams)
