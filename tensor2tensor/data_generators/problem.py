@@ -873,8 +873,8 @@ class Problem(object):
     # if unpacked (variable length sequences) and we are chunking
     # input features, we need to pad the features that we
     # chunk to the next nearest multiple of the chunk length,
-    maybe_prepare_for_chunking(dataset=dataset, hparams=hparams,
-                               num_threads=num_threads)
+    dataset = maybe_prepare_for_chunking(dataset=dataset, hparams=hparams,
+                                         num_threads=num_threads)
 
     dataset = dataset.apply(
       tf.contrib.data.bucket_by_sequence_length(
