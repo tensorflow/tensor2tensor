@@ -155,5 +155,6 @@ class ProblemTest(tf.test.TestCase):
       # Should be unchanged
       assert padded_example['targets'].shape == (2, )
 
+
 if __name__ == "__main__":
   tf.test.main()

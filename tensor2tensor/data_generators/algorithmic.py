@@ -518,7 +518,7 @@ class TinyAlgo(AlgorithmicIdentityBinary40):
   """A small algorthmic problem for testing."""
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    """Ganerate data for this problem."""
+    """Generate data for this problem."""
 
     del tmp_dir, task_id
     identity_problem = AlgorithmicIdentityBinary40()
