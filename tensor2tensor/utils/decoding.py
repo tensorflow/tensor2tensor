@@ -963,7 +963,8 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams, decode_hp):
   features["input_space_id"] = input_space_id
   features["target_space_id"] = target_space_id
   features["decode_length"] = (
-      IMAGE_DECODE_LENGTH if input_is_image else tf.constant(decode_hp.extra_length))
+      IMAGE_DECODE_LENGTH if input_is_image else
+      tf.constant(decode_hp.extra_length))
   features["inputs"] = x
   # Save inputs to "partial_targets" when prepending inputs to targets. Also
   # keep "inputs" as some models crash if they don't exist.

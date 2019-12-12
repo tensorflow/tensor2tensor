@@ -35,7 +35,7 @@ import tensorflow as tf
 FLAGS = tf.flags.FLAGS
 
 CONSOLE_URL = "https://console.cloud.google.com/mlengine/jobs/"
-RUNTIME_VERSION = "1.14"
+RUNTIME_VERSION = "1.13"
 LIST_VM = "gcloud compute instances list"
 DEFAULT_PROJECT = "gcloud config get-value project"
 DEFAULT_REGION = "gcloud config get-value compute/region"
@@ -310,15 +310,12 @@ def validate_flags():
     if FLAGS.worker_gpu:
       if FLAGS.worker_gpu == 1:
         assert FLAGS.cloud_mlengine_master_type in ["standard_gpu",
-                                                    "standard_p100",
-                                                    "standard_v100"]
+                                                    "standard_p100"]
       elif FLAGS.worker_gpu == 4:
         assert FLAGS.cloud_mlengine_master_type in ["complex_model_m_gpu",
-                                                    "complex_model_m_p100",
-                                                    "complex_model_m_v100"]
+                                                    "complex_model_m_p100"]
       else:
-        assert FLAGS.cloud_mlengine_master_type in ["complex_model_l_gpu",
-                                                    "complex_model_l_v100"]
+        assert FLAGS.cloud_mlengine_master_type == "complex_model_l_gpu"
     else:
       assert FLAGS.cloud_mlengine_master_type in ["standard", "large_model",
                                                   "complex_model_s",
