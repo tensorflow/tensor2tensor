@@ -1,7 +1,9 @@
 """
-Implementation of "Neural Shuffle-Exchange Networks - Sequence Processing in O(n log n) Time" paper
-by K.Freivalds, E.Ozolins, A.Sostaks.
-Paper: https://papers.nips.cc/paper/8889-neural-shuffle-exchange-networks-sequence-processing-in-on-log-n-time.pdf
+Implementation of
+"Neural Shuffle-Exchange Networks - Sequence Processing in O(n log n) Time"
+paper by K.Freivalds, E.Ozolins, A.Sostaks.
+Paper: https://papers.nips.cc/paper/
+8889-neural-shuffle-exchange-networks-sequence-processing-in-on-log-n-time.pdf
 Original code: https://github.com/LUMII-Syslab/shuffle-exchange
 """
 from __future__ import absolute_import
@@ -16,7 +18,18 @@ from tensor2tensor.utils import t2t_model
 
 
 def ror(x, n, p=1):
-  """Bitwise right rotation """
+  """
+  Bitwise right rotation.
+
+  Args:
+    x: Input tensor
+    n: Bit count to represent x
+    p: Bit positions to shift
+
+  Returns:
+    tf.Tensor: x shifted by p positions in n bits
+  """
+
   a = tf.bitwise.right_shift(x, p)
   b = tf.bitwise.left_shift(1, p) - 1
   c = tf.bitwise.bitwise_and(x, b)
@@ -26,7 +39,17 @@ def ror(x, n, p=1):
 
 
 def rol(x, n, p=1):
-  """Bitwise left rotation"""
+  """
+  Bitwise left rotation.
+
+  Args:
+    x: Input tensor
+    n: Bit count to represent x
+    p: Bit positions to shift
+
+  Returns:
+    tf.Tensor: x shifted by p positions in n bits
+  """
   a = tf.bitwise.left_shift(x, p)
   b = tf.bitwise.left_shift(1, n) - 1
   c = tf.bitwise.bitwise_and(a, b)
@@ -36,7 +59,18 @@ def rol(x, n, p=1):
 
 
 def shuffle_layer(inputs, shuffle_fn=rol):
-  """Shuffles the elements according to bitwise left or right rotation on their indices"""
+  """
+  Shuffles the elements according to bitwise left or right rotation
+  on their indices.
+
+  Args:
+    inputs: Tensor input from previous layer
+    shuffle_fn: Shift function rol or ror
+
+  Returns:
+    tf.Tensor: Inputs shifted according to shuffle_fn
+  """
+
   length = tf.shape(inputs)[1]
   n_bits = tf.log(tf.cast(length - 1, tf.float32)) / tf.log(2.0)
   n_bits = tf.cast(n_bits, tf.int32) + 1
@@ -47,25 +81,65 @@ def shuffle_layer(inputs, shuffle_fn=rol):
 
 
 def reverse_shuffle_layer(inputs):
+  """
+  Reverse shuffle of inputs. Used in the second half of Benes block.
+
+  Args:
+    inputs: Inputs that should be shuffled
+
+  Returns:
+    tf.Tensor: Inputs shuffled according to bitwise right rotation
+  """
+
   return shuffle_layer(inputs, ror)
 
 
 def conv_linear_map(inputs, nin, nout, bias_start, prefix):
+  """
+  Convolutional liner map. Maps 3D tensor by last dimension.
+
+  Args:
+    inputs: Inputs that should be shuffled
+    nin: Input feature map count
+    nout: Output feature map count
+    bias_start: Bias start value
+    prefix: Name prefix
+
+  Returns:
+    tf.Tensor: Inputs with applied convolution
+  """
+
   with tf.variable_scope(prefix):
     inp_shape = tf.shape(inputs)
 
-    initializer = tf.variance_scaling_initializer(scale=1.0, mode="fan_avg", distribution="uniform")
+    initializer = tf.variance_scaling_initializer(scale=1.0,
+                                                  mode="fan_avg",
+                                                  distribution="uniform")
     kernel = tf.get_variable("CvK", [nin, nout], initializer=initializer)
-    bias_term = tf.get_variable("CvB", [nout], initializer=tf.constant_initializer(0.0))
+    bias_term = tf.get_variable("CvB", [nout],
+                                initializer=tf.constant_initializer(0.0))
 
-    res = tf.matmul(tf.reshape(inputs, [inp_shape[0] * inp_shape[1], nin]), kernel)
+    mul_shape = [inp_shape[0] * inp_shape[1], nin]
+    res = tf.matmul(tf.reshape(inputs, mul_shape), kernel)
     res = tf.reshape(res, [inp_shape[0], inp_shape[1], nout])
     return res + bias_start + bias_term
 
 
-class SwitchLayer:
+# pylint: disable=useless-object-inheritance
+class SwitchLayer(object):
+  """
+  Switch layer of Neural Shuffle-Exchange network.
+  Neural adaption of switch unit in standart Benes networks.
+  """
 
   def __init__(self, prefix, dropout, mode):
+    """
+    Args:
+      prefix: Name prefix for switch layer
+      dropout: Dropout rate
+      mode: Training mode
+    """
+
     self.prefix = prefix
     self.dropout = dropout
     self.mode = mode
@@ -75,35 +149,71 @@ class SwitchLayer:
     self.n_bits = None
 
   def linear_map(self, inputs, suffix, bias_start, in_units, out_units):
+    """2 input to 2 output linear map
+
+    Args:
+      inputs: Input tensor
+      suffix: Linear map name suffix
+      bias_start: Bias start value
+      in_units: Size of input tensor feature map count
+      out_units: Size of output tensor feature map count
+
+    Return:
+      tf.Tensor: Convolution apply to input tensor
     """
-    2 input to 2 output linear map
-    """
-    inputs = tf.reshape(inputs, [self.batch_size, self.length // 2, in_units * 2])
-    res = conv_linear_map(inputs, in_units * 2, out_units * 2, bias_start, self.prefix + "/" + suffix)
+    in_shape = [self.batch_size, self.length // 2, in_units * 2]
+    inputs = tf.reshape(inputs, in_shape)
+    res = conv_linear_map(inputs, in_units * 2, out_units * 2,
+                          bias_start, self.prefix + "/" + suffix)
     return tf.reshape(res, [self.batch_size, self.length, out_units])
 
-  def gated_linear_map(self, inputs, suffix, bias_start_reset, in_units, out_units):
+  def gated_linear_map(self, inputs, suffix, bias_start_reset,
+                       in_units, out_units):
     """
     Linear mapping with two reset gates
+
+    Args:
+      inputs: Input tensor
+      suffix: Linear map name suffix
+      bias_start_reset: Bias start value for reset gate
+      in_units: Size of input tensor feature map count
+      out_units: Size of output tensor feature map count
+
+    Return:
+      tf.Tensor: Convolution apply to input tensor
     """
 
     def reset_gate(name):
       prefix = self.prefix + name + suffix
-      reset = conv_linear_map(inputs, in_units * 2, in_units * 2, bias_start_reset, prefix)
+      reset = conv_linear_map(inputs, in_units * 2, in_units * 2,
+                              bias_start_reset, prefix)
       return tf.nn.sigmoid(reset)
 
-    inputs = tf.reshape(inputs, [self.batch_size, self.length // 2, in_units * 2])
+    in_shape = [self.batch_size, self.length // 2, in_units * 2]
+    inputs = tf.reshape(inputs, in_shape)
 
     reset1 = reset_gate("/reset1/")
     reset2 = reset_gate("/reset2/")
-    res1 = conv_linear_map(inputs * reset1, in_units * 2, out_units, 0.0, self.prefix + "/cand1/" + suffix)
-    res2 = conv_linear_map(inputs * reset2, in_units * 2, out_units, 0.0, self.prefix + "/cand2/" + suffix)
+    res1 = conv_linear_map(inputs * reset1, in_units * 2,
+                           out_units, 0.0, self.prefix + "/cand1/" + suffix)
+    res2 = conv_linear_map(inputs * reset2, in_units * 2,
+                           out_units, 0.0, self.prefix + "/cand2/" + suffix)
 
     res = tf.concat([res1, res2], axis=2)
     res = tf.reshape(res, [self.batch_size, self.length, out_units])
     return tf.nn.tanh(res)
 
   def __call__(self, inputs, residual_inputs):
+    """
+    Apply SwitchLayer to inputs:
+
+    Args:
+      inputs: Input tensor
+      residual_inputs: Residual connections from previous block
+
+    Returns:
+      tf.Tensor: New candidate value
+    """
     input_shape = tf.shape(inputs)
     self.batch_size = input_shape[0]
     self.length = input_shape[1]
@@ -113,88 +223,124 @@ class SwitchLayer:
     self.n_bits = tf.floor(self.n_bits) + 1
 
     initializer = tf.constant_initializer(0.5)
-    residual_scale = tf.get_variable(self.prefix + "/residual_scale", [self.num_units], initializer=initializer)
+    residual_scale = tf.get_variable(self.prefix + "/residual_scale",
+                                     [self.num_units], initializer=initializer)
 
     shuffled_input = self.swap_halves(inputs)
     mem_all = inputs + residual_inputs * residual_scale
 
     # calculate the new value
-    candidate = self.gated_linear_map(mem_all, "c", 0.5, self.num_units, self.num_units)
-    gate = tf.nn.sigmoid(self.linear_map(mem_all, "g", 0.5, self.num_units, self.num_units))
+    candidate = self.gated_linear_map(mem_all, "c", 0.5,
+                                      self.num_units, self.num_units)
+    gate = tf.nn.sigmoid(self.linear_map(mem_all, "g", 0.5,
+                                         self.num_units, self.num_units))
 
     candidate = gate * shuffled_input + (1 - gate) * candidate
 
     if self.dropout > 0:
       candidate = tf.nn.dropout(candidate, rate=self.dropout / self.n_bits)
-    if not self.dropout == 0.0 and self.mode == tf.estimator.ModeKeys.TRAIN:
-      candidate = candidate * tf.random_normal(tf.shape(candidate), mean=1.0, stddev=0.001)
+    if self.dropout != 0.0 and self.mode == tf.estimator.ModeKeys.TRAIN:
+      noise = tf.random_normal(tf.shape(candidate), mean=1.0, stddev=0.001)
+      candidate = candidate * noise
 
     return candidate
 
   def swap_halves(self, inputs):
+    """
+    Split inputs in half and then shuffle them as described in paper.
+
+    Args:
+      inputs: ShuffleLayer inputs
+
+    Return:
+      tf.Tensor: Inputs with swapped halves
+    """
     x = tf.range(0, self.length)
     xor_indices = tf.bitwise.bitwise_xor(x, 1)
-    input_xor = tf.gather(inputs[:, :, :self.num_units // 2], xor_indices, axis=1)
+    input_xor = tf.gather(inputs[:, :, :self.num_units // 2],
+                          xor_indices, axis=1)
     return tf.concat([input_xor, inputs[:, :, self.num_units // 2:]], axis=2)
 
 
 def shuffle_network(inputs, hparams):
-  """Neural Benes Network with skip connections between blocks."""
+  """
+  Neural Shuffle-Network with skip connections between blocks.
+  Adaption of Benes network.
+
+  Args:
+    inputs: inputs to the Shuffle-Exchange network.
+    Should be in length of power of 2.
+    hparams: Model configuration
+
+  Returns:
+    tf.Tensor: Outputs of the Shuffle-Exchange last layer
+  """
 
   def forward_step(state, layer_nr):
     with tf.variable_scope("forward"):
       last_state, residuals = state
       prev = residuals[layer_nr, :, :, :]
-      cur = SwitchLayer("switch", hparams.dropout, hparams.mode)(last_state, prev)
+      switch = SwitchLayer("switch", hparams.dropout, hparams.mode)
+      cur = switch(last_state, prev)
       return shuffle_layer(cur), residuals
 
   def reverse_step(state, layer_nr):
     with tf.variable_scope("reverse"):
       last_state, residuals = state
       prev = residuals[layer_nr, :, :, :]
-      cur = SwitchLayer("reverse_switch", hparams.dropout, hparams.mode)(last_state, prev)
+      switch = SwitchLayer("reverse_switch", hparams.dropout, hparams.mode)
+      cur = switch(last_state, prev)
       return reverse_shuffle_layer(cur), residuals
 
   input_shape = tf.shape(inputs)
   n_bits = tf.log(tf.cast(input_shape[1] - 1, tf.float32)) / tf.log(2.0)
   n_bits = tf.cast(n_bits, tf.int32) + 1
 
-  residuals_queue = tf.zeros([n_bits * 2, input_shape[0], input_shape[1], input_shape[2]])
+  queue_shape = [n_bits * 2, input_shape[0], input_shape[1], input_shape[2]]
+  residuals_queue = tf.zeros(queue_shape)
   block_out = tf.tanh(inputs)
 
   for k in range(hparams.num_hidden_layers):
     with tf.variable_scope("benes_block_" + str(k), reuse=tf.AUTO_REUSE):
-      forward_outputs, _ = tf.scan(
-        forward_step,
-        tf.range(0, n_bits),
-        initializer=(block_out, residuals_queue),
-        parallel_iterations=1,
-        swap_memory=True
-      )
+      forward_outputs, _ = tf.scan(forward_step,
+                                   tf.range(0, n_bits),
+                                   initializer=(block_out, residuals_queue),
+                                   parallel_iterations=1,
+                                   swap_memory=True)
 
-      forward_outputs = tf.concat([tf.expand_dims(block_out, axis=0), forward_outputs], axis=0)
+      forward_tensors = [tf.expand_dims(block_out, axis=0), forward_outputs]
+      forward_outputs = tf.concat(forward_tensors, axis=0)
       forward_last = forward_outputs[-1, :, :, :]
 
-      reverse_outputs, _ = tf.scan(
-        reverse_step,
-        tf.range(n_bits, n_bits * 2),
-        initializer=(forward_last, residuals_queue),
-        parallel_iterations=1,
-        swap_memory=True
-      )
+      reverse_outputs, _ = tf.scan(reverse_step,
+                                   tf.range(n_bits, n_bits * 2),
+                                   initializer=(forward_last, residuals_queue),
+                                   parallel_iterations=1,
+                                   swap_memory=True)
 
       block_out = reverse_outputs[-1, :, :, :]
       residuals_queue = tf.concat([forward_outputs, reverse_outputs], axis=0)
 
-  return SwitchLayer("last_layer", hparams.dropout, hparams.mode)(block_out, residuals_queue[n_bits * 2, :, :, :])
+  last_layer = SwitchLayer("last_layer", hparams.dropout, hparams.mode)
+  return last_layer(block_out, residuals_queue[n_bits * 2, :, :, :])
 
 
 @registry.register_model
 class ShuffleNetwork(t2t_model.T2TModel):
+  """Seq2Seq model for sequence processing in O(n log n) time.
+  """
+
   def bottom(self, features):
     """
     We add padding to the input and output so they are the same.
     Length of input and output should be power of 2.
+
+    Args:
+      features: Dictionary of inputs and targets
+
+    Returns:
+      dictionary: Inputs and targets padded with 0 to the length of power of 2.
+      Both are same length.
     """
     inputs = features["inputs"]
     targets = features["targets"]
@@ -206,8 +352,10 @@ class ShuffleNetwork(t2t_model.T2TModel):
     p = tf.cast(tf.ceil(p), tf.int32)
     pad_len = tf.pow(2, p)
 
-    features["inputs"] = tf.pad(inputs, [[0, 0], [0, pad_len - inputs_length], [0, 0], [0, 0]])
-    features["targets"] = tf.pad(targets, [[0, 0], [0, pad_len - targets_length], [0, 0], [0, 0]])
+    input_padding = [[0, 0], [0, pad_len - inputs_length], [0, 0], [0, 0]]
+    features["inputs"] = tf.pad(inputs, input_padding)
+    target_padding = [[0, 0], [0, pad_len - targets_length], [0, 0], [0, 0]]
+    features["targets"] = tf.pad(targets, target_padding)
     return super(ShuffleNetwork, self).bottom(features)
 
   def loss(self, logits, features):
@@ -216,12 +364,30 @@ class ShuffleNetwork(t2t_model.T2TModel):
     use padding for calculating loss.
     We assume that output string is same length as the input. If you need other
     type of output please feel free to modify this.
+
+    Args:
+      logits: Logits from model
+      features: Features, not in onehot_format
+
+    Returns:
+       tf.Tensor: Loss value
     """
-    onehot_labels = tf.one_hot(features["targets"], self._problem_hparams.vocab_size["targets"])
-    cost_vector = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits, labels=onehot_labels)
+
+    onehot_labels = tf.one_hot(features["targets"],
+                               self._problem_hparams.vocab_size["targets"])
+    cost_vector = tf.nn.softmax_cross_entropy_with_logits_v2(
+        logits=logits,
+        labels=onehot_labels)
     return tf.reduce_mean(cost_vector)
 
   def body(self, features):
+    """
+    Body of Neural Shuffle-Exchange network.
+
+    Args:
+      features: dictionary of inputs and targets
+    """
+
     inputs = tf.squeeze(features["inputs"], axis=2)
     logits = shuffle_network(inputs, self._hparams)
     return tf.expand_dims(logits, axis=2)
@@ -229,6 +395,9 @@ class ShuffleNetwork(t2t_model.T2TModel):
 
 @registry.register_hparams
 def shuffle_network_baseline():
+  """Large Shuffle-Exchange configuration.
+  """
+
   hparams = common_hparams.basic_params1()
   hparams.hidden_size = 48 * 8  # feature maps
   hparams.num_hidden_layers = 2  # block count
