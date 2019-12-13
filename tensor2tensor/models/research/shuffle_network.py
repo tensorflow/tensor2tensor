@@ -1,25 +1,26 @@
-"""
+"""Neural Shuffle-Exchange Network.
+
 Implementation of
 "Neural Shuffle-Exchange Networks - Sequence Processing in O(n log n) Time"
 paper by K.Freivalds, E.Ozolins, A.Sostaks.
+
 Paper: https://papers.nips.cc/paper/
 8889-neural-shuffle-exchange-networks-sequence-processing-in-on-log-n-time.pdf
+
 Original code: https://github.com/LUMII-Syslab/shuffle-exchange
 """
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
-
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
+import tensorflow as tf
 
 
 def ror(x, n, p=1):
-  """
-  Bitwise right rotation.
+  """Bitwise right rotation.
 
   Args:
     x: Input tensor
@@ -39,8 +40,7 @@ def ror(x, n, p=1):
 
 
 def rol(x, n, p=1):
-  """
-  Bitwise left rotation.
+  """Bitwise left rotation.
 
   Args:
     x: Input tensor
@@ -59,9 +59,7 @@ def rol(x, n, p=1):
 
 
 def shuffle_layer(inputs, shuffle_fn=rol):
-  """
-  Shuffles the elements according to bitwise left or right rotation
-  on their indices.
+  """Shuffles the elements according to bitwise left or right rotation.
 
   Args:
     inputs: Tensor input from previous layer
@@ -81,8 +79,7 @@ def shuffle_layer(inputs, shuffle_fn=rol):
 
 
 def reverse_shuffle_layer(inputs):
-  """
-  Reverse shuffle of inputs. Used in the second half of Benes block.
+  """Reverse shuffle of inputs. Used in the second half of Benes block.
 
   Args:
     inputs: Inputs that should be shuffled
@@ -95,8 +92,7 @@ def reverse_shuffle_layer(inputs):
 
 
 def conv_linear_map(inputs, nin, nout, bias_start, prefix):
-  """
-  Convolutional liner map. Maps 3D tensor by last dimension.
+  """Convolutional liner map. Maps 3D tensor by last dimension.
 
   Args:
     inputs: Inputs that should be shuffled
@@ -127,13 +123,12 @@ def conv_linear_map(inputs, nin, nout, bias_start, prefix):
 
 # pylint: disable=useless-object-inheritance
 class SwitchLayer(object):
-  """
-  Switch layer of Neural Shuffle-Exchange network.
-  Neural adaption of switch unit in standart Benes networks.
+  """Switch layer of Neural Shuffle-Exchange network.
   """
 
   def __init__(self, prefix, dropout, mode):
-    """
+    """Initialize switch layer.
+
     Args:
       prefix: Name prefix for switch layer
       dropout: Dropout rate
@@ -149,7 +144,7 @@ class SwitchLayer(object):
     self.n_bits = None
 
   def linear_map(self, inputs, suffix, bias_start, in_units, out_units):
-    """2 input to 2 output linear map
+    """2 input to 2 output linear map.
 
     Args:
       inputs: Input tensor
@@ -169,8 +164,7 @@ class SwitchLayer(object):
 
   def gated_linear_map(self, inputs, suffix, bias_start_reset,
                        in_units, out_units):
-    """
-    Linear mapping with two reset gates
+    """Linear mapping with two reset gates.
 
     Args:
       inputs: Input tensor
@@ -204,8 +198,7 @@ class SwitchLayer(object):
     return tf.nn.tanh(res)
 
   def __call__(self, inputs, residual_inputs):
-    """
-    Apply SwitchLayer to inputs:
+    """Apply SwitchLayer to inputs.
 
     Args:
       inputs: Input tensor
@@ -246,8 +239,7 @@ class SwitchLayer(object):
     return candidate
 
   def swap_halves(self, inputs):
-    """
-    Split inputs in half and then shuffle them as described in paper.
+    """Split inputs in half and then shuffle them as described in paper.
 
     Args:
       inputs: ShuffleLayer inputs
@@ -263,9 +255,7 @@ class SwitchLayer(object):
 
 
 def shuffle_network(inputs, hparams):
-  """
-  Neural Shuffle-Network with skip connections between blocks.
-  Adaption of Benes network.
+  """Neural Shuffle-Network with skip connections between blocks.
 
   Args:
     inputs: inputs to the Shuffle-Exchange network.
@@ -331,8 +321,7 @@ class ShuffleNetwork(t2t_model.T2TModel):
   """
 
   def bottom(self, features):
-    """
-    We add padding to the input and output so they are the same.
+    """We add padding to the input and output so they are the same.
     Length of input and output should be power of 2.
 
     Args:
@@ -359,15 +348,16 @@ class ShuffleNetwork(t2t_model.T2TModel):
     return super(ShuffleNetwork, self).bottom(features)
 
   def loss(self, logits, features):
-    """
+    """Loss function for Neural Shuffle-Exchange network.
+
     We use custom loss function as default loss function doesn't
-    use padding for calculating loss.
-    We assume that output string is same length as the input. If you need other
-    type of output please feel free to modify this.
+    use padding for calculating loss. We assume that output string is same
+    length as the input. If you need other type of output please feel
+    free to modify this.
 
     Args:
       logits: Logits from model
-      features: Features, not in onehot_format
+      features: Features, not in one-hot format
 
     Returns:
        tf.Tensor: Loss value
@@ -376,13 +366,12 @@ class ShuffleNetwork(t2t_model.T2TModel):
     onehot_labels = tf.one_hot(features["targets"],
                                self._problem_hparams.vocab_size["targets"])
     cost_vector = tf.nn.softmax_cross_entropy_with_logits_v2(
-        logits=logits,
-        labels=onehot_labels)
+      logits=logits,
+      labels=onehot_labels)
     return tf.reduce_mean(cost_vector)
 
   def body(self, features):
-    """
-    Body of Neural Shuffle-Exchange network.
+    """Body of Neural Shuffle-Exchange network.
 
     Args:
       features: dictionary of inputs and targets
@@ -396,6 +385,9 @@ class ShuffleNetwork(t2t_model.T2TModel):
 @registry.register_hparams
 def shuffle_network_baseline():
   """Large Shuffle-Exchange configuration.
+
+  Returns:
+    dict: Neural Shuffle-Exchange configuration
   """
 
   hparams = common_hparams.basic_params1()
