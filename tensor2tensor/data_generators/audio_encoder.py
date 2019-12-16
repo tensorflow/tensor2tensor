@@ -85,7 +85,7 @@ class AudioEncoder(object):
     return tmp_file_path
 
   def decode_list(self, ids):
-    """Transform a sequence of int ids into an image file.
+    """Transform a sequence of int ids into a wavform file.
 
     Args:
       ids: list of integers to be converted.
