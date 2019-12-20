@@ -503,6 +503,10 @@ class Transformer(t2t_model.T2TModel):
     if hparams.pos == "timing":
       positional_encoding = common_attention.get_timing_signal_1d(
           decode_length + 1, hparams.hidden_size)
+    elif hparams.pos == "timing_from_features":
+      positional_encoding = common_attention.add_timing_signals_from_features(
+          tf.zeros([1, decode_length + 1, hparams.hidden_size]), features,
+          hparams.position_features)
     elif hparams.pos == "emb":
       positional_encoding = common_attention.add_positional_embedding(
           tf.zeros([1, decode_length + 1, hparams.hidden_size]),
@@ -748,6 +752,10 @@ class Transformer(t2t_model.T2TModel):
     if hparams.pos == "timing":
       positional_encoding = common_attention.get_timing_signal_1d(
           decode_length + 1, hparams.hidden_size)
+    elif hparams.pos == "timing_from_features":
+      positional_encoding = common_attention.add_timing_signals_from_features(
+          tf.zeros([1, decode_length + 1, hparams.hidden_size]), features,
+          hparams.position_features)
     elif hparams.pos == "emb":
       positional_encoding = common_attention.add_positional_embedding(
           tf.zeros([1, decode_length, hparams.hidden_size]), hparams.max_length,
@@ -1402,6 +1410,9 @@ def transformer_prepare_decoder(targets, hparams, features=None, pad=None):
           decoder_input, targets_position)
     else:
       decoder_input = common_attention.add_timing_signal_1d(decoder_input)
+  elif hparams.pos == "timing_from_features":
+    decoder_input = common_attention.add_timing_signals_from_features(
+        decoder_input, features, hparams.position_features)
   elif hparams.pos == "emb":
     decoder_input = common_attention.add_positional_embedding(
         decoder_input, hparams.max_length, "targets_positional_embedding",
@@ -1768,6 +1779,7 @@ def transformer_base_v1():
   hparams.add_hparam("relu_dropout", 0.0)
   hparams.add_hparam("relu_dropout_broadcast_dims", "")
   hparams.add_hparam("pos", "timing")  # timing, none
+  hparams.add_hparam("position_features", "")
   hparams.add_hparam("nbr_decoder_problems", 1)
   hparams.add_hparam("proximity_bias", False)
   hparams.add_hparam("causal_decoder_self_attention", True)

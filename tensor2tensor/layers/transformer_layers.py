@@ -111,6 +111,9 @@ def transformer_prepare_encoder(inputs, target_space, hparams, features=None,
           encoder_input, inputs_position)
     else:
       encoder_input = common_attention.add_timing_signal_1d(encoder_input)
+  elif hparams.pos == "timing_from_features":
+    encoder_input = common_attention.add_timing_signals_from_features(
+        encoder_input, features, hparams.position_features)
   elif hparams.pos == "emb":
     encoder_input = common_attention.add_positional_embedding(
         encoder_input, hparams.max_length, "inputs_positional_embedding",

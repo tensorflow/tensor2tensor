@@ -19,14 +19,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
+
 from absl.testing import parameterized
 import kfac
 import numpy as np
-
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import test_utils
-
 import tensorflow as tf
 tf.compat.v1.enable_eager_execution()
 
@@ -101,6 +101,69 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     self.evaluate(tf.global_variables_initializer())
     res = self.evaluate(y)
     self.assertEqual(res.shape, input_shape)
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testAddTimingSignalsGivenPositions(self):
+    x_positions = tf.expand_dims(
+        tf.constant([0, 1, 2, 3], dtype=tf.float32), axis=0)
+    y_positions = tf.expand_dims(
+        tf.constant([4, 5, 6, 7], dtype=tf.float32), axis=0)
+    x = tf.zeros([1, 4, 8], dtype=tf.float32)
+    self.assertAllClose(
+        common_attention.add_timing_signals_given_positions(
+            x, [x_positions, y_positions]),
+        tf.constant([[
+            [
+                math.sin(0),
+                math.sin(0 * 1e-4),
+                math.cos(0),
+                math.cos(0 * 1e-4),
+                math.sin(4),
+                math.sin(4 * 1e-4),
+                math.cos(4),
+                math.cos(4 * 1e-4)
+            ],
+            [
+                math.sin(1),
+                math.sin(1 * 1e-4),
+                math.cos(1),
+                math.cos(1 * 1e-4),
+                math.sin(5),
+                math.sin(5 * 1e-4),
+                math.cos(5),
+                math.cos(5 * 1e-4)
+            ],
+            [
+                math.sin(2),
+                math.sin(2 * 1e-4),
+                math.cos(2),
+                math.cos(2 * 1e-4),
+                math.sin(6),
+                math.sin(6 * 1e-4),
+                math.cos(6),
+                math.cos(6 * 1e-4)
+            ],
+            [
+                math.sin(3),
+                math.sin(3 * 1e-4),
+                math.cos(3),
+                math.cos(3 * 1e-4),
+                math.sin(7),
+                math.sin(7 * 1e-4),
+                math.cos(7),
+                math.cos(7 * 1e-4)
+            ],
+        ]]))
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testAddTimingSignalsGivenPositionsEquivalent(self):
+    x = tf.zeros([1, 10, 128], dtype=tf.float32)
+    positions = tf.expand_dims(tf.range(0, 10, dtype=tf.float32), axis=0)
+    # The method add_timing_signal_1d_given_position could be replaced by
+    # add_timing_signals_given_positions:
+    tf.assert_equal(
+        common_attention.add_timing_signal_1d_given_position(x, positions),
+        common_attention.add_timing_signals_given_positions(x, [positions]))
 
   @test_utils.run_in_graph_and_eager_modes()
   def testDotProductAttention(self):

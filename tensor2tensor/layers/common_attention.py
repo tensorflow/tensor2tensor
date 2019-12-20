@@ -578,6 +578,77 @@ def add_layer_timing_signal_sinusoid_1d(x, layer, num_layers):
 
 
 @expert_utils.add_name_scope()
+def add_timing_signals_given_positions(x,
+                                       positions,
+                                       min_timescale=1.0,
+                                       max_timescale=1.0e4):
+  """Adds sinusoids of diff frequencies to a Tensor, with timing positions given.
+
+  Args:
+    x: a Tensor with shape [batch, length, channels]
+    positions: a list of positions, each of which can either be a Tensor of
+      shape [batch, length] or None for a default of (0..length]
+    min_timescale: a float
+    max_timescale: a float
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+  shape = common_layers.shape_list(x)
+  batch = shape[0]
+  length = shape[1]
+  channels = shape[2]
+  num_dims = len(positions)
+  num_timescales = channels // (num_dims * 2)
+  log_timescale_increment = (
+      math.log(float(max_timescale) / float(min_timescale)) /
+      (tf.to_float(num_timescales) - 1))
+  inv_timescales = min_timescale * tf.exp(
+      tf.to_float(tf.range(num_timescales)) * -log_timescale_increment)
+  for dim, position in enumerate(positions):
+    if position is None:
+      # Create a [batch, length] Tensor of incrementing positions 0..length-1.
+      position = tf.tile(
+          tf.transpose(tf.expand_dims(tf.range(0, length), axis=1)), [batch, 1])
+    scaled_time = (
+        tf.expand_dims(tf.to_float(position), 2) *
+        tf.expand_dims(tf.expand_dims(inv_timescales, 0), 0))
+    signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=2)
+    prepad = dim * 2 * num_timescales
+    postpad = channels - (dim + 1) * 2 * num_timescales
+    signal = tf.pad(signal, [[0, 0], [0, 0], [prepad, postpad]])
+    signal = common_layers.cast_like(signal, x)
+    x += signal
+  return x
+
+
+@expert_utils.add_name_scope()
+def add_timing_signals_from_features(x,
+                                     features,
+                                     position_features,
+                                     min_timescale=1.0,
+                                     max_timescale=1.0e4):
+  """Adds timing signals from features named in `position_features`.
+
+  Args:
+    x: a Tensor with shape [batch, length, channels]
+    features: a features dictionary
+    position_features: a comma-delimited string where each item is either a
+      feature key or the empty string (which denotes a default position tensor
+      of [0..length])
+    min_timescale: a float
+    max_timescale: a float
+
+  Returns:
+    a Tensor the same shape as x.
+  """
+  return add_timing_signals_given_positions(x, [
+      features.get(position_feature)
+      for position_feature in position_features.split(",")
+  ], min_timescale, max_timescale)
+
+
+@expert_utils.add_name_scope()
 def add_timing_signal_1d_given_position(x,
                                         position,
                                         min_timescale=1.0,
