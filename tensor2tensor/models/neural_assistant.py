@@ -63,15 +63,20 @@ class NeuralAssistant(transformer.Transformer):
         logits = self.top(output, features)
         losses["training"] = 0.0
         cur_kb_loss = losses["kb_loss"]
+        cur_knowledge_training_loss = losses["transe_loss"]
         cur_kb_loss_weight = self._hparams.kb_loss_weight
+        kb_train_weight = self._hparams.kb_train_weight
         cur_lm_loss_weight = 1.0 - cur_kb_loss_weight
         # Finalize loss
         if (self._hparams.mode != tf.estimator.ModeKeys.PREDICT and
             self._hparams.mode != "attack"):
           lm_loss_num, lm_loss_denom = self.loss(logits, features)
-          total_loss = cur_kb_loss * cur_kb_loss_weight + (
-              lm_loss_num / lm_loss_denom) * cur_lm_loss_weight
+          total_loss = (kb_train_weight) * cur_knowledge_training_loss + (
+              1 - kb_train_weight) * (
+                  cur_kb_loss * cur_kb_loss_weight +
+                  (lm_loss_num / lm_loss_denom) * cur_lm_loss_weight)
           tf.summary.scalar("kb_loss", cur_kb_loss)
+          tf.summary.scalar("transe_loss", cur_knowledge_training_loss)
           tf.summary.scalar("lm_loss", (lm_loss_num / lm_loss_denom))
           tf.summary.scalar("cur_kb_loss_weight",
                             tf.reshape(cur_kb_loss_weight, []))
@@ -107,7 +112,8 @@ class NeuralAssistant(transformer.Transformer):
     return re_fact_embedding, re_fact_lengths
 
   def compute_knowledge_selection_and_loss(self, features, encoder_output,
-                                           fact_embedding, fact_lengths):
+                                           fact_embedding, fact_lengths, margin,
+                                           num_negative_samples):
     """Compute knowledge selection and loss.
 
     Args:
@@ -116,6 +122,9 @@ class NeuralAssistant(transformer.Transformer):
       fact_embedding: <tf.float32>[batch_size*triple_num, max_triple_length,
         emb_dim]
       fact_lengths: # <tf.int32>[batch_size*triple_num]
+      margin: integer value for max margin in TransE loss,
+      num_negative_samples: shuffle and sample multiple negative examples for
+      the TransE loss
 
     Returns:
       knowledge_weights:
@@ -169,6 +178,82 @@ class NeuralAssistant(transformer.Transformer):
 
     avg_triple_loss = 0.0
     triple_labels = features["triple_labels"]
+
+    subject_mask = tf.reshape(features["subject_mask"],
+                              [-1, self.triple_num, hparams.max_triple_length])
+    subject_mask = tf.reshape(subject_mask, [-1, hparams.max_triple_length])
+
+    predicate_mask = tf.reshape(
+        features["predicate_mask"],
+        [-1, self.triple_num, hparams.max_triple_length])
+    predicate_mask = tf.reshape(predicate_mask, [-1, hparams.max_triple_length])
+
+    object_mask = tf.reshape(features["object_mask"],
+                             [-1, self.triple_num, hparams.max_triple_length])
+    object_mask = tf.reshape(object_mask, [-1, hparams.max_triple_length])
+
+    # mask : [bs, max_seq_len, triple_num]
+    # the below operation will result in [bs*triple_num,emb_dim]
+    subject_length = tf.cast(
+        tf.expand_dims(tf.reduce_sum(subject_mask, -1), 1),
+        tf.float32)  # [bs*tn]
+    object_length = tf.cast(
+        tf.expand_dims(tf.reduce_sum(object_mask, -1), 1), tf.float32)
+    predicate_length = tf.cast(
+        tf.expand_dims(tf.reduce_sum(predicate_mask, -1), 1), tf.float32)
+
+    # expand dimension 2 to be able to broadcast
+    subject_mask = tf.cast(tf.expand_dims(subject_mask, 2), tf.float32)
+    predicate_mask = tf.cast(tf.expand_dims(predicate_mask, 2), tf.float32)
+    object_mask = tf.cast(tf.expand_dims(object_mask, 2), tf.float32)
+
+    subject_vect = tf.reduce_sum(tf.multiply(
+        fact_embedding, subject_mask), 1) / (
+            subject_length +
+            tf.broadcast_to(tf.constant([1e-5]), tf.shape(subject_length)))
+    object_vect = tf.reduce_sum(tf.multiply(fact_embedding, object_mask), 1) / (
+        object_length +
+        tf.broadcast_to(tf.constant([1e-5]), tf.shape(object_length)))
+    predicate_vect = tf.reduce_sum(
+        tf.multiply(fact_embedding, predicate_mask), 1) / (
+            predicate_length +
+            tf.broadcast_to(tf.constant([1e-5]), tf.shape(predicate_length)))
+
+    # Shuffled rows to generate adversarial samples
+    shuffled_subject_vect = []
+    shuffled_object_vect = []
+
+    for _ in range(num_negative_samples):
+      shuffled_subject_vect += [
+          tf.gather(subject_vect,
+                    tf.random.shuffle(tf.range(tf.shape(subject_vect)[0])))
+      ]  # [bs*tn,d]
+      shuffled_object_vect += [
+          tf.gather(object_vect,
+                    tf.random.shuffle(tf.range(tf.shape(object_vect)[0])))
+      ]  # [bs*tn,d]
+
+    # KB pretraining loss
+
+    positive_loss = tf.reduce_mean(
+        tf.squared_difference(subject_vect + predicate_vect, object_vect))
+    negative_loss = 0
+    for n_adv in range(num_negative_samples):
+      negative_loss += tf.reduce_mean(
+          tf.squared_difference(shuffled_subject_vect[n_adv] + predicate_vect,
+                                object_vect))
+      negative_loss += tf.reduce_mean(
+          tf.squared_difference(subject_vect + predicate_vect,
+                                shuffled_object_vect[n_adv]))
+
+    # TransE Loss
+
+    negative_loss = negative_loss / (2 * num_negative_samples)
+
+    transe_loss = tf.clip_by_value(
+        margin + positive_loss - negative_loss,
+        clip_value_min=0,
+        clip_value_max=100)
     if hparams.mode != tf.estimator.ModeKeys.PREDICT:
       triple_losses = tf.nn.weighted_cross_entropy_with_logits(
           labels=triple_labels,
@@ -177,7 +262,7 @@ class NeuralAssistant(transformer.Transformer):
       avg_triple_loss = tf.reduce_mean(triple_losses)
       tf.summary.scalar("triple_loss", avg_triple_loss)
 
-    return triple_logits, avg_triple_loss, original_knowledge_encoder_output
+    return triple_logits, avg_triple_loss, original_knowledge_encoder_output, transe_loss
 
   def body(self, features):
     """Transformer main model_fn.
@@ -212,9 +297,11 @@ class NeuralAssistant(transformer.Transformer):
 
       with tf.name_scope("knowledge_selection_and_loss"):
         # Compute knowledge selection and loss.
-        triple_logits, avg_triple_selection_loss, knowledge_encoder_output = self.compute_knowledge_selection_and_loss(
-            features, encoder_output, fact_embedding, fact_lengths)
+        triple_logits, avg_triple_selection_loss, knowledge_encoder_output, transe_loss = self.compute_knowledge_selection_and_loss(
+            features, encoder_output, fact_embedding, fact_lengths,
+            hparams.margin, hparams.num_negative_samples)
         losses["kb_loss"] = avg_triple_selection_loss
+        losses["transe_loss"] = transe_loss
 
     if hparams.attend_kb:
       tf.logging.info("ATTEND_KB is ACTIVE")
@@ -453,6 +540,12 @@ def neural_assistant_tiny():
   hparams.add_hparam("kb_loss_weight", 0.0)  # weight for distant supervision
   hparams.add_hparam("test_triple_num",
                      28483)  # max triples of KB
+  hparams.add_hparam("margin", 1.0)  # KB training max-margin loss
+  hparams.add_hparam(
+      "num_negative_samples",
+      1)  # Sampling number of different adversarial training examples
+  hparams.add_hparam("kb_train_weight", 0.0)
+  # KB_training loss weight which combines Language model and KB selection loss
   return hparams
 
 
