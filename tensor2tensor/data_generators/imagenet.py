@@ -27,7 +27,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # URLs and filenames for IMAGENET 32x32 data from
 # https://arxiv.org/abs/1601.06759.

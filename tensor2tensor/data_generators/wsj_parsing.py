@@ -25,7 +25,7 @@ from absl import flags
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
 

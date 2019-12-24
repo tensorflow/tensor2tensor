@@ -26,7 +26,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # TODO(rsepassi): Merge these problems with their data generators. Currently
 # they only implement the hparams.

@@ -36,7 +36,7 @@ import re
 
 from tensor2tensor.data_generators import text_encoder
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 _RE_GOOD_S_START = re.compile(r'^["“”]?[A-Z]')

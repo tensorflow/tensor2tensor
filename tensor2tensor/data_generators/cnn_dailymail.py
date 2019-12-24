@@ -31,7 +31,7 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # Links to data from http://cs.nyu.edu/~kcho/DMQA/
 _CNN_STORIES_DRIVE_URL = ("https://drive.google.com/uc?"

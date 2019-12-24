@@ -22,7 +22,7 @@ from __future__ import print_function
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import translate_ende
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class TranslateEndeTest(tf.test.TestCase):

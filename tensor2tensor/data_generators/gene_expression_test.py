@@ -22,7 +22,7 @@ import numpy as np
 from tensor2tensor.data_generators import dna_encoder
 from tensor2tensor.data_generators import gene_expression
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class GeneticsTest(tf.test.TestCase):

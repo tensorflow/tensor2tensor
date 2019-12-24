@@ -29,7 +29,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class ByteTextEncoderWithEos(text_encoder.ByteTextEncoder):

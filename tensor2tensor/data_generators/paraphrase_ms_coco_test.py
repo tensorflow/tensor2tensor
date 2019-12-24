@@ -23,7 +23,7 @@ import mock
 
 from tensor2tensor.data_generators import paraphrase_ms_coco
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class ParaphraseGenerationProblemTest(tf.test.TestCase):

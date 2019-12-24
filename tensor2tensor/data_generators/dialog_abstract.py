@@ -32,7 +32,7 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators.text_problems import VocabType
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID

@@ -28,7 +28,7 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 _DEV_SET = "dev-v1.1.json"

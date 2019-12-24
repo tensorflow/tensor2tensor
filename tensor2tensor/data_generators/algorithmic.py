@@ -28,7 +28,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class AlgorithmicProblem(problem.Problem):

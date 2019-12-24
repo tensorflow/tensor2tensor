@@ -23,7 +23,7 @@ from absl.testing import parameterized
 from tensor2tensor.data_generators import mscoco
 from tensor2tensor.utils import hparam
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class MscocoTest(parameterized.TestCase, tf.test.TestCase):

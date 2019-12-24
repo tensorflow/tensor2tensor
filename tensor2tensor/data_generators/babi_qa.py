@@ -45,7 +45,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 _DIR_NAME = "tasks_1-20_v1-2"

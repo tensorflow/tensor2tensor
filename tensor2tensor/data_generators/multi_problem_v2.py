@@ -61,7 +61,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class MultiProblemV2(problem.Problem):

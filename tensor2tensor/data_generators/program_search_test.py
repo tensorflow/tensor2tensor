@@ -28,7 +28,7 @@ from builtins import bytes  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import program_search
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class ProgramSearchAlgolispStub(program_search.ProgramSearchAlgolisp):

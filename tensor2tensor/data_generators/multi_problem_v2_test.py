@@ -24,7 +24,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import multi_problem_v2
 from tensor2tensor.data_generators import problem
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class MultiProblemV2Test(parameterized.TestCase, tf.test.TestCase):

@@ -23,7 +23,7 @@ from absl.testing import parameterized
 from tensor2tensor.data_generators import imagenet
 from tensor2tensor.utils import hparam
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class ImagenetTest(parameterized.TestCase, tf.test.TestCase):

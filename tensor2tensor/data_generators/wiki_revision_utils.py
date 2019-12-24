@@ -30,7 +30,7 @@ import subprocess
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def include_revision(revision_num, skip_factor=1.1):
