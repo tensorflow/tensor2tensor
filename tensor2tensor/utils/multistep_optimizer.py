@@ -120,6 +120,9 @@ class MultistepAdamOptimizer(optimizer.Optimizer):
         lambda: accumulate_gradient(grad_acc, grad))
 
   def _apply_dense(self, grad, var):
+    return self._apply_cond(self._apply_dense_in_action, grad, var)
+
+  def _apply_dense_in_action(self, grad, var):
     m = self.get_slot(var, "m")
     v = self.get_slot(var, "v")
     beta1_power, beta2_power = self._get_beta_accumulators()
@@ -134,6 +137,9 @@ class MultistepAdamOptimizer(optimizer.Optimizer):
         use_locking=self._use_locking).op
 
   def _resource_apply_dense(self, grad, var):
+    return self._apply_cond(self._resource_apply_dense_in_action, grad, var)
+
+  def _resource_apply_dense_in_action(self, grad, var):
     m = self.get_slot(var, "m")
     v = self.get_slot(var, "v")
     beta1_power, beta2_power = self._get_beta_accumulators()
@@ -187,7 +193,7 @@ class MultistepAdamOptimizer(optimizer.Optimizer):
     # automatically.
     dense_grad = tf.convert_to_tensor(tf.IndexedSlices(values=grad, 
         indices=indices, dense_shape=tf.shape(var)))
-    return self._apply_cond(self._resource_apply_dense, dense_grad, var)
+    return self._apply_cond(self._resource_apply_dense_in_action, dense_grad, var)
 
   def _resource_scatter_add(self, x, i, v):
     with ops.control_dependencies(
