@@ -33,7 +33,7 @@ from dopamine.replay_memory.prioritized_replay_buffer import WrappedPrioritizedR
 import numpy as np
 
 from tensor2tensor.rl.policy_learner import PolicyLearner
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # pylint: disable=g-import-not-at-top
 # pylint: disable=ungrouped-imports

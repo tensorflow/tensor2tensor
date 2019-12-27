@@ -28,7 +28,7 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.models import transformer
 from tensor2tensor.models.neural_architecture_search import nas_layers as layers
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _BATCH_SIZE = 32
 _TOTAL_SEQUENCE_LENGTH = 20

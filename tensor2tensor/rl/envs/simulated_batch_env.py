@@ -34,7 +34,7 @@ from tensor2tensor.rl.envs import in_graph_batch_env
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 # Lazy load PIL.Image

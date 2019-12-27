@@ -23,7 +23,7 @@ from tensor2tensor.models.video import basic_deterministic
 from tensor2tensor.models.video import basic_deterministic_params
 from tensor2tensor.models.video import tests_utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class NextFrameTest(tests_utils.BaseNextFrameTest):

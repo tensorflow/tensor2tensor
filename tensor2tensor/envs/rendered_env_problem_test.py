@@ -23,7 +23,7 @@ from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import rendered_env_problem
 from tensor2tensor.envs.mujoco_problems import ReacherEnvProblem
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class RenderedEnvProblemTest(tf.test.TestCase):

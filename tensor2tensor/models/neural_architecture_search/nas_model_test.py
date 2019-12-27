@@ -25,7 +25,7 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.models import transformer
 from tensor2tensor.models.neural_architecture_search import nas_layers as layers
 from tensor2tensor.models.neural_architecture_search import nas_model as translation_nas_net
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _BATCH_SIZE = 5
 _INPUT_LENGTH = 5

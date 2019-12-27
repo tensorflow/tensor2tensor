@@ -21,7 +21,7 @@ from __future__ import print_function
 
 from absl.testing import parameterized
 from tensor2tensor.models.video import nfg_test_utils
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 uncond_hparams = (
     ("in_1_out_1", 1, 1, "pointwise", "conditional"),

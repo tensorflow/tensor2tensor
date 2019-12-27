@@ -29,7 +29,7 @@ import numpy as np
 
 from tensor2tensor.rl import dopamine_connector
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 FLAGS = flags.FLAGS

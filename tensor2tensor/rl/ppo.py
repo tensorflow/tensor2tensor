@@ -26,7 +26,7 @@ from tensor2tensor.models.research.rl import get_policy
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import optimize
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_probability as tfp
 
 

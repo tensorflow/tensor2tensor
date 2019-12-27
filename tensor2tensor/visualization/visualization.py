@@ -26,7 +26,7 @@ from tensor2tensor import problems
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 EOS_ID = 1
 

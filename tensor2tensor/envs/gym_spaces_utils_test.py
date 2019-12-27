@@ -23,7 +23,7 @@ from gym.spaces import Box
 from gym.spaces import Discrete
 import numpy as np
 from tensor2tensor.envs import gym_spaces_utils
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class GymSpacesUtilsTest(tf.test.TestCase):

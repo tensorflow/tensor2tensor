@@ -39,7 +39,7 @@ from tensor2tensor.rl.ppo_learner import PPOLearner
 from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def compute_mean_reward(rollouts, clipped):

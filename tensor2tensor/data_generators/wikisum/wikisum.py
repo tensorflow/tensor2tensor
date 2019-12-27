@@ -36,7 +36,7 @@ from tensor2tensor.data_generators.wikisum import utils as cc_utils
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 PROCESS_FOLDER_PREFIX = "process"
 REF_SHARD_FILE_PREFIX = "references.tfrecords.gz"

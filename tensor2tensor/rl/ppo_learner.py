@@ -31,7 +31,7 @@ from tensor2tensor.rl.policy_learner import PolicyLearner
 from tensor2tensor.rl.restarter import Restarter
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_probability as tfp
 
 

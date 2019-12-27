@@ -21,7 +21,7 @@ from __future__ import print_function
 
 from tensor2tensor.envs import time_step
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class TimeStepTest(tf.test.TestCase):

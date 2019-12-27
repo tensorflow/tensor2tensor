@@ -25,7 +25,7 @@ import numpy as np
 from tensor2tensor.data_generators import video_generated  # pylint: disable=unused-import
 from tensor2tensor.models.video import next_frame_glow
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 MODES = tf.estimator.ModeKeys
 
 

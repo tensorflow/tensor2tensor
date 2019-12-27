@@ -23,7 +23,7 @@ import gym
 from gym import spaces
 import numpy as np
 from tensor2tensor.rl import gym_utils
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class SimpleEnv(gym.Env):

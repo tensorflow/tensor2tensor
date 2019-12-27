@@ -23,7 +23,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class WrapperBase(InGraphBatchEnv):

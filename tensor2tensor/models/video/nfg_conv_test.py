@@ -17,7 +17,7 @@
 
 from absl.testing import parameterized
 from tensor2tensor.models.video import nfg_test_utils
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 conv_net_hparams = (
     ("in_3_out_2_conv", 3, 1, "conv_net", "conditional"),

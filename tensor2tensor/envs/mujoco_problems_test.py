@@ -23,7 +23,7 @@ import numpy as np
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import mujoco_problems  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class ReacherEnvProblemTest(tf.test.TestCase):

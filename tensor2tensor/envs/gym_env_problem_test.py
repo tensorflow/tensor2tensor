@@ -30,7 +30,7 @@ from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.layers import modalities
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class GymEnvProblemTest(tf.test.TestCase):

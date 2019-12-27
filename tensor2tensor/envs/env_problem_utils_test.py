@@ -26,7 +26,7 @@ from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.envs import tic_tac_toe_env  # pylint: disable=unused-import
 from tensor2tensor.envs import tic_tac_toe_env_problem
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class EnvProblemUtilsTest(tf.test.TestCase):

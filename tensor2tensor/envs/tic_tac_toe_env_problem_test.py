@@ -24,7 +24,7 @@ from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import tic_tac_toe_env  # pylint: disable=unused-import
 from tensor2tensor.envs import tic_tac_toe_env_problem  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class TicTacToeEnvProblemTest(tf.test.TestCase):

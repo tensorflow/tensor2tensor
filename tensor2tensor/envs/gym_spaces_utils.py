@@ -26,7 +26,7 @@ from gym.spaces import Box
 from gym.spaces import Discrete
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def box_space_spec(box_space, tf_dtype):

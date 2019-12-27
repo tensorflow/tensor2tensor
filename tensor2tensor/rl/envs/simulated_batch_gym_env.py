@@ -25,7 +25,7 @@ import numpy as np
 
 from tensor2tensor.rl.envs.simulated_batch_env import SimulatedBatchEnv
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class FlatBatchEnv(Env):

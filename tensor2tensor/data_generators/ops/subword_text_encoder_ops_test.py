@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.data_generators.ops import subword_text_encoder_ops
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 vocab_file = (
     "third_party/py/tensor2tensor/data_generators/ops/testdata/subwords")

@@ -21,7 +21,7 @@ from __future__ import print_function
 
 from absl.testing import parameterized
 from tensor2tensor.models.video import nfg_test_utils
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 conv3d_net_hparams = (
     ("conv3d_net", 2, 2, "conv3d_net", "conditional", -1, 3),

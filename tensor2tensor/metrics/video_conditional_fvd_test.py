@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.metrics import video_conditional_fvd
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class VideoConditionalFvdTest(tf.test.TestCase):

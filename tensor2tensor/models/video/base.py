@@ -30,7 +30,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def flat_lists(list_of_lists):

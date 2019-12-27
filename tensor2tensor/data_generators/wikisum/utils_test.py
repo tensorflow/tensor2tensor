@@ -22,7 +22,7 @@ from __future__ import print_function
 import os
 from tensor2tensor.data_generators.wikisum import utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 pkg_dir = os.path.abspath(__file__)
 pkg_dir, _ = os.path.split(pkg_dir)

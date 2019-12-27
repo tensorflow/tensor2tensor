@@ -19,7 +19,7 @@ import os
 
 from tensor2tensor.rl.restarter import Restarter
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 TEST_MODE_1 = "mode1"

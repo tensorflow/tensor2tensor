@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.envs import tic_tac_toe_env as ttt_env
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class TicTacToeEnvTest(tf.test.TestCase):
