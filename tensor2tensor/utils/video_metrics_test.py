@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import numpy as np
 from tensor2tensor.utils import video_metrics
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class VideoMetricsTest(tf.test.TestCase):

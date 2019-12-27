@@ -69,7 +69,7 @@ from __future__ import print_function
 import collections
 
 from tensor2tensor.utils import misc_utils
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from tensorflow.python.util import tf_inspect as inspect  # pylint: disable=g-direct-tensorflow-import
 

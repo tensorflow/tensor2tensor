@@ -22,7 +22,7 @@ import numpy as np
 
 from tensor2tensor.utils.yellowfin import YellowFinOptimizer
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 n_dim = 1000000

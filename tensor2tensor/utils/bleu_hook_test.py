@@ -27,7 +27,7 @@ import six
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import bleu_hook
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class BleuHookTest(tf.test.TestCase):

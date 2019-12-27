@@ -21,7 +21,7 @@ from __future__ import print_function
 
 from tensor2tensor.utils import hparam
 from tensor2tensor.utils import misc_utils
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class MiscUtilsTest(tf.test.TestCase):

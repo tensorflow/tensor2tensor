@@ -39,7 +39,7 @@ from __future__ import print_function
 import collections
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # The paper that intoduces the SARI score uses only the precision of the deleted
 # tokens (i.e. beta=0). To give more emphasis on recall, you may set, e.g.,

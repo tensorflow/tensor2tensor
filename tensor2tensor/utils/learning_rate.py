@@ -20,7 +20,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.utils import mlperf_log
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def learning_rate_factor(name, step_num, hparams):

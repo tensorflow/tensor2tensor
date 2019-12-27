@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def copy_hparams(hparams):

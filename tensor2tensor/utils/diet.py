@@ -28,7 +28,7 @@ import math
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import hparam
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def diet_adam_optimizer_params():

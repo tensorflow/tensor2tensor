@@ -24,7 +24,7 @@ from tensor2tensor.utils import hparam
 from tensor2tensor.utils import t2t_model
 from tensor2tensor.utils import test_utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 tf.compat.v1.enable_eager_execution()
 
 

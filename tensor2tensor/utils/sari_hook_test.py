@@ -23,7 +23,7 @@ import collections
 
 import numpy as np
 from tensor2tensor.utils import sari_hook
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class SariHookTest(tf.test.TestCase):

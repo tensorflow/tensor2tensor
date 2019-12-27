@@ -22,7 +22,7 @@ from __future__ import print_function
 from absl.testing import parameterized
 from tensor2tensor.utils import hparams_lib
 from tensor2tensor.utils import optimize
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class OptimizeTest(parameterized.TestCase, tf.test.TestCase):
