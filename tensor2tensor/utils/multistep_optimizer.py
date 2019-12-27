@@ -183,7 +183,7 @@ class MultistepAdamOptimizer(optimizer.Optimizer):
     # TODO(fstahlberg): Implement a sparse version
     tf.logging.warning("MultistepAdamOptimizer does not support sparse updates")
     dense_grad = tf.convert_to_tensor(grad)
-    return self._apply_cond(self._apply_dense, dense_grad, var)
+    return self._apply_cond(self._apply_dense_in_action, dense_grad, var)
 
   def _resource_apply_sparse_duplicate_indices(self, grad, var, indices):
     tf.logging.warning("MultistepAdamOptimizer does not support sparse updates")
