@@ -23,7 +23,7 @@ import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import lstm
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class LSTMTest(tf.test.TestCase):

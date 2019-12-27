@@ -24,7 +24,7 @@ from __future__ import division
 from __future__ import print_function
 
 import mesh_tensorflow as mtf
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def transformer_moe_layer_v1(inputs, output_dim, hparams, train,

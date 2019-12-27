@@ -24,7 +24,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import mlperf_log
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 # TODO(lukaszkaiser): remove this function when not needed any more.

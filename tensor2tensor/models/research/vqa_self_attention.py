@@ -29,7 +29,7 @@ from tensor2tensor.models.research import vqa_attention
 from tensor2tensor.utils import registry
 # from tensor2tensor.utils import restore_hook
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from tensorflow.contrib.layers.python.layers import utils
 

@@ -21,7 +21,7 @@ from __future__ import print_function
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_layers
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def lengths_to_area_mask(feature_length, length, max_area_size):

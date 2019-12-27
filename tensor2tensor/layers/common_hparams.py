@@ -22,7 +22,7 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 @registry.register_hparams("basic_1")

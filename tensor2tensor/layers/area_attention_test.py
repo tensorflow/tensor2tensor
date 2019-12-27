@@ -22,7 +22,7 @@ from __future__ import print_function
 from absl.testing import parameterized
 import numpy as np
 from tensor2tensor.layers import area_attention
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class AreaAttentionTest(parameterized.TestCase, tf.test.TestCase):

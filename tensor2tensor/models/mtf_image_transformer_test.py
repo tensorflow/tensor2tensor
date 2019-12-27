@@ -25,7 +25,7 @@ import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import mtf_image_transformer
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # Constants shared between all functions.
 BATCH_SIZE = 8

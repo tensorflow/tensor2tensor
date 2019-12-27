@@ -26,7 +26,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import transformer_layers
 from tensor2tensor.utils import beam_search
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_probability as tfp
 
 DO_SUMMARIES = True

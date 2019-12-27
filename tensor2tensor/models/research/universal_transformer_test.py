@@ -25,7 +25,7 @@ import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models.research import universal_transformer
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 BATCH_SIZE = 3
 INPUT_LENGTH = 5

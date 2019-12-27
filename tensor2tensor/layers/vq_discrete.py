@@ -19,7 +19,7 @@ from __future__ import division
 from __future__ import print_function
 from functools import partial
 from tensor2tensor.layers import common_layers
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.python.training import moving_averages
 
 

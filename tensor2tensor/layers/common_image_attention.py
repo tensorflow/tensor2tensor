@@ -26,7 +26,7 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class AttentionType(object):

@@ -16,7 +16,7 @@
 """Tests for Revnet."""
 
 from tensor2tensor.models import revnet
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class RevnetTest(tf.test.TestCase):

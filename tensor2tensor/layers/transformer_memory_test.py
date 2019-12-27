@@ -21,7 +21,7 @@ from __future__ import print_function
 
 from absl.testing import parameterized
 from tensor2tensor.layers import transformer_memory
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class TransformerMemoryTest(parameterized.TestCase, tf.test.TestCase):

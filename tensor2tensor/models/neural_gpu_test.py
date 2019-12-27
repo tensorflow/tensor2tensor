@@ -24,7 +24,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.models import neural_gpu
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class NeuralGPUTest(tf.test.TestCase):
