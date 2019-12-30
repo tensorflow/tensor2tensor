@@ -20,6 +20,7 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 import tensorflow as tf
 import tensorflow_probability as tfp
 
@@ -319,3 +320,45 @@ def make_masked_constraint(mask):
   def masked_constraint(x):
     return mask * constraint(x)
   return masked_constraint
+
+
+def sinkhorn(inputs, n_iters=20):
+  """Performs incomplete Sinkhorn normalization to inputs.
+
+  By a theorem by Sinkhorn and Knopp [1], a sufficiently well-behaved  matrix
+  with positive entries can be turned into a doubly-stochastic matrix
+  (i.e. its rows and columns add up to one) via the succesive row and column
+  normalization.
+  -To ensure positivity, the effective input to sinkhorn has to be
+  exp(inputs) (elementwise).
+  -However, for stability, sinkhorn works in the log-space. It is only at
+   return time that entries are exponentiated.
+
+  Code is adapted from Mena et al. [2].
+
+  [1] Richard Sinkhorn and Paul Knopp. Concerning nonnegative matrices and
+  doubly stochastic matrices. Pacific Journal of Mathematics, 1967.
+
+  [2] Gonzalo Mena, David Belanger, Scott Linderman, Jasper Snoek.
+  Learning latent permutations with Gumbel-Sinkhorn networks. International
+  Conference on Learning Representations, 2018.
+
+  Args:
+    inputs: A `Tensor` with shape `[..., vocab_size, vocab_size]`.
+    n_iters: Number of sinkhorn iterations (in practice, as little as 20
+      iterations are needed to achieve decent convergence for `vocab_size` ~100)
+
+  Returns:
+    outputs: A `Tensor` of close-to-doubly-stochastic matrices with shape
+      `[:, vocab_size, vocab_size]`.
+  """
+  vocab_size = tf.shape(inputs)[-1]
+  log_alpha = tf.reshape(inputs, [-1, vocab_size, vocab_size])
+
+  for _ in range(n_iters):
+    log_alpha -= tf.reshape(tf.reduce_logsumexp(log_alpha, axis=2),
+                            [-1, vocab_size, 1])
+    log_alpha -= tf.reshape(tf.reduce_logsumexp(log_alpha, axis=1),
+                            [-1, 1, vocab_size])
+  outputs = tf.exp(log_alpha)
+  return outputs
