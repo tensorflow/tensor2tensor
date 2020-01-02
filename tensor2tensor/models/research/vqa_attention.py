@@ -28,6 +28,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
+from tensorflow.contrib import rnn as contrib_rnn
 
 # pylint: disable=unused-import
 from tensorflow.contrib.layers.python.layers import utils
@@ -238,7 +239,7 @@ def _get_rnn_cell(hparams):
   if hparams.rnn_type == "lstm":
     rnn_cell = tf.nn.rnn_cell.BasicLSTMCell
   elif hparams.rnn_type == "lstm_layernorm":
-    rnn_cell = tf.contrib.rnn.LayerNormBasicLSTMCell
+    rnn_cell = contrib_rnn.LayerNormBasicLSTMCell
   return tf.nn.rnn_cell.DropoutWrapper(
       rnn_cell(hparams.hidden_size),
       output_keep_prob=1.0-hparams.dropout)

@@ -31,6 +31,7 @@ import collections
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -213,7 +214,7 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
     """Create the RNN and output projections for controlling the stack.
     """
     with tf.name_scope("controller"):
-      self.rnn = tf.contrib.rnn.BasicRNNCell(self._num_units)
+      self.rnn = contrib.rnn().BasicRNNCell(self._num_units)
       self._input_proj = self.add_variable(
           "input_projection_weights",
           shape=[self._embedding_size * (self._num_read_heads + 1),
@@ -280,9 +281,10 @@ class NeuralStackCell(tf.nn.rnn_cell.RNNCell):
       # Concatenate the current input value with the read values from the
       # previous timestep before feeding them into the controller.
       controller_inputs = tf.concat([
-          tf.contrib.layers.flatten(input_value),
-          tf.contrib.layers.flatten(read_values),
-      ], axis=1)
+          contrib.layers().flatten(input_value),
+          contrib.layers().flatten(read_values),
+      ],
+                                    axis=1)
 
       rnn_input = tf.tanh(tf.nn.bias_add(tf.matmul(
           controller_inputs, self._input_proj), self._input_bias))
@@ -523,7 +525,7 @@ class NeuralStackModel(t2t_model.T2TModel):
               for layer_size in self._hparams.controller_layer_sizes]
     with tf.variable_scope(name):
       return tf.nn.dynamic_rnn(
-          tf.contrib.rnn.MultiRNNCell(layers),
+          contrib.rnn().MultiRNNCell(layers),
           inputs,
           initial_state=initial_state,
           sequence_length=sequence_length,

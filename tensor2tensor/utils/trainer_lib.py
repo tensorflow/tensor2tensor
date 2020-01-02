@@ -26,6 +26,7 @@ import os
 import random
 import numpy as np
 
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import devices
 from tensor2tensor.utils import hparams_lib
@@ -59,7 +60,7 @@ def next_checkpoint(model_dir, timeout_mins=240):
   if timeout_mins != -1:
     timeout_secs = timeout_mins * 60
   while True:
-    last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
+    last_ckpt = contrib.training().wait_for_new_checkpoint(
         model_dir, last_ckpt, seconds_to_sleep=60, timeout=timeout_secs)
 
     if last_ckpt is None:
@@ -76,7 +77,7 @@ def next_undecoded_checkpoint(model_dir, timeout_mins=240):
   last_step = 0
   while True:
     # Get the latest checkpoint.
-    last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
+    last_ckpt = contrib.training().wait_for_new_checkpoint(
         model_dir, last_ckpt, seconds_to_sleep=60, timeout=60 * timeout_mins)
     # Get all the checkpoint from the model dir.
     ckpt_path = tf.train.get_checkpoint_state(model_dir)
@@ -202,7 +203,7 @@ def create_run_config(model_name,
   }
   if save_checkpoints_secs:
     del run_config_args["save_checkpoints_steps"]
-  run_config_cls = tf.contrib.learn.RunConfig
+  run_config_cls = contrib.learn().RunConfig
 
   if use_tpu or use_tpu_estimator:
     # If using TPUEstimator, use TPU RunConfig, add TPUConfig, and add
@@ -215,9 +216,8 @@ def create_run_config(model_name,
     }
     if tpu_config_extra_kwargs is not None:
       tpu_config_kwargs.update(tpu_config_extra_kwargs)
-    run_config_cls = tf.contrib.tpu.RunConfig
-    tpu_config = tf.contrib.tpu.TPUConfig(
-        **tpu_config_kwargs)
+    run_config_cls = contrib.tpu().RunConfig
+    tpu_config = contrib.tpu().TPUConfig(**tpu_config_kwargs)
     run_config_args["tpu_config"] = tpu_config
     if not master and "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS" in os.environ:
       # If running on TPU but no master is set and the KUBE env var is present
@@ -228,7 +228,7 @@ def create_run_config(model_name,
     elif not master and cloud_tpu_name:
       # Update run_config to use cluster instead of master/evaluation_master
       # as we need the cluster spec to use Cloud Pods
-      tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
+      tpu_cluster_resolver = contrib.cluster_resolver().TPUClusterResolver(
           cloud_tpu_name)
       run_config_args["cluster"] = tpu_cluster_resolver
       del run_config_args["master"]
@@ -257,7 +257,7 @@ def create_run_config(model_name,
           "Configuring MirroredStrategy DistributionStrategy to replicate the "
           "model."
       )
-      distribution = tf.contrib.distribute.MirroredStrategy()
+      distribution = contrib.distribute().MirroredStrategy()
       config = config.replace(train_distribute=distribution)
       config.data_parallelism = None
     else:
@@ -367,7 +367,7 @@ def create_estimator(model_name,
       estimator_model_fn = tpu_model_fn
     else:
       raise ValueError("Flag export_saved_model_api_version must be 1 or 2.")
-    estimator = tf.contrib.tpu.TPUEstimator(
+    estimator = contrib.tpu().TPUEstimator(
         model_fn=estimator_model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
@@ -412,7 +412,7 @@ def create_hooks(use_tfdbg=False,
   if use_validation_monitor:
     tf.logging.info("Using ValidationMonitor")
     train_hooks.append(
-        tf.contrib.learn.monitors.ValidationMonitor(
+        contrib.learn().monitors.ValidationMonitor(
             hooks=eval_hooks, **validation_monitor_kwargs))
 
   if use_early_stopping:
@@ -812,9 +812,9 @@ def create_experiment(
   if additional_eval_hooks:
     eval_hooks += additional_eval_hooks
 
-  train_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
+  train_hooks = contrib.learn().monitors.replace_monitors_with_hooks(
       train_hooks, estimator)
-  eval_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
+  eval_hooks = contrib.learn().monitors.replace_monitors_with_hooks(
       eval_hooks, estimator)
 
   train_spec = tf.estimator.TrainSpec(

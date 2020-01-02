@@ -28,6 +28,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.video import savp_params  # pylint: disable=unused-import
 from tensor2tensor.models.video import sv2p
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import update_ops_hook
 
@@ -82,7 +83,7 @@ class NextFrameSavpBase(object):
           padded = tf.pad(inputs, padding)
         convolved = tf.layers.conv2d(padded, filters=n_filters, kernel_size=4,
                                      strides=2, padding="VALID")
-        normalized = tf.contrib.layers.instance_norm(convolved)
+        normalized = contrib.layers().instance_norm(convolved)
         rectified = tf.nn.leaky_relu(normalized, alpha=0.2)
 
     # Mean pooling across all spatial dimensions.

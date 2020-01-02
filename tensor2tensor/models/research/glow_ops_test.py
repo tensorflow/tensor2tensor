@@ -28,15 +28,12 @@ from six.moves import range
 from six.moves import zip
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import glow_ops
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import hparam
 import tensorflow as tf
 
-arg_scope = tf.contrib.framework.arg_scope
-add_arg_scope = tf.contrib.framework.add_arg_scope
-
-
-arg_scope = tf.contrib.framework.arg_scope
-add_arg_scope = tf.contrib.framework.add_arg_scope
+arg_scope = contrib.framework().arg_scope
+add_arg_scope = contrib.framework().add_arg_scope
 
 
 class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):

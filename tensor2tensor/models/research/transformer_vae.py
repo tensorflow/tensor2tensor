@@ -32,6 +32,7 @@ from tensor2tensor.layers import latent_layers
 from tensor2tensor.layers import modalities
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import beam_search
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -377,7 +378,7 @@ def ae_transformer_internal(inputs,
                                 minval=0,
                                 maxval=1 + hparams.word_shuffle)
       targets_idx += noise
-      permutation = tf.contrib.framework.argsort(targets_idx)
+      permutation = contrib.framework().argsort(targets_idx)
       targets_permuted = tf.gather(targets, indices=permutation, axis=1)
       targets = targets_permuted
     targets, _ = common_layers.pad_to_same_length(

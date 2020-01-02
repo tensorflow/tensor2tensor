@@ -25,6 +25,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -85,8 +86,8 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
         "frame_number": tf.FixedLenFeature([1], tf.int64),
     }
     decoders = {
-        "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
-            tensor_key="frame_number"),
+        "frame_number":
+            contrib.slim().tfexample_decoder.Tensor(tensor_key="frame_number"),
     }
     return data_fields, decoders
 

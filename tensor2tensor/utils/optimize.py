@@ -21,6 +21,7 @@ from __future__ import print_function
 import numpy as np
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import adafactor as adafactor_lib
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import multistep_optimizer
@@ -68,7 +69,7 @@ def optimize(loss,
       diet_vars, "Diet Variables", verbose=hparams.summarize_vars)
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
-    opt = tf.contrib.tpu.CrossShardOptimizer(opt)
+    opt = contrib.tpu().CrossShardOptimizer(opt)
   if getattr(hparams, "gpu_automatic_mixed_precision", False):
     if use_tpu:
       raise RuntimeError("GPU auto mixed precision cannot be used with TPU")
@@ -95,7 +96,7 @@ def optimize(loss,
     tf.logging.info("Adding noise to gradients, noise scale: %0.5f",
                     hparams.grad_noise_scale)
 
-  train_op = tf.contrib.layers.optimize_loss(
+  train_op = contrib.layers().optimize_loss(
       name="training",
       loss=loss,
       global_step=tf.train.get_or_create_global_step(),
@@ -113,7 +114,7 @@ def optimize(loss,
 def adam(learning_rate, hparams):
   # We change the default epsilon for Adam.
   # Using LazyAdam as it's much faster for large vocabulary embeddings.
-  return tf.contrib.opt.LazyAdamOptimizer(
+  return contrib.opt().LazyAdamOptimizer(
       learning_rate,
       beta1=hparams.optimizer_adam_beta1,
       beta2=hparams.optimizer_adam_beta2,
@@ -156,7 +157,7 @@ def true_adam(learning_rate, hparams):
 
 @registry.register_optimizer
 def adam_w(learning_rate, hparams):
-  return tf.contrib.opt.AdamWOptimizer(
+  return contrib.opt().AdamWOptimizer(
       weight_decay=hparams.weight_decay,
       learning_rate=learning_rate,
       beta1=hparams.optimizer_adam_beta1,
@@ -179,7 +180,7 @@ def _register_base_optimizer(name, opt):
       lambda learning_rate, hparams: opt(learning_rate))
 
 
-for _name, _opt in tf.contrib.layers.OPTIMIZER_CLS_NAMES.items():
+for _name, _opt in contrib.layers().OPTIMIZER_CLS_NAMES.items():
   _register_base_optimizer(_name, _opt)
 
 
@@ -216,13 +217,13 @@ class ConditionalOptimizer(tf.compat.v1.train.Optimizer):
             ("Using Exponential Update Loss Scaler with",
              "init loss scale of {}".format(
                  hparams.mixed_precision_optimizer_init_loss_scale)))
-        manager = tf.contrib.mixed_precision.ExponentialUpdateLossScaleManager(
+        manager = contrib.mixed_precision().ExponentialUpdateLossScaleManager(
             init_loss_scale=hparams.mixed_precision_optimizer_init_loss_scale,
             incr_every_n_steps=2000,
             decr_every_n_nan_or_inf=2,
             incr_ratio=2,
             decr_ratio=0.5)
-        self._opt = tf.contrib.mixed_precision.LossScaleOptimizer(
+        self._opt = contrib.mixed_precision().LossScaleOptimizer(
             self._opt, manager)
 
     self._zero_grads = hparams.optimizer_zero_grads

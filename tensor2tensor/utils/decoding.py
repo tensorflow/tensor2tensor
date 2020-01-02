@@ -33,6 +33,7 @@ from six.moves import input  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import hparam
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
@@ -601,7 +602,7 @@ def _decode_filename(base_filename, problem_name, decode_hp):
 def make_input_fn_from_generator(gen):
   """Use py_func to yield elements from the given generator."""
   first_ex = six.next(gen)
-  flattened = tf.contrib.framework.nest.flatten(first_ex)
+  flattened = contrib.framework().nest.flatten(first_ex)
   types = [t.dtype for t in flattened]
   shapes = [[None] * len(t.shape) for t in flattened]
   first_ex_list = [first_ex]
@@ -611,12 +612,12 @@ def make_input_fn_from_generator(gen):
       example = first_ex_list.pop()
     else:
       example = six.next(gen)
-    return tf.contrib.framework.nest.flatten(example)
+    return contrib.framework().nest.flatten(example)
 
   def input_fn():
     flat_example = tf.py_func(py_func, [], types)
     _ = [t.set_shape(shape) for t, shape in zip(flat_example, shapes)]
-    example = tf.contrib.framework.nest.pack_sequence_as(first_ex, flat_example)
+    example = contrib.framework().nest.pack_sequence_as(first_ex, flat_example)
     return example
 
   return input_fn

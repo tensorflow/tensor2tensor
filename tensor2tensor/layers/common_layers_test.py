@@ -848,7 +848,7 @@ class RecomputeTest(tf.test.TestCase):
 
     def layer(x, name=None):
       with tf.variable_scope(name, default_name="layer"):
-        x = tf.contrib.layers.layer_norm(x)
+        x = common_layers.layer_norm(x)
         x = tf.layers.conv1d(
             x,
             10,

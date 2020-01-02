@@ -25,6 +25,7 @@ from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -75,6 +76,6 @@ class ImageFSNS(image_utils.ImageProblem):
     data_fields, data_items_to_decoders = (
         super(ImageFSNS, self).example_reading_spec())
     data_fields[label_key] = tf.VarLenFeature(tf.int64)
-    data_items_to_decoders[
-        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    data_items_to_decoders["targets"] = contrib.slim().tfexample_decoder.Tensor(
+        label_key)
     return data_fields, data_items_to_decoders

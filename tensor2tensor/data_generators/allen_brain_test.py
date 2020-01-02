@@ -23,10 +23,12 @@ import numpy as np
 
 from tensor2tensor.data_generators import allen_brain
 from tensor2tensor.models import image_transformer_2d
+from tensor2tensor.utils import contrib
 
 import tensorflow as tf
 
-tfe = tf.contrib.eager
+
+tfe = contrib.eager()
 tfe.enable_eager_execution()
 Modes = tf.estimator.ModeKeys  # pylint: disable=invalid-name
 

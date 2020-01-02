@@ -44,6 +44,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+from tensorflow.contrib import slim as contrib_slim
 
 _BASE_EXAMPLE_IMAGE_SIZE = 64
 
@@ -350,7 +351,7 @@ class Img2imgAllenBrain(problem.Problem):
 
     data_items_to_decoders = {
         "targets":
-            tf.contrib.slim.tfexample_decoder.Image(
+            contrib_slim.tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),
@@ -442,4 +443,3 @@ class Img2imgAllenBrainDim16to16Paint1(Img2imgAllenBrain):
   @property
   def inpaint_fraction(self):
     return 0.01
-

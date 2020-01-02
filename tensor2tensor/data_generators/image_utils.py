@@ -28,6 +28,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 
 import tensorflow as tf
@@ -172,7 +173,7 @@ class ImageProblem(problem.Problem):
 
     data_items_to_decoders = {
         "inputs":
-            tf.contrib.slim.tfexample_decoder.Image(
+            contrib.slim().tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),
@@ -238,8 +239,8 @@ class Image2ClassProblem(ImageProblem):
         super(Image2ClassProblem, self).example_reading_spec())
     data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
 
-    data_items_to_decoders[
-        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    data_items_to_decoders["targets"] = contrib.slim().tfexample_decoder.Tensor(
+        label_key)
     return data_fields, data_items_to_decoders
 
   def hparams(self, defaults, unused_model_hparams):
@@ -342,8 +343,8 @@ class Image2TextProblem(ImageProblem):
     data_fields, data_items_to_decoders = (
         super(Image2TextProblem, self).example_reading_spec())
     data_fields[label_key] = tf.VarLenFeature(tf.int64)
-    data_items_to_decoders[
-        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    data_items_to_decoders["targets"] = contrib.slim().tfexample_decoder.Tensor(
+        label_key)
     return data_fields, data_items_to_decoders
 
   def feature_encoders(self, data_dir):
@@ -422,4 +423,4 @@ def random_shift(image, wsr=0.1, hsr=0.1):
   height_translations = tf.random_uniform((1,), -height_range, height_range)
   width_translations = tf.random_uniform((1,), -width_range, width_range)
   translations = tf.concat((height_translations, width_translations), axis=0)
-  return tf.contrib.image.translate(image, translations=translations)
+  return contrib.image().translate(image, translations=translations)

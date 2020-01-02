@@ -26,6 +26,7 @@ from tensor2tensor import problems as problems_lib  # pylint: disable=unused-imp
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
 
 from tensor2tensor.utils import cloud_mlengine
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import hparams_lib
@@ -304,7 +305,7 @@ def generate_data():
 @contextlib.contextmanager
 def profile_context():
   if FLAGS.profile:
-    with tf.contrib.tfprof.ProfileContext(
+    with contrib.tfprof().ProfileContext(
         "t2tprof", trace_steps=range(100), dump_steps=range(100)) as pctx:
       opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
       pctx.add_auto_profiling("op", opts, range(100))

@@ -26,8 +26,14 @@ import kfac
 import numpy as np
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import test_utils
+
 import tensorflow as tf
+
+
+tfe = contrib.tfe()
+# from tensorflow.contrib.eager.python import tfe as tfe
 tf.compat.v1.enable_eager_execution()
 
 
@@ -931,7 +937,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tfe.run_test_in_graph_and_eager_modes()
   def testExtractblocks(self):
 
     batch_size = 1
@@ -985,7 +991,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
                                                  memory_w_index]
     return out
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tfe.run_test_in_graph_and_eager_modes()
   def testGet2dLocalMemory(self):
     batch_size = 3
     num_heads = 3
@@ -1019,7 +1025,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
 
     self.assertAllClose(res, out)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tfe.run_test_in_graph_and_eager_modes()
   def testSplitAlongWidth(self):
     batch_size = 1
     num_heads = 3
@@ -1063,7 +1069,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(res_l, out_l)
     self.assertAllClose(res_r, out_r)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tfe.run_test_in_graph_and_eager_modes()
   def testGetLeftRightBlocks(self):
     batch_size = 1
     num_heads = 3
@@ -1118,7 +1124,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(res_l, out_l)
     self.assertAllClose(res_r, out_r)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tfe.run_test_in_graph_and_eager_modes()
   def testDotProductUnmaskedAttentionLocal2dTpu(self):
     batch_size = 1
     num_heads = 3
@@ -1205,7 +1211,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     out = out[:, :, :height, :width, :]
     self.assertAllClose(res, out)
 
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
+  @tfe.run_test_in_graph_and_eager_modes()
   def testDotProductUnmaskedAttentionLocal2dTpuSimple(self):
     batch_size = 1
     num_heads = 3

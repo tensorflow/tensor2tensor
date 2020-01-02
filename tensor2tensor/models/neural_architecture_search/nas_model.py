@@ -35,6 +35,7 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.models.neural_architecture_search import nas_layers as layers
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -444,12 +445,12 @@ class NasSeq2Seq(transformer.Transformer):
       # For TPU, logits dict will be passed as keyword arguments to
       # eval_metrics_fn. Here we add the labels to those arguments.
       logits.update({"labels": labels})
-      return tf.contrib.tpu.TPUEstimatorSpec(
+      return contrib.tpu().TPUEstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           eval_metrics=(eval_metrics_fn, logits),
           loss=loss)
     else:
-      return tf.contrib.tpu.TPUEstimatorSpec(
+      return contrib.tpu().TPUEstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           eval_metrics=(eval_metrics_fn, [logits, labels]),
           loss=loss)

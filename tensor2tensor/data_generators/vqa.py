@@ -35,6 +35,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import vqa_utils
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
@@ -216,12 +217,11 @@ class ImageVqav2Tokens10kLabels3k(ImageQuestion2MultilabelProblem):
     data_fields["image/answer"] = tf.FixedLenSequenceFeature(
         (), tf.int64, allow_missing=True)
 
-    data_items_to_decoders[
-        "question"] = tf.contrib.slim.tfexample_decoder.Tensor(
-            "image/question")
-    data_items_to_decoders[
-        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(
-            "image/answer")
+    slim = contrib.slim()
+    data_items_to_decoders["question"] = slim.tfexample_decoder.Tensor(
+        "image/question")
+    data_items_to_decoders["targets"] = slim.tfexample_decoder.Tensor(
+        "image/answer")
     return data_fields, data_items_to_decoders
 
   def preprocess_example(self, example, mode, hparams):
@@ -325,6 +325,7 @@ class ImageVqav2RcnnFeatureTokens10kLabels3k(ImageVqav2Tokens10kLabels3k):
     return example
 
   def example_reading_spec(self):
+    slim = contrib.slim()
     data_fields, data_items_to_decoders = {}, {}
     data_fields["image/feature"] = tf.FixedLenSequenceFeature(
         (), tf.float32, allow_missing=True)
@@ -337,25 +338,19 @@ class ImageVqav2RcnnFeatureTokens10kLabels3k(ImageVqav2Tokens10kLabels3k):
     data_fields["image/answer"] = tf.FixedLenSequenceFeature(
         (), tf.int64, allow_missing=True)
 
-    data_items_to_decoders[
-        "inputs"] = tf.contrib.slim.tfexample_decoder.Tensor(
-            "image/feature")
-    data_items_to_decoders[
-        "question_id"] = tf.contrib.slim.tfexample_decoder.Tensor(
-            "image/question_id")
-    data_items_to_decoders[
-        "image_id"] = tf.contrib.slim.tfexample_decoder.Tensor(
-            "image/image_id")
+    data_items_to_decoders["inputs"] = slim.tfexample_decoder.Tensor(
+        "image/feature")
+    data_items_to_decoders["question_id"] = slim.tfexample_decoder.Tensor(
+        "image/question_id")
+    data_items_to_decoders["image_id"] = slim.tfexample_decoder.Tensor(
+        "image/image_id")
 
-    data_items_to_decoders[
-        "spatial_feature"] = tf.contrib.slim.tfexample_decoder.Tensor(
-            "image/spatial_feature")
-    data_items_to_decoders[
-        "question"] = tf.contrib.slim.tfexample_decoder.Tensor(
-            "image/question")
-    data_items_to_decoders[
-        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(
-            "image/answer")
+    data_items_to_decoders["spatial_feature"] = slim.tfexample_decoder.Tensor(
+        "image/spatial_feature")
+    data_items_to_decoders["question"] = slim.tfexample_decoder.Tensor(
+        "image/question")
+    data_items_to_decoders["targets"] = slim.tfexample_decoder.Tensor(
+        "image/answer")
 
     return data_fields, data_items_to_decoders
 

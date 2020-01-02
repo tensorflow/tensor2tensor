@@ -27,6 +27,7 @@ from absl import logging
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 
+from tensor2tensor.utils import contrib
 import tensorflow as tf
 import tensorflow_probability as tfp
 
@@ -2761,7 +2762,7 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
 
   def custom_grad_fn(op, *dys):
     """Custom grad fn applying grad_fn for identity Defun."""
-    fn_inputs, fn_vars, fn_outputs = tf.contrib.framework.nest.pack_sequence_as(
+    fn_inputs, fn_vars, fn_outputs = contrib.framework().nest.pack_sequence_as(
         defun_inputs, list(op.inputs))
     dys = list(dys)
     assert len(fn_outputs) == len(outputs)
@@ -2785,10 +2786,10 @@ def _fn_with_custom_grad(fn, inputs, grad_fn, use_global_vars=False):
       python_grad_func=custom_grad_fn,
       shape_func=lambda _: [t.get_shape() for t in outputs])
   def identity(*args):
-    _, _, outs = tf.contrib.framework.nest.pack_sequence_as(defun_inputs, args)
+    _, _, outs = contrib.framework().nest.pack_sequence_as(defun_inputs, args)
     return tuple([tf.identity(t) for t in outs])
 
-  flat_inputs = tf.contrib.framework.nest.flatten(defun_inputs)
+  flat_inputs = contrib.framework().nest.flatten(defun_inputs)
   id_out = identity(*flat_inputs)
   return id_out
 
@@ -2956,7 +2957,7 @@ def sample_with_temperature(logits, temperature, sampling_keep_top_k=-1):
 
       vocab_size = shape_list(logits)[1]
 
-      k_largest = tf.contrib.nn.nth_element(
+      k_largest = contrib.nn().nth_element(
           logits, n=sampling_keep_top_k, reverse=True)
       k_largest = tf.tile(tf.reshape(k_largest, [-1, 1]), [1, vocab_size])
 
@@ -3050,7 +3051,7 @@ def _recompute_grad(fn, args):
     variables = [underlying_variable_ref(v) for v in variables]
     # Recompute outputs
     with tf.control_dependencies(output_grads):
-      with tf.contrib.framework.arg_scope(cached_arg_scope[0]):
+      with contrib.framework().arg_scope(cached_arg_scope[0]):
         with tf.variable_scope(cached_vs[0], reuse=True):
           outputs = fn(*inputs)
 
@@ -3070,7 +3071,7 @@ def _recompute_grad(fn, args):
   @fn_with_custom_grad(grad_fn)
   def fn_with_recompute(*args):
     cached_vs.append(tf.compat.v1.get_variable_scope())
-    cached_arg_scope.append(tf.contrib.framework.current_arg_scope())
+    cached_arg_scope.append(contrib.framework().current_arg_scope())
     return fn(*args)
 
   return fn_with_recompute(*args)
@@ -3411,7 +3412,7 @@ def should_generate_summaries():
   Returns:
     a boolean
   """
-  name_scope = tf.contrib.framework.get_name_scope()
+  name_scope = contrib.framework().get_name_scope()
   if name_scope and "while/" in name_scope:
     # Summaries don't work well within tf.while_loop()
     return False
@@ -3826,7 +3827,7 @@ def weight_targeting(w, k):
   w = tf.reshape(w, [size, w_shape[-1]])
 
   transpose_w = tf.transpose(w)
-  thres = tf.contrib.framework.sort(tf.abs(transpose_w), axis=1)[:, k]
+  thres = contrib.framework().sort(tf.abs(transpose_w), axis=1)[:, k]
   mask = to_float(thres[None, :] >= tf.abs(w))
 
   return tf.reshape(mask, w_shape)
@@ -3840,7 +3841,7 @@ def unit_targeting(w, k):
   w = tf.reshape(w, [size, w_shape[-1]])
 
   norm = tf.norm(w, axis=0)
-  thres = tf.contrib.framework.sort(norm, axis=0)[k]
+  thres = contrib.framework().sort(norm, axis=0)[k]
   mask = to_float(thres >= norm)[None, :]
   mask = tf.tile(mask, [size, 1])
 

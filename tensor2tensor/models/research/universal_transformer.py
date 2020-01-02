@@ -32,6 +32,7 @@ from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.models.research import universal_transformer_util
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -219,7 +220,7 @@ class UniversalTransformer(transformer.Transformer):
           hparams.act_loss_weight *
           tf.reduce_mean(dec_ponder_times + dec_remainders))
       act_loss = enc_act_loss + dec_act_loss
-      tf.contrib.summary.scalar("act_loss", act_loss)
+      contrib.summary().scalar("act_loss", act_loss)
       return decoder_output, {"act_loss": act_loss}
 
     return decoder_output
@@ -347,7 +348,7 @@ class UniversalTransformerEncoder(transformer.Transformer):
       ponder_times, remainders = enc_extra_output
       act_loss = hparams.act_loss_weight * tf.reduce_mean(ponder_times +
                                                           remainders)
-      tf.contrib.summary.scalar("act_loss", act_loss)
+      contrib.summary().scalar("act_loss", act_loss)
 
       return encoder_output, {"act_loss": act_loss}
     return encoder_output

@@ -34,6 +34,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
 from tensor2tensor.layers.common_attention import mixed_precision_is_enabled
 from tensor2tensor.utils import beam_search
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import expert_utils as eu
 from tensor2tensor.utils import hparams_lib
@@ -1578,7 +1579,7 @@ class T2TModel(base.Layer):
 
       remove_summaries()
 
-      return tf.contrib.tpu.TPUEstimatorSpec(
+      return contrib.tpu().TPUEstimatorSpec(
           tf.estimator.ModeKeys.TRAIN,
           loss=loss,
           train_op=train_op,
@@ -1635,7 +1636,7 @@ class T2TModel(base.Layer):
       )
 
       eval_metrics_fn_flat_args = _flatten_dict(eval_metrics_fn_args)
-      return tf.contrib.tpu.TPUEstimatorSpec(
+      return contrib.tpu().TPUEstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           eval_metrics=(eval_metrics_fn, eval_metrics_fn_flat_args),
           host_call=host_call,
@@ -1760,7 +1761,7 @@ class T2TModel(base.Layer):
 
       remove_summaries()
 
-      return tf.contrib.tpu.TPUEstimatorSpec(
+      return contrib.tpu().TPUEstimatorSpec(
           tf.estimator.ModeKeys.PREDICT,
           predictions=predictions,
           host_call=host_call,
@@ -2171,19 +2172,19 @@ def create_host_call(model_dir):
       List of summary ops to run on the CPU host.
     """
     gs = tf.to_int64(kwargs.pop("global_step")[0])
-    with tf.contrib.summary.create_file_writer(model_dir).as_default():
-      with tf.contrib.summary.always_record_summaries():
+    with contrib.summary().create_file_writer(model_dir).as_default():
+      with contrib.summary().always_record_summaries():
         # We need to use tf.contrib.summary in order to feed the `step`.
         for name, value in sorted(six.iteritems(kwargs)):
           if name.startswith("ScalarSummary"):
             name = name[len("ScalarSummary"):]
-            tf.contrib.summary.scalar(
+            contrib.summary().scalar(
                 name, tf.reduce_mean(tf.to_float(value)), step=gs)
           elif name.startswith("ImageSummary"):
             name = name[len("ImageSummary"):]
-            tf.contrib.summary.image(name, value, step=gs)
+            contrib.summary().image(name, value, step=gs)
 
-        return tf.contrib.summary.all_summary_ops()
+        return contrib.summary().all_summary_ops()
 
   return (host_call_fn, summary_kwargs)
 
@@ -2332,9 +2333,9 @@ def initialize_from_ckpt(ckpt_dir, hparams):
     return
 
   tf.logging.info("Checkpoint dir: %s", ckpt_dir)
-  reader = tf.contrib.framework.load_checkpoint(ckpt_dir)
+  reader = contrib.framework().load_checkpoint(ckpt_dir)
   variable_map = {}
-  for var in tf.contrib.framework.get_trainable_variables():
+  for var in contrib.framework().get_trainable_variables():
     var_name = var.name.split(":")[0]
     if reader.has_tensor(var_name):
       tf.logging.info("Loading variable from checkpoint: %s", var_name)

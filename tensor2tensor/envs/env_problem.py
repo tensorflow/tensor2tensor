@@ -32,6 +32,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.envs import gym_spaces_utils
 from tensor2tensor.envs import trajectory
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 import tensorflow as tf
 
 # Names for data fields in stored tf.Examples.
@@ -476,7 +477,7 @@ class EnvProblem(Env, problem.Problem):
     }
 
     data_items_to_decoders = {
-        field: tf.contrib.slim.tfexample_decoder.Tensor(field)
+        field: contrib.slim().tfexample_decoder.Tensor(field)
         for field in data_fields
     }
 

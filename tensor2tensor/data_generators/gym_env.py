@@ -31,6 +31,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.layers import modalities
 from tensor2tensor.rl import gym_utils
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import registry
@@ -377,7 +378,7 @@ class T2TEnv(EnvSimulationProblem):
         name: tf.FixedLenFeature([1], tf.int64) for name in field_names
     }
     decoders = {
-        name: tf.contrib.slim.tfexample_decoder.Tensor(tensor_key=name)
+        name: contrib.slim().tfexample_decoder.Tensor(tensor_key=name)
         for name in field_names
     }
     return (data_fields, decoders)

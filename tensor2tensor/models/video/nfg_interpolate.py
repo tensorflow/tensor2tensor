@@ -26,6 +26,7 @@ from tensor2tensor.data_generators import image_utils
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.research import glow_ops
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import trainer_lib
 import tensorflow as tf
@@ -47,7 +48,7 @@ flags = tf.flags
 FLAGS = flags.FLAGS
 
 
-arg_scope = tf.contrib.framework.arg_scope
+arg_scope = contrib.framework().arg_scope
 
 
 def decode_hparams(overrides=""):

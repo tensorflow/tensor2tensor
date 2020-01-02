@@ -24,12 +24,13 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models.research import glow_init_hook
 from tensor2tensor.models.research import glow_ops
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
-arg_scope = tf.contrib.framework.arg_scope
-add_arg_scope = tf.contrib.framework.add_arg_scope
+arg_scope = contrib.framework().arg_scope
+add_arg_scope = contrib.framework().add_arg_scope
 
 GLOW_DECODE_HPARAMS = ("identity_output=True,log_results=False,"
                        "decode_in_memory=True,display_decoded_images=True")

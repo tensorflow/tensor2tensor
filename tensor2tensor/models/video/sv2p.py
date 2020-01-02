@@ -31,12 +31,13 @@ from tensor2tensor.layers import discretization
 
 from tensor2tensor.models.video import base
 from tensor2tensor.models.video import base_vae
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+tfcl = contrib.layers()
 
 
 @registry.register_model

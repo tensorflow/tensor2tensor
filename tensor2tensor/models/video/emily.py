@@ -32,12 +32,13 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.video import sv2p
 from tensor2tensor.models.video import sv2p_params
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+tfcl = contrib.layers()
 
 
 @registry.register_model

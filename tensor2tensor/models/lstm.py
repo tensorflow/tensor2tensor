@@ -23,6 +23,7 @@ import copy
 from tensor2tensor.layers import area_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -97,9 +98,9 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
   layers = [_dropout_lstm_cell(hparams, train)
             for _ in range(hparams.num_hidden_layers)]
   if hparams.attention_mechanism == "luong":
-    attention_mechanism_class = tf.contrib.seq2seq.LuongAttention
+    attention_mechanism_class = contrib.seq2seq().LuongAttention
   elif hparams.attention_mechanism == "bahdanau":
-    attention_mechanism_class = tf.contrib.seq2seq.BahdanauAttention
+    attention_mechanism_class = contrib.seq2seq().BahdanauAttention
   else:
     raise ValueError("Unknown hparams.attention_mechanism = %s, must be "
                      "luong or bahdanau." % hparams.attention_mechanism)
@@ -143,10 +144,10 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
   else:
     attention_mechanism = attention_mechanism_class(hparams.hidden_size,
                                                     encoder_outputs)
-  cell = tf.contrib.seq2seq.AttentionWrapper(
+  cell = contrib.seq2seq().AttentionWrapper(
       tf.nn.rnn_cell.MultiRNNCell(layers),
-      [attention_mechanism]*hparams.num_heads,
-      attention_layer_size=[hparams.attention_layer_size]*hparams.num_heads,
+      [attention_mechanism] * hparams.num_heads,
+      attention_layer_size=[hparams.attention_layer_size] * hparams.num_heads,
       output_attention=(hparams.output_attention == 1))
 
   batch_size = common_layers.shape_list(inputs)[0]

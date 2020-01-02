@@ -26,6 +26,7 @@ import six
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import hparam
 from tensor2tensor.utils import metrics
@@ -648,8 +649,8 @@ class Problem(object):
 
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
     tf.logging.info("Reading data files from %s", data_filepattern)
-    data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
-        data_filepattern))
+    data_files = sorted(
+        contrib.slim().parallel_reader.get_data_files(data_filepattern))
 
     # Functions used in dataset transforms below. `filenames` can be either a
     # `tf.string` tensor or `tf.data.Dataset` containing one or more filenames.
@@ -711,11 +712,11 @@ class Problem(object):
     data_fields["batch_prediction_key"] = tf.FixedLenFeature([1], tf.int64, 0)
     if data_items_to_decoders is None:
       data_items_to_decoders = {
-          field: tf.contrib.slim.tfexample_decoder.Tensor(field)
+          field: contrib.slim().tfexample_decoder.Tensor(field)
           for field in data_fields
       }
 
-    decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
+    decoder = contrib.slim().tfexample_decoder.TFExampleDecoder(
         data_fields, data_items_to_decoders)
 
     decode_items = list(sorted(data_items_to_decoders))

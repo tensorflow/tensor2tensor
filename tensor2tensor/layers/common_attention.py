@@ -31,6 +31,7 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import area_attention
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import expert_utils
 
 import tensorflow as tf
@@ -2775,7 +2776,7 @@ def masked_within_block_local_attention_1d(q, k, v, block_length=64, name=None):
     batch, heads, length, depth_k = common_layers.shape_list(q)
     depth_v = common_layers.shape_list(v)[-1]
     if isinstance(block_length, tf.Tensor):
-      const = tf.contrib.util.constant_value(block_length)
+      const = contrib.util().constant_value(block_length)
       if const is not None:
         block_length = int(const)
 
@@ -2869,7 +2870,7 @@ def masked_local_attention_1d(q,
     batch, heads, length, depth_k = common_layers.shape_list(q)
     depth_v = common_layers.shape_list(v)[-1]
     if isinstance(block_length, tf.Tensor):
-      const = tf.contrib.util.constant_value(block_length)
+      const = contrib.util().constant_value(block_length)
       if const is not None:
         block_length = int(const)
     # If (length < 2 * block_length), then we use only one block.

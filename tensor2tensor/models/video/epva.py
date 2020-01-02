@@ -34,6 +34,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.video import epva_params  # pylint: disable=unused-import
 from tensor2tensor.models.video import sv2p
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
@@ -42,7 +43,7 @@ from tensorflow.contrib.framework.python.ops import arg_scope
 from tensorflow.contrib.slim.python.slim.nets import vgg
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+tfcl = contrib.layers()
 
 IMG_WIDTH = 64
 IMG_HEIGHT = 64
@@ -71,12 +72,12 @@ def van_image_enc_2d(x, first_depth, reuse=False, hparams=None):
 
     enc = tf.layers.conv2d(
         x, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc = tf.layers.conv2d(
         enc, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
     enc = tf.nn.max_pool(enc, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME')
     enc = tf.nn.dropout(enc, hparams.van_keep_prob)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc_history.append(enc)
 
     enc = tf.layers.conv2d(
@@ -95,7 +96,7 @@ def van_image_enc_2d(x, first_depth, reuse=False, hparams=None):
         strides=1)
     enc = tf.nn.max_pool(enc, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME')
     enc = tf.nn.dropout(enc, hparams.van_keep_prob)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc_history.append(enc)
 
     enc = tf.layers.conv2d(
@@ -144,13 +145,13 @@ def van_enc_2d(x, first_depth, reuse=False):
     # a, b = 4,4
     enc = tf.nn.relu(x)
     enc = tf.layers.dense(enc, first_depth * a * b, tf.nn.relu)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
 
     enc = tf.reshape(enc, [-1, a, b, first_depth])
 
     enc = tf.layers.conv2d_transpose(
         enc, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc = tf.layers.conv2d_transpose(
         enc,
         first_depth * 2,
@@ -167,7 +168,7 @@ def van_enc_2d(x, first_depth, reuse=False):
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc = tf.layers.conv2d_transpose(
         enc,
         first_depth * 4,
@@ -199,7 +200,7 @@ def van_dec_2d(x, skip_connections, output_shape, first_depth, hparams=None):
     dec = tf.layers.conv2d_transpose(
         x, first_depth * 4, 3, padding='same', activation=tf.nn.relu, strides=2)
     dec = tf.nn.dropout(dec, hparams.van_keep_prob)
-    dec = tf.contrib.layers.layer_norm(dec)
+    dec = contrib.layers().layer_norm(dec)
     dec = tf.layers.conv2d_transpose(
         dec,
         first_depth * 4,
@@ -216,7 +217,7 @@ def van_dec_2d(x, skip_connections, output_shape, first_depth, hparams=None):
         activation=tf.nn.relu,
         strides=1)
     dec = tf.nn.dropout(dec, hparams.van_keep_prob)
-    dec = tf.contrib.layers.layer_norm(dec)
+    dec = contrib.layers().layer_norm(dec)
 
     dec = tf.layers.conv2d_transpose(
         dec,
@@ -229,7 +230,7 @@ def van_dec_2d(x, skip_connections, output_shape, first_depth, hparams=None):
     dec = tf.layers.conv2d_transpose(
         dec, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
     dec = tf.nn.dropout(dec, hparams.van_keep_prob)
-    dec = tf.contrib.layers.layer_norm(dec)
+    dec = contrib.layers().layer_norm(dec)
 
     dec = tf.layers.conv2d_transpose(
         dec,
@@ -281,7 +282,7 @@ def analogy_computation_2d(f_first_enc,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    analogy = tf.contrib.layers.layer_norm(analogy)
+    analogy = contrib.layers().layer_norm(analogy)
     analogy = tf.layers.conv2d(
         analogy,
         first_depth * 4,
@@ -458,7 +459,7 @@ def predictor(enc_flat,
         use_peepholes=True,
         initializer=tf.truncated_normal_initializer(stddev=lstm_init_stddev),
         num_proj=initial_size)
-    part_pred = tf.contrib.layers.layer_norm(part_pred)
+    part_pred = contrib.layers().layer_norm(part_pred)
     pred = part_pred
 
     for pred_layer_num in range(1, pred_depth, 2):
@@ -478,7 +479,7 @@ def predictor(enc_flat,
           use_peepholes=True,
           initializer=tf.truncated_normal_initializer(stddev=lstm_init_stddev),
           num_proj=initial_size)
-      part_pred = tf.contrib.layers.layer_norm(part_pred)
+      part_pred = contrib.layers().layer_norm(part_pred)
       pred += part_pred
 
     pred = tf.layers.dense(

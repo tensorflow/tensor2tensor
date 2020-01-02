@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 """Creates a RevNet with the bottleneck residual function.
 
 Implements the following equations described in the RevNet paper:
@@ -37,6 +36,7 @@ https://arxiv.org/pdf/1707.04585.pdf
 
 import functools
 from tensor2tensor.layers import common_hparams
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
@@ -251,10 +251,8 @@ def unit(x1, x2, block_num, depth, num_layers, dim='2d',
 
     # Full block using memory-efficient rev_block implementation.
     with tf.variable_scope('full_block'):
-      x1, x2 = tf.contrib.layers.rev_block(x1, x2,
-                                           residual,
-                                           residual,
-                                           num_layers=num_layers)
+      x1, x2 = contrib.layers().rev_block(
+          x1, x2, residual, residual, num_layers=num_layers)
       return x1, x2
 
 

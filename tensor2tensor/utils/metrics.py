@@ -24,11 +24,11 @@ import six
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import bleu_hook
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import rouge
 from tensor2tensor.utils import sari_hook
 
 import tensorflow as tf
-
 from tensorflow.python.util import tf_inspect as inspect
 
 
@@ -880,8 +880,8 @@ def pearson_correlation_coefficient(predictions, labels, weights_fn=None):
     The pearson correlation coefficient.
   """
   del weights_fn
-  _, pearson = tf.contrib.metrics.streaming_pearson_correlation(predictions,
-                                                                labels)
+  _, pearson = contrib.metrics().streaming_pearson_correlation(
+      predictions, labels)
   return pearson, tf.constant(1.0)
 
 # Metrics are functions that take predictions and labels and return

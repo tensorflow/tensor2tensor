@@ -24,11 +24,12 @@ import numpy as np
 import scipy
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
+from tensor2tensor.utils import contrib
 import tensorflow as tf
 import tensorflow_probability as tfp
 
-arg_scope = tf.contrib.framework.arg_scope
-add_arg_scope = tf.contrib.framework.add_arg_scope
+arg_scope = contrib.framework().arg_scope
+add_arg_scope = contrib.framework().add_arg_scope
 
 
 def linear_interpolate(tensor1, tensor2, coeffs):

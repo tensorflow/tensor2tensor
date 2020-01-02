@@ -31,15 +31,17 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+framework = contrib.framework(msg="warn")
 
-@tf.contrib.framework.deprecated(
-    "2018-09-15",
-    "Use Transformer, which supports decoder-only mode when "
+
+@framework.deprecated(
+    "2018-09-15", "Use Transformer, which supports decoder-only mode when "
     "Transformer.has_input=False.")
 @registry.register_model
 class AttentionLM(t2t_model.T2TModel):

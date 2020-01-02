@@ -28,7 +28,9 @@ import numpy as np
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import cloud_mlengine as cloud
+from tensor2tensor.utils import contrib
 import tensorflow as tf
+
 from tensorflow_serving.apis import predict_pb2
 from tensorflow_serving.apis import prediction_service_pb2_grpc
 

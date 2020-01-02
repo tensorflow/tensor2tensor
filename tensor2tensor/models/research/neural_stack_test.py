@@ -23,6 +23,7 @@ import numpy as np
 
 from tensor2tensor.layers import modalities
 from tensor2tensor.models.research import neural_stack
+from tensor2tensor.utils import contrib
 
 import tensorflow as tf
 
@@ -399,7 +400,7 @@ class NeuralStackModelTest(tf.test.TestCase):
     vocab_size = 128
 
     hparams = neural_stack.neural_stack()
-    problem_hparams = tf.contrib.training.HParams()
+    problem_hparams = contrib.training().HParams()
 
     problem_hparams.add_hparam("modality", {
         "inputs": modalities.ModalityType.SYMBOL,
