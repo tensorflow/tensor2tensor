@@ -65,7 +65,7 @@ def add_scope(scope=None, scope_fn=None):
 
 
 def add_var_scope(scope=None):
-  return add_scope(scope, scope_fn=tf.compat.v1.variable_scope)
+  return add_scope(scope, scope_fn=tf.variable_scope)
 
 
 def add_name_scope(scope=None):
