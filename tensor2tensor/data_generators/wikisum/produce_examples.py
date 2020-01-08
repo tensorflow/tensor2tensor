@@ -20,6 +20,7 @@ from __future__ import print_function
 
 import os
 
+from six.moves import range
 from tensor2tensor.data_generators.wikisum import utils
 from tensor2tensor.data_generators.wikisum import wikisum
 
