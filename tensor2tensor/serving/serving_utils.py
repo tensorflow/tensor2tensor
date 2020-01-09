@@ -28,7 +28,6 @@ import numpy as np
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import cloud_mlengine as cloud
-from tensor2tensor.utils import contrib
 import tensorflow as tf
 
 from tensorflow_serving.apis import predict_pb2
@@ -75,11 +74,6 @@ def _make_example(input_ids, problem, input_feature_name="inputs"):
     if ftype.dtype in [tf.float32, tf.float64]:
       value = tf.train.Feature(
           float_list=tf.train.FloatList(value=[0.] * num_elements))
-    if ftype.dtype == tf.bytes:
-      value = tf.train.Feature(
-          bytes_list=tf.train.BytesList(value=[""] * num_elements))
-    tf.logging.info("Adding dummy value for feature %s as it is required by "
-                    "the Problem.", fname)
     features[fname] = value
   return tf.train.Example(features=tf.train.Features(feature=features))
 
