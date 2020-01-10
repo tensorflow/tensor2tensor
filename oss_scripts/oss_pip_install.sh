@@ -14,6 +14,9 @@ pip install -q -U setuptools
 pip install -q -U numpy
 pip install -q "tensorflow==$TF_VERSION"
 
+# Just print the version again to make sure.
+python -c 'import tensorflow as tf; print(tf.__version__)'
+
 # First ensure that the base dependencies are sufficient for a full import
 pip install -q -e .
 t2t-trainer --registry_help 2>&1 >/dev/null
