@@ -14,7 +14,9 @@ git clone https://github.com/tensorflow/tensor2tensor.git
 cd tensor2tensor
 git checkout $GIT_COMMIT_ID
 
-pip install wheel twine pyopenssl
+# Without `python -m` we sometimes get module not callable error:
+# https://stackoverflow.com/questions/58451650/pip-no-longer-working-after-update-error-module-object-is-not-callable
+python -m pip install wheel twine pyopenssl
 
 # Build the distribution
 echo "Building distribution"
