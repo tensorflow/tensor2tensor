@@ -199,16 +199,13 @@ def two_class_log_likelihood(predictions, labels, weights_fn=None):
     A pair, with the average log likelihood in the first component.
   """
   del weights_fn
-  float_labels = tf.cast(labels, dtype=tf.float64)
   float_predictions = tf.cast(tf.squeeze(predictions), dtype=tf.float64)
-  # likelihood should be just p for class 1, and 1 - p for class 0.
-  # signs is 1 for class 1, and -1 for class 0
-  signs = 2 * float_labels - tf.ones_like(float_labels)
-  # constant_term is 1 for class 0, and 0 for class 1.
-  constant_term = tf.ones_like(float_labels) - float_labels
-  likelihoods = constant_term + signs * float_predictions
-  log_likelihoods = tf.log(likelihoods)
-  avg_log_likelihood = tf.reduce_mean(log_likelihoods)
+  batch_probs = tf.stack([1. - float_predictions, float_predictions], axis=-1)
+  int_labels = tf.cast(tf.squeeze(labels), dtype=tf.int32)
+  onehot_targets = tf.cast(tf.one_hot(int_labels, 2), dtype=tf.float64)
+  chosen_probs = tf.einsum(
+      "ij,ij->i", batch_probs, onehot_targets, name="chosen_probs")
+  avg_log_likelihood = tf.reduce_mean(tf.log(chosen_probs))
   return avg_log_likelihood, tf.constant(1.0)
 
 
