@@ -508,7 +508,7 @@ def compute_summary_embedding(input_embeddings, input_lengths, hparams):
 @registry.register_hparams
 def neural_assistant_base():
   """HParams for a base neural_assistant model."""
-  hparams = transformer.transformer_base()
+  hparams = transformer.transformer_tpu()
   hparams.add_hparam("pos_weight", 1.0)  # weight for positive triples
   hparams.add_hparam("similarity_fuction",
                      "bilinear")  # dot_product or bilinear
@@ -521,6 +521,12 @@ def neural_assistant_base():
   hparams.add_hparam("kb_loss_weight", 0.0)  # weight for distant supervision
   hparams.add_hparam("test_triple_num",
                      28483)  # max triples of KB
+  hparams.add_hparam("margin", 0.0)  # KB training max-margin loss
+  hparams.add_hparam(
+      "num_negative_samples",
+      1)  # Sampling number of different adversarial training examples
+  hparams.add_hparam("kb_train_weight", 0.0)
+  # KB_training loss weight which combines Language model and KB selection loss
   return hparams
 
 
