@@ -22,9 +22,9 @@ import tensorflow.compat.v1 as tf
 
 
 # Values for gate_gradients.
-GATE_NONE = tf.compat.v1.train.Optimizer.GATE_NONE
-GATE_OP = tf.compat.v1.train.Optimizer.GATE_OP
-GATE_GRAPH = tf.compat.v1.train.Optimizer.GATE_GRAPH
+GATE_NONE = tf.train.Optimizer.GATE_NONE
+GATE_OP = tf.train.Optimizer.GATE_OP
+GATE_GRAPH = tf.train.Optimizer.GATE_GRAPH
 
 
 class YellowFinOptimizer(object):

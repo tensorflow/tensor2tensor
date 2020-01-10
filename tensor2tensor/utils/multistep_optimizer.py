@@ -29,7 +29,7 @@ from __future__ import print_function
 import tensorflow.compat.v1 as tf
 
 
-class MultistepAdamOptimizer(tf.compat.v1.train.AdamOptimizer):
+class MultistepAdamOptimizer(tf.train.AdamOptimizer):
   """Adam with SGD updates every n steps with accumulated gradients."""
 
   def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8,

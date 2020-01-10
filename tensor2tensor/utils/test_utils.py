@@ -39,7 +39,7 @@ def run_in_graph_and_eager_modes(func=None,
   For example, consider the following unittest:
 
   ```python
-  tf.compat.v1.enable_eager_execution()
+  tf.enable_eager_execution()
 
   class SomeTest(tf.test.TestCase):
 
@@ -120,5 +120,5 @@ def run_in_graph_mode_only(func=None, config=None, use_gpu=True):
 
 
 def test_main():
-  tf.compat.v1.enable_eager_execution()
+  tf.enable_eager_execution()
   tf.test.main()
