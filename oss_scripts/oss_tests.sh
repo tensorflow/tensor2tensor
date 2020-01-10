@@ -158,19 +158,7 @@ set_status
 #  set_status
 #fi
 
-if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]
-then
-    # TODO(afrozm): Once we drop support for 1.10 we can get rid of this.
-    pytest --disable-warnings \
-      tensor2tensor/utils/beam_search_test.py::BeamSearchTest::testTPUBeam
-    set_status
-    # TODO(afrozm): Enable other tests in the RL directory.
-    # Can't add disable warning here since it parses flags.
-    pytest tensor2tensor/rl/trainer_model_based_test.py
-    set_status
-fi
-
-if [[ "$TRAVIS_PYTHON_VERSION" == "3.6" ]] && [[ "$TF_VERSION" == "$TF_LATEST"  ]]
+if [[ "$TF_VERSION" == "$TF_LATEST"  ]]
 then
     jupyter nbconvert --ExecutePreprocessor.kernel_name=python3 \
       --ExecutePreprocessor.timeout=600 --to notebook --execute \
@@ -181,6 +169,17 @@ then
       --ExecutePreprocessor.timeout=600 --to notebook --execute \
       tensor2tensor/notebooks/t2t_problem.ipynb;
     set_status
+
+    # TODO(afrozm): Once we drop support for 1.10 we can get rid of this.
+    pytest --disable-warnings \
+      tensor2tensor/utils/beam_search_test.py::BeamSearchTest::testTPUBeam
+    set_status
+
+    # TODO(afrozm): Enable other tests in the RL directory.
+    # Can't add disable warning here since it parses flags.
+    pytest tensor2tensor/rl/trainer_model_based_test.py
+    set_status
+
 fi
 
 # Test --t2t_usr_dir

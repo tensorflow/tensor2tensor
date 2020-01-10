@@ -7,7 +7,6 @@ git:
 services:
   - docker
 python:
-  - "2.7"
   - "3.6"
 env:
   global:
