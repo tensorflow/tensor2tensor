@@ -32,10 +32,10 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import video_metrics
 import tensorflow as tf
-from tensorflow.contrib import slim as contrib_slim
 
 
 FLAGS = flags.FLAGS
@@ -385,7 +385,7 @@ class VideoProblem(problem.Problem):
 
     data_items_to_decoders = {
         "frame":
-            contrib_slim.tfexample_decoder.Image(
+            contrib.slim().tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 shape=[self.frame_height, self.frame_width, self.num_channels],
@@ -677,7 +677,7 @@ class VideoProblemOld(problem.Problem):
 
     data_items_to_decoders = {
         "inputs":
-            contrib_slim.tfexample_decoder.Image(
+            contrib.slim().tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),
@@ -766,7 +766,7 @@ class Video2ClassProblem(VideoProblemOld):
     data_fields, data_items_to_decoders = (
         super(Video2ClassProblem, self).example_reading_spec())
     data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
-    data_items_to_decoders["targets"] = contrib_slim.tfexample_decoder.Tensor(
+    data_items_to_decoders["targets"] = contrib.slim().tfexample_decoder.Tensor(
         label_key)
     return data_fields, data_items_to_decoders
 

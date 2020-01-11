@@ -40,11 +40,11 @@ from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
-from tensorflow.contrib import slim as contrib_slim
 
 _BASE_EXAMPLE_IMAGE_SIZE = 64
 
@@ -351,7 +351,7 @@ class Img2imgAllenBrain(problem.Problem):
 
     data_items_to_decoders = {
         "targets":
-            contrib_slim.tfexample_decoder.Image(
+            contrib.slim().tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),
