@@ -4396,7 +4396,7 @@ def compute_attention_component(antecedent,
           "KFAC implementation only supports filter_width=1 (actual: {}) and "
           "vars_3d_num_heads=0 (actual: {}).".format(
               filter_width, vars_3d_num_heads))
-  if vars_3d_num_heads > 0:
+  if vars_3d_num_heads is not None and vars_3d_num_heads > 0:
     assert filter_width == 1
     input_depth = antecedent.get_shape().as_list()[-1]
     depth_per_head = total_depth // vars_3d_num_heads
