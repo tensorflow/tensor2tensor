@@ -908,6 +908,10 @@ class Problem(object):
     mode = tf.estimator.ModeKeys.PREDICT
     serialized_example = tf.placeholder(
         dtype=tf.string, shape=[None], name="serialized_example")
+    sampling_temp = tf.placeholder_with_default(
+        tf.constant(getattr(hparams, "sampling_temp", 0.0), dtype=tf.float32),
+        shape=[],
+        name="sampling_temp")
     dataset = tf.data.Dataset.from_tensor_slices(serialized_example)
     dataset = dataset.map(self.decode_example)
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
@@ -929,12 +933,17 @@ class Problem(object):
 
     dataset = dataset.map(data_reader.standardize_shapes)
     features = tf.data.experimental.get_single_element(dataset)
+    features["sampling_temp"] = sampling_temp
 
     if self.has_inputs:
       features.pop("targets", None)
 
     return tf.estimator.export.ServingInputReceiver(
-        features=features, receiver_tensors=serialized_example)
+        features=features,
+        receiver_tensors={
+            "input": serialized_example,
+            "sampling_temp": sampling_temp
+        })
 
 
 class FeatureInfo(object):

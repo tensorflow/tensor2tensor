@@ -1357,7 +1357,8 @@ class T2TModel(base.Layer):
         choices = tf.reshape(choices, logits_shape[:-1])
         return choices
 
-      samples = multinomial_squeeze(logits, self.hparams.sampling_temp)
+      temperature = features.get("sampling_temp", self.hparams.sampling_temp)
+      samples = multinomial_squeeze(logits, temperature)
 
     return samples, logits, losses
 

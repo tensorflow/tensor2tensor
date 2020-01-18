@@ -623,6 +623,9 @@ class Transformer(t2t_model.T2TModel):
       return ret, cache
 
     eos_id = self.get_decode_end_id() or beam_search.EOS_ID
+    temperature = features.get("sampling_temp",
+                               getattr(hparams, "sampling_temp", 0.0))
+
     ret = fast_decode_tpu(
         encoder_output=encoder_output,
         encoder_decoder_attention_bias=encoder_decoder_attention_bias,
@@ -636,7 +639,8 @@ class Transformer(t2t_model.T2TModel):
         alpha=alpha,
         batch_size=batch_size,
         force_decode_length=self._decode_hparams.force_decode_length,
-        eos_id=eos_id)
+        eos_id=eos_id,
+        sampling_temperature=temperature)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -883,6 +887,8 @@ class Transformer(t2t_model.T2TModel):
 
     sos_id = self.get_decode_start_id() or 0
     eos_id = self.get_decode_end_id() or beam_search.EOS_ID
+    temperature = features.get("sampling_temp",
+                               getattr(hparams, "sampling_temp", 0.0))
 
     ret = fast_decode(
         encoder_output=encoder_output,
@@ -899,6 +905,7 @@ class Transformer(t2t_model.T2TModel):
         force_decode_length=self._decode_hparams.force_decode_length,
         sos_id=sos_id,
         eos_id=eos_id,
+        sampling_temperature=temperature,
         cache=att_cache)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
@@ -986,7 +993,8 @@ def fast_decode_tpu(encoder_output,
                     batch_size=None,
                     force_decode_length=False,
                     scope_prefix="body/",
-                    use_top_k_with_unique=True):
+                    use_top_k_with_unique=True,
+                    sampling_temperature=0.0):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding for TPU, uses beam search iff
@@ -1014,6 +1022,7 @@ def fast_decode_tpu(encoder_output,
     scope_prefix: str, prefix for decoder layer variable scopes.
     use_top_k_with_unique: bool, whether to use a fast (but decreased precision)
       top_k during beam search.
+    sampling_temperature: scalar, temperature with which to sample.
 
   Returns:
     A dict of decoding results {
@@ -1071,7 +1080,7 @@ def fast_decode_tpu(encoder_output,
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
-      temperature = getattr(hparams, "sampling_temp", 0.0)
+      temperature = sampling_temperature
       keep_top = getattr(hparams, "sampling_keep_top_k", -1)
       if hparams.sampling_method == "argmax":
         temperature = 0.0
@@ -1142,6 +1151,7 @@ def fast_decode(encoder_output,
                 batch_size=None,
                 force_decode_length=False,
                 scope_prefix="body/",
+                sampling_temperature=0.0,
                 cache=None):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
@@ -1168,6 +1178,7 @@ def fast_decode(encoder_output,
     force_decode_length: bool, whether to force the full decode length, or if
       False, stop when all beams hit eos_id.
     scope_prefix: str, prefix for decoder layer variable scopes.
+    sampling_temperature: scalar, temperature with which to sample.
     cache: cache dictionary for additional predictions.
 
   Returns:
@@ -1216,7 +1227,7 @@ def fast_decode(encoder_output,
       """One step of greedy decoding."""
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
-      temperature = getattr(hparams, "sampling_temp", 0.0)
+      temperature = sampling_temperature
       keep_top = getattr(hparams, "sampling_keep_top_k", -1)
       if hparams.sampling_method == "argmax":
         temperature = 0.0

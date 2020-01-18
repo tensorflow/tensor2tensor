@@ -2949,7 +2949,7 @@ def sample_with_temperature(logits, temperature, sampling_keep_top_k=-1):
     argmax = tf.argmax(tf.reshape(logits, [-1, logits_shape[-1]]), axis=1)
     return tf.reshape(argmax, logits_shape[:-1])
   else:
-    assert temperature > 0.0
+    tf.debugging.assert_greater(temperature, 0.0)
 
     if sampling_keep_top_k != -1:
       if sampling_keep_top_k <= 0:
