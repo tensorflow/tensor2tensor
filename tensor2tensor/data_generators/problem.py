@@ -940,9 +940,12 @@ class Problem(object):
 
     return tf.estimator.export.ServingInputReceiver(
         features=features,
-        receiver_tensors={
-            "input": serialized_example,
-            "sampling_temp": sampling_temp
+        receiver_tensors=serialized_example,
+        receiver_tensors_alternatives={
+            "sample": {
+                "input": serialized_example,
+                "sampling_temp": sampling_temp
+            }
         })
 
 
