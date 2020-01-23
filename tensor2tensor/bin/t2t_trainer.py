@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2019 The Tensor2Tensor Authors.
+# Copyright 2020 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -233,7 +233,7 @@ def create_run_config(hp, output_dir=None):
   save_ckpt_secs = FLAGS.save_checkpoints_secs or None
   if save_ckpt_secs:
     save_ckpt_steps = None
-  assert FLAGS.output_dir or FLAGS.checkpoint_path
+  assert FLAGS.output_dir
   tpu_config_extra_kwargs = {}
   if FLAGS.tpu_job_name is not None:
     tpu_config_extra_kwargs["tpu_job_name"] = FLAGS.tpu_job_name
