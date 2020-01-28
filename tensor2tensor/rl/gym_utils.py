@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
+
 from absl import logging
 import gym
 import gym.wrappers
@@ -79,6 +81,117 @@ class MaxAndSkipEnv(gym.Wrapper):
 
   def reset(self, **kwargs):
     return self.env.reset(**kwargs)
+
+
+class ActionDiscretizeWrapper(gym.ActionWrapper):
+  """Wraps an environment with continuous actions and discretizes them.
+
+  This is a simplified adaptation of ActionDiscretizeWrapper
+  from tf_agents.
+  """
+
+  def __init__(self, env, num_actions):
+    """Constructs a wrapper for discretizing the action space.
+
+    Args:
+      env: environment to wrap.
+      num_actions: A np.array of the same shape as the environment's
+        action_spec. Elements in the array specify the number of actions to
+        discretize to for each dimension.
+
+    Raises:
+      ValueError: IF the action_spec shape and the limits shape are not equal.
+    """
+
+    if not isinstance(env.action_space, gym.spaces.box.Box):
+      raise ValueError(
+          "The action space is {}, but gym.spaces.box.Box is expected".format(
+              env.action_space))
+
+    gym.Wrapper.__init__(self, env)
+
+    # We convert a scalar num_actions to array [num_actions, num_actions, ...]
+    self._num_actions = np.broadcast_to(num_actions, env.action_space.shape)
+
+    if env.action_space.shape != self._num_actions.shape:
+      raise ValueError("Spec {} and limit shape do not match. Got {}".format(
+          env.action_space.shape, self._num_actions.shape))
+    self.action_space = gym.spaces.MultiDiscrete(nvec=self._num_actions)
+    self._action_map = self._discretize_env(env)
+
+  def _discretize_env(self, env):
+    """Generates a discrete bounded spec and a linspace for the given limits.
+
+    Args:
+      env: An array to discretize.
+
+    Returns:
+      Tuple with the discrete_spec along with a list of lists mapping actions.
+    Raises:
+      ValueError: If not all limits value are >=2 or maximum or minimum of boxes
+      is equal to +- infinity.
+    """
+    if not np.all(self._num_actions >= 2):
+      raise ValueError("num_actions should all be at least size 2.")
+
+    if (math.isinf(np.min(env.action_space.low)) or
+        math.isinf(np.max(env.action_space.high))):
+      raise ValueError(
+          """Minimum of boxes is {} and maximum of boxes is {},
+          but we expect that finite values are provided.""".
+          format(np.min(env.action_space.low),
+                 np.max(env.action_space.high)))
+
+    limits = np.broadcast_to(self._num_actions,
+                             env.action_space.shape)
+    minimum = np.broadcast_to(np.min(env.action_space.low),
+                              env.action_space.shape)
+    maximum = np.broadcast_to(np.max(env.action_space.high),
+                              env.action_space.shape)
+
+    action_map = [
+        np.linspace(env_min, env_max, num=n_actions)
+        for env_min, env_max, n_actions in zip(
+            np.nditer(minimum), np.nditer(maximum), np.nditer(limits))
+    ]
+
+    return action_map
+
+  def _map_actions(self, action):
+    """Maps the given discrete action to the corresponding continuous action.
+
+    Args:
+      action: Discrete action to map.
+
+    Returns:
+      Numpy array with the mapped continuous actions.
+    Raises:
+      ValueError: If the given action's shpe does not match the action_spec
+      shape.
+    """
+    action = np.asarray(action)
+    if action.shape != self.action_space.shape:
+      raise ValueError(
+          "Received action with incorrect shape. Got {}, expected {}".format(
+              action.shape, self.action_space.shape))
+
+    mapped_action = [self._action_map[i][a]
+                     for i, a in enumerate(action.flatten())]
+    return np.reshape(mapped_action, newshape=action.shape)
+
+  def action(self, action):
+    """Steps the environment while remapping the actions.
+
+    Args:
+      action: Action to take.
+
+    Returns:
+      The next time_step from the environment.
+    """
+    return self._map_actions(action)
+
+  def reverse_action(self, action):
+    raise NotImplementedError
 
 
 class RenderedEnv(gym.Wrapper):
@@ -158,7 +271,8 @@ def remove_time_limit_wrapper(env):
 
 
 def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env,
-                    rendered_env_resize_to, sticky_actions, output_dtype):
+                    rendered_env_resize_to, sticky_actions, output_dtype,
+                    num_actions):
   """Wraps a gym environment. see make_gym_env for details."""
   # rl_env_max_episode_steps is None or int.
   assert ((not rl_env_max_episode_steps) or
@@ -169,6 +283,10 @@ def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env,
 
   if wrap_with_time_limit:
     env = remove_time_limit_wrapper(env)
+
+  logging.info("Number of actions: %d", num_actions)
+  if num_actions is not None:
+    env = ActionDiscretizeWrapper(env, num_actions=num_actions)
 
   if sticky_actions:
     env = StickyActionEnv(env)
@@ -192,7 +310,8 @@ def make_gym_env(name,
                  rendered_env=False,
                  rendered_env_resize_to=None,
                  sticky_actions=False,
-                 output_dtype=None):
+                 output_dtype=None,
+                 num_actions=None):
   """Create a gym env optionally with a time limit and maxskip wrapper.
 
   NOTE: The returned env may already be wrapped with TimeLimit!
@@ -211,6 +330,8 @@ def make_gym_env(name,
     output_dtype: numpy datatype that we want the observation to be in, if None
       this defaults to the env's observation dtype. Useful for TPUs since they
       don't support uint8 which is a default observation type for a lot of envs.
+    num_actions: None if we do not need discretization and the number of
+      discrete actions per continuous action.
 
   Returns:
     An instance of `gym.Env` or `gym.Wrapper`.
@@ -218,7 +339,7 @@ def make_gym_env(name,
   env = gym.make(name)
   return gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env,
                          rendered_env, rendered_env_resize_to, sticky_actions,
-                         output_dtype)
+                         output_dtype, num_actions)
 
 
 def register_gym_env(class_entry_point, version="v0", kwargs=None):

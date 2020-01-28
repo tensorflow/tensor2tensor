@@ -19,6 +19,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import unittest
+
 import gym
 from gym import spaces
 import numpy as np
@@ -32,6 +34,28 @@ class SimpleEnv(gym.Env):
   def __init__(self):
     self.reward_range = (-1.0, 1.0)
     self.action_space = spaces.Discrete(2)
+    self.observation_space = spaces.Box(low=0, high=255, shape=(3, 3))
+
+  def reset(self):
+    return self.observation_space.low
+
+  def step(self, action):
+    if action == 0:
+      return self.reset(), -1.0, False, {}
+    else:
+      return self.observation_space.high, +1.0, True, {}
+
+  def render(self, mode="human"):
+    del mode  # Unused
+    return np.zeros([640, 480, 3], np.uint8)
+
+
+class SimpleContinuousActionsEnv(gym.Env):
+  """A simple environment with a 3x3 observation space, is done on action=1."""
+
+  def __init__(self, dimensions):
+    self.reward_range = (-1.0, 1.0)
+    self.action_space = spaces.Box(low=-1, high=1, shape=(dimensions,))
     self.observation_space = spaces.Box(low=0, high=255, shape=(3, 3))
 
   def reset(self):
@@ -92,11 +116,123 @@ class GymUtilsTest(tf.test.TestCase):
     obs, _, _, _ = env.step(1)
     self.assertTrue(np.allclose(np.zeros([64, 12, 3], np.float32), obs))
 
+  def test_rendered_env_continuous_1d(self):
+    env = gym_utils.RenderedEnv(
+        SimpleContinuousActionsEnv(dimensions=1),
+        resize_to=(64, 12))
+    obs, _, _, _ = env.step(0.5)
+    self.assertTrue(np.allclose(np.zeros([64, 12, 3], np.uint8), obs))
+
+    env = gym_utils.RenderedEnv(
+        SimpleContinuousActionsEnv(dimensions=1),
+        resize_to=(64, 12),
+        output_dtype=np.float32)
+    obs, _, _, _ = env.step(1)
+    self.assertTrue(np.allclose(np.zeros([64, 12, 3], np.float32), obs))
+
+  def test_rendered_env_continuous_2d(self):
+    env = gym_utils.RenderedEnv(
+        SimpleContinuousActionsEnv(dimensions=2),
+        resize_to=(64, 12))
+    obs, _, _, _ = env.step(0.5)
+    self.assertTrue(np.allclose(np.zeros([64, 12, 3], np.uint8), obs))
+
+    env = gym_utils.RenderedEnv(
+        SimpleContinuousActionsEnv(dimensions=2),
+        resize_to=(64, 12),
+        output_dtype=np.float32)
+    obs, _, _, _ = env.step(1)
+    self.assertTrue(np.allclose(np.zeros([64, 12, 3], np.float32), obs))
+
+  def test_correct_number_of_discrete_actions_1d(self):
+    """The env should become discrete whenever we pass num_action."""
+    env_discrete = gym_utils.ActionDiscretizeWrapper(
+        gym_utils.RenderedEnv(SimpleContinuousActionsEnv(dimensions=1)),
+        num_actions=4)
+
+    expected_action_space = gym.spaces.MultiDiscrete([4,])
+    self.assertEqual(env_discrete.action_space, expected_action_space)
+
+  def test_correct_number_of_discrete_actions_2d(self):
+    env_discrete = gym_utils.ActionDiscretizeWrapper(
+        gym_utils.RenderedEnv(SimpleContinuousActionsEnv(dimensions=2)),
+        num_actions=4)
+
+    expected_action_space = gym.spaces.MultiDiscrete([4, 4])
+    self.assertEqual(env_discrete.action_space, expected_action_space)
+
+  def test_action_mapping_1d(self):
+    """Testing discretization with a mock environment.
+
+    In the mock call we get access to the argument of the
+    SimpleContinuousActionsEnv.step method which we check against
+    precomputed values of continuous actions.
+    """
+    num_actions = 4
+
+    with unittest.mock.patch.object(
+        gym_utils.RenderedEnv, "step", autospec=True) as mock_step_method:
+      env = gym_utils.RenderedEnv(SimpleContinuousActionsEnv(dimensions=1))
+      expected_continuous_actions = np.linspace(
+          np.min(env.action_space.low),
+          np.min(env.action_space.high),
+          num=num_actions).flatten()
+
+      env_discrete = gym_utils.ActionDiscretizeWrapper(env, num_actions)
+      for discrete_action in range(num_actions):
+        env_discrete.step([discrete_action])
+        mock_step_method.assert_called_with(
+            unittest.mock.ANY,
+            expected_continuous_actions[discrete_action])
+
+  def test_action_mapping_2d(self):
+    num_actions = 8
+
+    def expected_continuous_actions(discrete_action):
+      if discrete_action == [0, 0]:
+        return np.array([-1, -1])
+      elif discrete_action == [0, 3]:
+        return np.array([-1, -0.14285714])
+      elif discrete_action == [4, 4]:
+        return np.array([0.14285714, 0.14285714])
+      elif discrete_action == [7, 7]:
+        return np.array([1, 1])
+
+    discrete_actions = [[0, 0], [0, 3], [4, 4], [7, 7]]
+
+    with unittest.mock.patch.object(
+        gym_utils.RenderedEnv, "step", autospec=True) as mock_step_method:
+      env = gym_utils.RenderedEnv(SimpleContinuousActionsEnv(dimensions=2))
+
+      env_discrete = gym_utils.ActionDiscretizeWrapper(env, num_actions)
+      for discrete_action in discrete_actions:
+        env_discrete.step(discrete_action)
+        mock_args, _ = mock_step_method.call_args
+        np.testing.assert_array_almost_equal(
+            mock_args[1], expected_continuous_actions(discrete_action))
+
   def test_gym_registration(self):
     reg_id, env = gym_utils.register_gym_env(
         "tensor2tensor.rl.gym_utils_test:SimpleEnv")
 
     self.assertEqual("T2TEnv-SimpleEnv-v0", reg_id)
+
+    # Most basic check.
+    self.assertIsInstance(env, gym.Env)
+
+    # Just make sure we got the same environment.
+    self.assertTrue(
+        np.allclose(env.reset(), np.zeros(shape=(3, 3), dtype=np.uint8)))
+
+    _, _, done, _ = env.step(1)
+    self.assertTrue(done)
+
+  def test_gym_registration_continuous(self):
+    reg_id, env = gym_utils.register_gym_env(
+        "tensor2tensor.rl.gym_utils_test:SimpleContinuousActionsEnv",
+        kwargs={"dimensions": 2})
+
+    self.assertEqual("T2TEnv-SimpleContinuousActionsEnv-v0", reg_id)
 
     # Most basic check.
     self.assertIsInstance(env, gym.Env)
@@ -148,7 +284,6 @@ class GymUtilsTest(tf.test.TestCase):
 
     _, _, done, _ = env.step(1)
     self.assertTrue(done)
-
 
 if __name__ == "__main__":
   tf.test.main()

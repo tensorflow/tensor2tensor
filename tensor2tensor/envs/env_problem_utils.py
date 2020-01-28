@@ -226,6 +226,8 @@ def make_env(batch_size=1,
              clip_rewards=True,
              parallelism=1,
              use_tpu=False,
+             num_actions=None,
+             rendered_env=True,
              **env_kwargs):
   """Creates the env."""
 
@@ -233,6 +235,13 @@ def make_env(batch_size=1,
     env_kwargs.update({"reward_range": (-1, 1), "discrete_rewards": True})
   else:
     env_kwargs.update({"discrete_rewards": False})
+
+  # TODO(henrykm) - below someone linked "resize" with "abnormality"
+  # Probably we need more nuanced concept of "abnormality"
+  # decoupled from "resize". Currently the resize flag implies
+  # that we switch from a generic env to a wrapped env.
+  # Overall this file and gym_utils.py look like good candidates
+  # for a refactor.
 
   # No resizing needed, so let's be on the normal EnvProblem.
   if not resize:  # None or False
@@ -251,15 +260,17 @@ def make_env(batch_size=1,
       gym_utils.gym_env_wrapper, **{
           "rl_env_max_episode_steps": max_timestep,
           "maxskip_env": True,
-          "rendered_env": True,
+          "rendered_env": rendered_env,
           "rendered_env_resize_to": resize_dims,
           "sticky_actions": False,
           "output_dtype": np.int32 if use_tpu else None,
+          "num_actions": num_actions,
       })
 
   return rendered_env_problem.RenderedEnvProblem(
       base_env_name=env_problem_name,
       batch_size=batch_size,
       parallelism=parallelism,
+      rendered_env=rendered_env,
       env_wrapper_fn=wrapper_fn,
       **env_kwargs)

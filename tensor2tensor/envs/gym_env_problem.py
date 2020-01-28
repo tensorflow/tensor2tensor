@@ -195,7 +195,8 @@ class GymEnvProblem(env_problem.EnvProblem):
       return copy_dict1
 
     self._envs = [
-        gym.make(self.base_env_name, **union_dicts(kwargs, env_kwarg))
+        gym.make(self.base_env_name,
+                 **union_dicts(kwargs, env_kwarg))
         for env_kwarg in per_env_kwargs
     ]
     self._parallelism = parallelism
