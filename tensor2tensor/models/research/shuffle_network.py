@@ -420,7 +420,7 @@ class ShuffleNetwork(t2t_model.T2TModel):
     # Run the model
     self.hparams.force_full_predict = True
     with tf.variable_scope(self.name):
-      logits, losses = self.model_fn(features)
+      logits, _ = self.model_fn(features)
 
     assert len(logits.shape) == 5  # [batch, time, 1, 1, vocab]
     logits = tf.squeeze(logits, [2, 3])
