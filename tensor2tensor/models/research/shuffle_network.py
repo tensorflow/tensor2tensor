@@ -350,8 +350,6 @@ class ShuffleNetwork(t2t_model.T2TModel):
       Both are same length.
     """
     pad_len = self.max_pad_length(features)
-    print(pad_len)
-    print(features)
     features["inputs"] = self.pad(features["inputs"], pad_len)
 
     if features.get("targets") is not None:
@@ -361,9 +359,9 @@ class ShuffleNetwork(t2t_model.T2TModel):
 
   @staticmethod
   def pad(tensor, pad_len):
-    """ Pad tensor on 1. dimension to pad_len.
+    """ Pad tensor on first dimension to pad_len.
     Args:
-      tensor: tf.Tensor
+      tensor: input tensor of shape length >= 2
       pad_len: pad length
 
     Returns:
@@ -376,7 +374,7 @@ class ShuffleNetwork(t2t_model.T2TModel):
     padding += [[0, 0]] * (len(tensor.shape) - 2)
     return tf.pad(tensor, padding)
 
-  def max_pad_length(self, features: dict):
+  def max_pad_length(self, features):
     """Finds max padding length.
 
     If target length not specified use fixed padding
