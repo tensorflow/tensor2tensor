@@ -359,14 +359,16 @@ class ShuffleNetwork(t2t_model.T2TModel):
 
   @staticmethod
   def pad(tensor, pad_len):
-    """ Pad tensor on first dimension to pad_len.
+    """Pad tensor on first dimension to pad_len.
+
     Args:
       tensor: input tensor of shape length >= 2
       pad_len: pad length
 
     Returns:
-      tf.Tensor: padded input tensor
+      tf.Tensor: Padded input tensor.
     """
+
     assert len(tensor.shape) >= 2  # tensor of shape [batch, length, ...]
     length = tf.shape(tensor)[1]
 
@@ -384,8 +386,9 @@ class ShuffleNetwork(t2t_model.T2TModel):
       features: Dictionary with input and target tensors
 
     Returns:
-      tf.Tensor:  Length of input and output sequence. Length is power of 2
+      tf.Tensor:  Length of input and output sequence. Length is power of 2.
     """
+
     if self.hparams.force_max_length or features.get("targets") is None:
       assert math.log(self.hparams.max_length, 2).is_integer(), \
         "hparams.max_length should be power of w"
@@ -401,13 +404,16 @@ class ShuffleNetwork(t2t_model.T2TModel):
     return tf.pow(2, p)
 
   def infer(self, features=None, **kwargs):
-    """ Custom infer method for Shuffle-Exchange network.
+    """Custom infer method for Shuffle-Exchange network.
+
     Args:
       features: Dictionary of inputs and targets
       **kwargs: SE network currently doesn't support auto-regressive output
 
-    Returns: Dictionary of outputs.
+    Returns:
+      dict: Dictionary of outputs.
     """
+
     del kwargs
     targets = features.get("targets")
     infer_targets = features.get("infer_targets")
