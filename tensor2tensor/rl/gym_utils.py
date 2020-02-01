@@ -284,8 +284,8 @@ def gym_env_wrapper(env, rl_env_max_episode_steps, maxskip_env, rendered_env,
   if wrap_with_time_limit:
     env = remove_time_limit_wrapper(env)
 
-  logging.info("Number of actions: %d", num_actions)
   if num_actions is not None:
+    logging.info("Number of discretized actions: %d", num_actions)
     env = ActionDiscretizeWrapper(env, num_actions=num_actions)
 
   if sticky_actions:
