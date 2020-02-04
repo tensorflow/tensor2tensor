@@ -28,6 +28,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import math
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
@@ -348,21 +349,88 @@ class ShuffleNetwork(t2t_model.T2TModel):
       dictionary: Inputs and targets padded with 0 to the length of power of 2.
       Both are same length.
     """
-    inputs = features["inputs"]
-    targets = features["targets"]
-    inputs_length = tf.shape(inputs)[1]
-    targets_length = tf.shape(targets)[1]
+    pad_len = self.max_pad_length(features)
+    features["inputs"] = self.pad(features["inputs"], pad_len)
 
-    length = tf.maximum(inputs_length, targets_length)
+    if features.get("targets") is not None:
+      features["targets"] = self.pad(features["targets"], pad_len)
+
+    return super(ShuffleNetwork, self).bottom(features)
+
+  @staticmethod
+  def pad(tensor, pad_len):
+    """Pad tensor on first dimension to pad_len.
+
+    Args:
+      tensor: input tensor of shape length >= 2
+      pad_len: pad length
+
+    Returns:
+      tf.Tensor: Padded input tensor.
+    """
+
+    assert len(tensor.shape) >= 2  # tensor of shape [batch, length, ...]
+    length = tf.shape(tensor)[1]
+
+    padding = [[0, 0], [0, pad_len - length]]
+    padding += [[0, 0]] * (len(tensor.shape) - 2)
+    return tf.pad(tensor, padding)
+
+  def max_pad_length(self, features):
+    """Finds max padding length.
+
+    If target length not specified use fixed padding
+    length from hparams.max_length.
+
+    Args:
+      features: Dictionary with input and target tensors
+
+    Returns:
+      tf.Tensor:  Length of input and output sequence. Length is power of 2.
+    """
+
+    if self.hparams.force_max_length or features.get("targets") is None:
+      assert math.log(self.hparams.max_length, 2).is_integer(), \
+        "hparams.max_length should be power of w"
+
+      return self.hparams.max_length
+
+    length = tf.shape(features["inputs"])[1]
+    targets_length = tf.shape(features["targets"])[1]
+    length = tf.maximum(length, targets_length)
+
     p = tf.log(tf.cast(length, tf.float32)) / tf.log(2.0)
     p = tf.cast(tf.ceil(p), tf.int32)
-    pad_len = tf.pow(2, p)
+    return tf.pow(2, p)
 
-    input_padding = [[0, 0], [0, pad_len - inputs_length], [0, 0], [0, 0]]
-    features["inputs"] = tf.pad(inputs, input_padding)
-    target_padding = [[0, 0], [0, pad_len - targets_length], [0, 0], [0, 0]]
-    features["targets"] = tf.pad(targets, target_padding)
-    return super(ShuffleNetwork, self).bottom(features)
+  def infer(self, features=None, **kwargs):
+    """Custom infer method for Shuffle-Exchange network.
+
+    Args:
+      features: Dictionary of inputs and targets
+      **kwargs: SE network currently doesn't support auto-regressive output
+
+    Returns:
+      dict: Dictionary of outputs.
+    """
+
+    del kwargs
+    targets = features.get("targets")
+    infer_targets = features.get("infer_targets")
+
+    if targets is None and infer_targets is not None:
+      features["targets"] = infer_targets
+
+    # Run the model
+    self.hparams.force_full_predict = True
+    with tf.variable_scope(self.name):
+      logits, _ = self.model_fn(features)
+
+    assert len(logits.shape) == 5  # [batch, time, 1, 1, vocab]
+    logits = tf.squeeze(logits, [2, 3])
+    outputs = tf.argmax(logits, axis=2)
+
+    return {"outputs": outputs, "logits": logits, "scores": None}
 
   def loss(self, logits, features):
     """Loss function for Neural Shuffle-Exchange network.
@@ -421,6 +489,8 @@ def shuffle_network_baseline():
   hparams.initializer = "uniform_unit_scaling"
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.999
+  hparams.add_hparam("force_max_length", False)  # use fixed max length
+  hparams.max_length = 256  # use when targets are not known
 
   hparams.dropout = 0.1
   hparams.label_smoothing = 0.
