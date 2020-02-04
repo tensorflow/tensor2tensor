@@ -8,7 +8,7 @@ jobs:
 
       - type: shell
         name: DockerHub login
-        command: &DOCKER_LOGIN docker login -u _json_key -p "$(echo $GOOGLE_CLOUD_KEY | base64 --decode --ignore-garbage)" https://gcr.io
+        command: &DOCKER_LOGIN docker login -u _json_key -p "$(echo $GOOGLE_CLOUD_KEY | base64 --decode --ignore-garbage)" https://us.gcr.io
 
       - type: shell
         name: Checkout diseaseTools & gdm repos
@@ -77,7 +77,7 @@ jobs:
       - type: shell
         name: Trigger smoke tests
         # CI sets up the root directory to project, which is here the tensor2tensor repo
-        command: docker run -it -e 'GOOGLE_APPLICATION_CREDENTIALS=/usr/src/app/gcloud/keys/google-auth.json' -v ~/gdm:/usr/src/app/gcloud/gdm -v ~/diseaseTools:/usr/src/app -v ~/project:/usr/src/project -w /usr/src/project gcr.io/fathom-containers/ci python /usr/src/app/fathomairflow/integration_tests/trigger_tests_on_testinfra.py queue_smoke_tests /usr/src/project
+        command: docker run -it -e 'GOOGLE_APPLICATION_CREDENTIALS=/usr/src/app/gcloud/keys/google-auth.json' -v ~/gdm:/usr/src/app/gcloud/gdm -v ~/diseaseTools:/usr/src/app -v ~/project:/usr/src/project -w /usr/src/project us.gcr.io/fathom-containers/ci python /usr/src/app/fathomairflow/integration_tests/trigger_tests_on_testinfra.py queue_smoke_tests /usr/src/project
         workDir: ~/diseaseTools
 workflows:
   version: 2

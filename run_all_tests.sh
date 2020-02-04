@@ -6,7 +6,7 @@
 #!/usr/bin/env bash
 T2T=tensor2tensor
 DT=diseaseTools
-IMAGE=gcr.io/fathom-containers/t2t_test
+IMAGE=us.gcr.io/fathom-containers/t2t_test
 GCS_KEY_NAME=GOOGLE_APPLICATION_CREDENTIALS
 GCS_KEY_PATH=/usr/src/diseaseTools/gcloud/keys/google-auth.json
 

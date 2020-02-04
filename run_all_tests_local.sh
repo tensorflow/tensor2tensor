@@ -46,7 +46,7 @@ source ~/diseaseTools/scripts/vm_setup/dev_config/.bashrc_aliases_fathom
 # * skip tensor2tensor/data_generators/gym_env_test.py (no gym)
 
 
-dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+dki us.gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        --ignore=/usr/src/app/api-flask/ \
        --ignore=/usr/src/t2t/tensor2tensor/utils/registry_test.py \
        --ignore=/usr/src/t2t/tensor2tensor/utils/trainer_lib_test.py \
@@ -75,16 +75,16 @@ dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
 #       /usr/src/t2t/tensor2tensor/models/research/universal_transformer_test.py
 #       --ignore=/usr/src/t2t/tensor2tensor/models/research/next_frame_test.py \
 
-dki -w /usr/src/t2t gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+dki -w /usr/src/t2t us.gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
        /usr/src/t2t/tensor2tensor/utils/registry_test.py
 
 # cdb: I believe we break this because of some minor custom changes; should re-visit
 # and verify this at some point.
-#dki gcr.io/fathom-containers/t2t_test python3 -m pytest \
+#dki us.gcr.io/fathom-containers/t2t_test python3 -m pytest \
 #       /usr/src/t2t/tensor2tensor/utils/trainer_lib_test.py
 
 # As-is, requires tqdm.  Commenting out for now; we could consider dropping into docker imag.
-#dki gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
+#dki us.gcr.io/fathom-containers/t2t_test python3 -m pytest -vv \
 #       /usr/src/t2t/tensor2tensor/visualization/visualization_test.py
 
 # TODO: add allen_brain_test.py once we update t2t
