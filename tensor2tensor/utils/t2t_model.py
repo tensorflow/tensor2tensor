@@ -1351,8 +1351,8 @@ class T2TModel(base.Layer):
 
       def multinomial_squeeze(logits, temperature=1.0):
         logits_shape = common_layers.shape_list(logits)
-        reshaped_logits = (
-            tf.reshape(logits, [-1, logits_shape[-1]]) / temperature)
+        logits /= tf.reshape(temperature, [-1] + [1] * (len(logits_shape) - 1))
+        reshaped_logits = tf.reshape(logits, [-1, logits_shape[-1]])
         choices = tf.multinomial(reshaped_logits, 1)
         choices = tf.reshape(choices, logits_shape[:-1])
         return choices

@@ -1082,10 +1082,14 @@ def fast_decode_tpu(encoder_output,
       log_probs = common_layers.log_prob_from_logits(logits)
       temperature = sampling_temperature
       keep_top = getattr(hparams, "sampling_keep_top_k", -1)
-      if hparams.sampling_method == "argmax":
-        temperature = 0.0
-      next_id = common_layers.sample_with_temperature(
-          logits, temperature, keep_top)
+      if hparams.sampling_method == "random_per_example":
+        next_id = common_layers.sample_temperature_per_example(
+            logits, temperature, keep_top)
+      else:
+        if hparams.sampling_method == "argmax":
+          temperature = 0.0
+        next_id = common_layers.sample_with_temperature(
+            logits, temperature, keep_top)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
                                   axis=1)
@@ -1229,10 +1233,14 @@ def fast_decode(encoder_output,
       log_probs = common_layers.log_prob_from_logits(logits)
       temperature = sampling_temperature
       keep_top = getattr(hparams, "sampling_keep_top_k", -1)
-      if hparams.sampling_method == "argmax":
-        temperature = 0.0
-      next_id = common_layers.sample_with_temperature(
-          logits, temperature, keep_top)
+      if hparams.sampling_method == "random_per_example":
+        next_id = common_layers.sample_temperature_per_example(
+            logits, temperature, keep_top)
+      else:
+        if hparams.sampling_method == "argmax":
+          temperature = 0.0
+        next_id = common_layers.sample_with_temperature(
+            logits, temperature, keep_top)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
                                   axis=1)

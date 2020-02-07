@@ -2974,6 +2974,40 @@ def sample_with_temperature(logits, temperature, sampling_keep_top_k=-1):
     return choices
 
 
+# TODO(bosma): vectorize top k as well
+def sample_temperature_per_example(logits, temperature, sampling_keep_top_k=-1):
+  """Either random sampling with different temperature per example.
+
+  Args:
+    logits: a Tensor.
+    temperature: a float vector of same size as logits.
+    sampling_keep_top_k: If not -1, only sample from the top k logits.
+  Returns:
+    a Tensor with one fewer dimension than logits.
+  """
+  if sampling_keep_top_k != -1:
+    if sampling_keep_top_k <= 0:
+      raise ValueError("sampling_keep_top_k must either be -1 or positive.")
+
+    vocab_size = shape_list(logits)[1]
+
+    k_largest = contrib.nn().nth_element(
+        logits, n=sampling_keep_top_k, reverse=True)
+    k_largest = tf.tile(tf.reshape(k_largest, [-1, 1]), [1, vocab_size])
+
+    # Force every position that is not in the top k to have probability near
+    # 0 by setting the logit to be very negative.
+    logits = tf.where(tf.less_equal(logits, k_largest),
+                      tf.ones_like(logits)*-1e6, logits)
+
+  logits /= tf.reshape(temperature, [-1] + [1] * (len(logits.shape) - 1))
+  reshaped_logits = tf.reshape(logits, [-1, shape_list(logits)[-1]])
+  choices = tf.multinomial(reshaped_logits, 1)
+  choices = tf.reshape(choices,
+                       shape_list(logits)[:logits.get_shape().ndims - 1])
+  return choices
+
+
 def ones_matrix_band_part(rows, cols, num_lower, num_upper, out_shape=None):
   """Matrix band part of ones.
 

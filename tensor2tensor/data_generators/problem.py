@@ -710,6 +710,11 @@ class Problem(object):
     # Necessary to rejoin examples in the correct order with the Cloud ML Engine
     # batch prediction API.
     data_fields["batch_prediction_key"] = tf.FixedLenFeature([1], tf.int64, 0)
+
+    if getattr(self._hparams, "sampling_method", "") == "random_per_example":
+      data_fields["sampling_temp"] = tf.FixedLenFeature(
+          [1], tf.float32, getattr(self._hparams, "sampling_temp", 1.0))
+
     if data_items_to_decoders is None:
       data_items_to_decoders = {
           field: contrib.slim().tfexample_decoder.Tensor(field)
@@ -905,13 +910,10 @@ class Problem(object):
 
   def serving_input_fn(self, hparams, decode_hparams=None, use_tpu=False):
     """Input fn for serving export, starting from serialized example."""
+    self._hparams = hparams
     mode = tf.estimator.ModeKeys.PREDICT
     serialized_example = tf.placeholder(
         dtype=tf.string, shape=[None], name="serialized_example")
-    sampling_temp = tf.placeholder_with_default(
-        tf.constant(getattr(hparams, "sampling_temp", 0.0), dtype=tf.float32),
-        shape=[],
-        name="sampling_temp")
     dataset = tf.data.Dataset.from_tensor_slices(serialized_example)
     dataset = dataset.map(self.decode_example)
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
@@ -933,20 +935,12 @@ class Problem(object):
 
     dataset = dataset.map(data_reader.standardize_shapes)
     features = tf.data.experimental.get_single_element(dataset)
-    features["sampling_temp"] = sampling_temp
 
     if self.has_inputs:
       features.pop("targets", None)
 
     return tf.estimator.export.ServingInputReceiver(
-        features=features,
-        receiver_tensors=serialized_example,
-        receiver_tensors_alternatives={
-            "sample": {
-                "input": serialized_example,
-                "sampling_temp": sampling_temp
-            }
-        })
+        features=features, receiver_tensors=serialized_example)
 
 
 class FeatureInfo(object):

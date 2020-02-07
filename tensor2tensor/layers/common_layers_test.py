@@ -678,6 +678,20 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(dx, dx_f)
 
   @test_utils.run_in_graph_and_eager_modes()
+  def testSampleTemperaturePerExample(self):
+    batch_size = 3
+    seq_len = 5
+    vocab_size = 7
+
+    logits = np.random.randn(batch_size, seq_len, 1, 1, vocab_size)
+    temperature = np.random.rand(batch_size)
+
+    out = common_layers.sample_temperature_per_example(logits, temperature)
+
+    self.assertAllEqual(
+        self.evaluate(tf.shape(out)), [batch_size, seq_len, 1, 1])
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testCycleGANUpsampleNnUpsampleConv(self):
     batch = 8
     height = 32
