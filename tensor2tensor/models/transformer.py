@@ -625,6 +625,8 @@ class Transformer(t2t_model.T2TModel):
     eos_id = self.get_decode_end_id() or beam_search.EOS_ID
     temperature = features.get("sampling_temp",
                                getattr(hparams, "sampling_temp", 0.0))
+    top_k = features.get("sampling_keep_top_k",
+                         getattr(hparams, "sampling_keep_top_k", -1))
 
     ret = fast_decode_tpu(
         encoder_output=encoder_output,
@@ -640,7 +642,8 @@ class Transformer(t2t_model.T2TModel):
         batch_size=batch_size,
         force_decode_length=self._decode_hparams.force_decode_length,
         eos_id=eos_id,
-        sampling_temperature=temperature)
+        sampling_temperature=temperature,
+        top_k=top_k)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
         ret["outputs"] = ret["outputs"][:, partial_targets_length:]
@@ -889,6 +892,8 @@ class Transformer(t2t_model.T2TModel):
     eos_id = self.get_decode_end_id() or beam_search.EOS_ID
     temperature = features.get("sampling_temp",
                                getattr(hparams, "sampling_temp", 0.0))
+    top_k = features.get("sampling_keep_top_k",
+                         getattr(hparams, "sampling_keep_top_k", -1))
 
     ret = fast_decode(
         encoder_output=encoder_output,
@@ -906,6 +911,7 @@ class Transformer(t2t_model.T2TModel):
         sos_id=sos_id,
         eos_id=eos_id,
         sampling_temperature=temperature,
+        top_k=top_k,
         cache=att_cache)
     if partial_targets is not None:
       if beam_size <= 1 or top_beams <= 1:
@@ -994,7 +1000,8 @@ def fast_decode_tpu(encoder_output,
                     force_decode_length=False,
                     scope_prefix="body/",
                     use_top_k_with_unique=True,
-                    sampling_temperature=0.0):
+                    sampling_temperature=0.0,
+                    top_k=-1):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
   Implements both greedy and beam search decoding for TPU, uses beam search iff
@@ -1023,6 +1030,7 @@ def fast_decode_tpu(encoder_output,
     use_top_k_with_unique: bool, whether to use a fast (but decreased precision)
       top_k during beam search.
     sampling_temperature: scalar, temperature with which to sample.
+    top_k: scalar, sample only top k.
 
   Returns:
     A dict of decoding results {
@@ -1081,15 +1089,14 @@ def fast_decode_tpu(encoder_output,
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
       temperature = sampling_temperature
-      keep_top = getattr(hparams, "sampling_keep_top_k", -1)
       if hparams.sampling_method == "random_per_example":
         next_id = common_layers.sample_temperature_per_example(
-            logits, temperature, keep_top)
+            logits, temperature, top_k)
       else:
         if hparams.sampling_method == "argmax":
           temperature = 0.0
-        next_id = common_layers.sample_with_temperature(
-            logits, temperature, keep_top)
+        next_id = common_layers.sample_with_temperature(logits, temperature,
+                                                        top_k)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
                                   axis=1)
@@ -1156,6 +1163,7 @@ def fast_decode(encoder_output,
                 force_decode_length=False,
                 scope_prefix="body/",
                 sampling_temperature=0.0,
+                top_k=-1,
                 cache=None):
   """Given encoder output and a symbols to logits function, does fast decoding.
 
@@ -1183,6 +1191,7 @@ def fast_decode(encoder_output,
       False, stop when all beams hit eos_id.
     scope_prefix: str, prefix for decoder layer variable scopes.
     sampling_temperature: scalar, temperature with which to sample.
+    top_k: scalar, sample only top k.
     cache: cache dictionary for additional predictions.
 
   Returns:
@@ -1232,15 +1241,14 @@ def fast_decode(encoder_output,
       logits, cache = symbols_to_logits_fn(next_id, i, cache)
       log_probs = common_layers.log_prob_from_logits(logits)
       temperature = sampling_temperature
-      keep_top = getattr(hparams, "sampling_keep_top_k", -1)
       if hparams.sampling_method == "random_per_example":
         next_id = common_layers.sample_temperature_per_example(
-            logits, temperature, keep_top)
+            logits, temperature, top_k)
       else:
         if hparams.sampling_method == "argmax":
           temperature = 0.0
-        next_id = common_layers.sample_with_temperature(
-            logits, temperature, keep_top)
+        next_id = common_layers.sample_with_temperature(logits, temperature,
+                                                        top_k)
 
       log_prob_indices = tf.stack([tf.range(tf.to_int64(batch_size)), next_id],
                                   axis=1)

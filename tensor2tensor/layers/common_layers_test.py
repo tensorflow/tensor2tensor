@@ -678,6 +678,24 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     self.assertAllClose(dx, dx_f)
 
   @test_utils.run_in_graph_and_eager_modes()
+  def testTopk(self):
+    batch_size = 3
+    seq_len = 5
+    vocab_size = 7
+
+    top_k = [3, 2, -1]
+    logits = np.random.rand(batch_size, seq_len, 1, 1, vocab_size) + 0.001
+    topk_logits = common_layers._select_top_k(logits, top_k)
+
+    self.evaluate(tf.global_variables_initializer())
+    topk_logits = self.evaluate(topk_logits)
+
+    for i, k in enumerate(top_k):
+      for j in range(seq_len):
+        self.assertEqual((topk_logits[i, j, 0, 0, :] > -1e6).sum(),
+                         k if k != -1 else vocab_size)
+
+  @test_utils.run_in_graph_and_eager_modes()
   def testSampleTemperaturePerExample(self):
     batch_size = 3
     seq_len = 5

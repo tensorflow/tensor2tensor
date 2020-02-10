@@ -714,6 +714,8 @@ class Problem(object):
     if getattr(self._hparams, "sampling_method", "") == "random_per_example":
       data_fields["sampling_temp"] = tf.FixedLenFeature(
           [1], tf.float32, getattr(self._hparams, "sampling_temp", 1.0))
+      data_fields["sampling_keep_top_k"] = tf.FixedLenFeature(
+          [1], tf.int64, getattr(self._hparams, "sampling_keep_top_k", -1))
 
     if data_items_to_decoders is None:
       data_items_to_decoders = {
