@@ -35,7 +35,7 @@ from tensor2tensor.utils import hparam
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils.misc_utils import camelcase_to_snakecase
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags

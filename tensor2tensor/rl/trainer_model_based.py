@@ -43,7 +43,7 @@ from tensor2tensor.rl.dopamine_connector import DQNLearner  # pylint: disable=un
 from tensor2tensor.rl.restarter import Restarter
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags

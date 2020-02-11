@@ -22,7 +22,7 @@ from __future__ import print_function
 from tensor2tensor.rl import trainer_model_free
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 FLAGS = tf.flags.FLAGS
 

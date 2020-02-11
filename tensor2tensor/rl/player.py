@@ -67,7 +67,7 @@ from tensor2tensor.rl.rl_utils import full_game_name
 import tensor2tensor.rl.trainer_model_based_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags

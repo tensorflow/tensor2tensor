@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import gym_env
 from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags
