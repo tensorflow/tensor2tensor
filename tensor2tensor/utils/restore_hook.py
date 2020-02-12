@@ -22,7 +22,7 @@ from __future__ import print_function
 import six
 
 from tensor2tensor.utils import contrib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class RestoreHook(tf.train.SessionRunHook):

@@ -24,7 +24,7 @@ import os
 import shutil
 from tempfile import mkdtemp
 import pyrouge
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 FLAGS = tf.flags.FLAGS
 

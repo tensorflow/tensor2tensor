@@ -28,7 +28,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import mlperf_log
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def cast_ints_to_int32(features):

@@ -28,7 +28,7 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import rouge
 from tensor2tensor.utils import sari_hook
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.python.util import tf_inspect as inspect
 
 

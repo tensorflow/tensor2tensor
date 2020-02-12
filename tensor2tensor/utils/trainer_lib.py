@@ -35,7 +35,7 @@ from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug

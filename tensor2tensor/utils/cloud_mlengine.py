@@ -30,7 +30,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir as usr_dir_lib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 FLAGS = tf.flags.FLAGS
 

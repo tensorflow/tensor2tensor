@@ -37,7 +37,7 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import hparam
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 FLAGS = tf.flags.FLAGS
 

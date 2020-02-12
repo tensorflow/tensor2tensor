@@ -19,7 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.utils import expert_utils as eu
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.python.util import tf_inspect as inspect
 
 

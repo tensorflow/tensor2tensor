@@ -28,7 +28,7 @@ from tensor2tensor.utils import multistep_optimizer
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import yellowfin
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 from tensorflow.python.framework import dtypes  # pylint: disable=g-direct-tensorflow-import

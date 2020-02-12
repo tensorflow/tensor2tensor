@@ -46,7 +46,7 @@ from tensor2tensor.utils import quantization
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import scheduled_sampling
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from tensorflow.python.layers import base
 from tensorflow.python.ops import inplace_ops
