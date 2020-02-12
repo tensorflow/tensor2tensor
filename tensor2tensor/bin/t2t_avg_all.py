@@ -25,7 +25,7 @@ import numpy as np
 import six
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import bleu_hook
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

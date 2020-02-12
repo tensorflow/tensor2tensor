@@ -53,7 +53,7 @@ except ImportError:
   pass
 
 # Improrting here to prevent pylint from ungrouped-imports warning.
-import tensorflow as tf  # pylint: disable=g-import-not-at-top
+import tensorflow.compat.v1 as tf  # pylint: disable=g-import-not-at-top
 
 flags = tf.flags
 FLAGS = flags.FLAGS

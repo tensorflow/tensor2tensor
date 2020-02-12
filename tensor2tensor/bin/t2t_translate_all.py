@@ -32,7 +32,7 @@ import os
 import shutil
 from tensor2tensor.utils import bleu_hook
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
