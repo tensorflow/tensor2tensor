@@ -32,7 +32,7 @@ from tensor2tensor.utils import hparam
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 # pylint: disable=g-import-not-at-top
 try:
   from tensorflow.contrib.tpu.python.tpu import tpu_config

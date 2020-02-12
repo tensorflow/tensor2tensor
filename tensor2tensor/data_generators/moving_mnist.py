@@ -35,7 +35,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_datasets as tfds
 from tensorflow_datasets.video import moving_sequence
 

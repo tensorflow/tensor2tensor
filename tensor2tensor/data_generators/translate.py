@@ -32,7 +32,7 @@ from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import mlperf_log
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class TranslateProblem(text_problems.Text2TextProblem):

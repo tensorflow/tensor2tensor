@@ -29,7 +29,7 @@ import six
 
 from tensor2tensor.data_generators import text_encoder
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 tf.flags.DEFINE_string("subword_text_encoder_filename", "",

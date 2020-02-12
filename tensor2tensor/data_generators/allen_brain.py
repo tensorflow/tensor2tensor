@@ -44,7 +44,7 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _BASE_EXAMPLE_IMAGE_SIZE = 64
 

@@ -36,7 +36,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 DATA_URL = (
     "http://rail.eecs.berkeley.edu/datasets/bair_robot_pushing_dataset_v0.tar")

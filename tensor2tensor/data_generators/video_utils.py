@@ -35,7 +35,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import video_metrics
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 FLAGS = flags.FLAGS
