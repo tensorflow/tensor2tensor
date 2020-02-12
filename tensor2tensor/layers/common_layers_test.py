@@ -26,7 +26,7 @@ import numpy as np
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import test_utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 tf.compat.v1.enable_eager_execution()
 

@@ -53,7 +53,7 @@ import subprocess as sp
 import time
 
 from tensor2tensor.utils import cloud_mlengine as cloud
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

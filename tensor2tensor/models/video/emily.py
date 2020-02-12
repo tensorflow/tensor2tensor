@@ -35,7 +35,7 @@ from tensor2tensor.models.video import sv2p_params
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 tfl = tf.layers
 tfcl = contrib.layers()

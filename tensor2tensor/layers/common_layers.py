@@ -28,7 +28,7 @@ import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.utils import contrib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_probability as tfp
 
 from tensorflow.python.framework import function

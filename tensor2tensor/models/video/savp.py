@@ -32,7 +32,7 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import update_ops_hook
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_gan as tfgan
 
 gan_losses = tfgan.losses.wargs

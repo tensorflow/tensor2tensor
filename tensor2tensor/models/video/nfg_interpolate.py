@@ -29,7 +29,7 @@ from tensor2tensor.models.research import glow_ops
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import trainer_lib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # Flags placeholders.
 flags.DEFINE_string("checkpoint_path", None,

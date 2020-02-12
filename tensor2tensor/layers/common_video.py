@@ -23,7 +23,7 @@ import numpy as np
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import contrib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from tensorflow.python.ops import summary_op_util  # pylint: disable=g-direct-tensorflow-import
 

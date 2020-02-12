@@ -29,7 +29,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import test_utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 tfe = contrib.tfe()
