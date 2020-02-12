@@ -27,7 +27,7 @@ from tensor2tensor.models.research import glow_ops
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 arg_scope = contrib.framework().arg_scope
 add_arg_scope = contrib.framework().add_arg_scope

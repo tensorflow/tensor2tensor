@@ -25,7 +25,7 @@ import scipy
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.utils import contrib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_probability as tfp
 
 arg_scope = contrib.framework().arg_scope

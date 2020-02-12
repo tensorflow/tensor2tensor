@@ -25,7 +25,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.models.research import neural_stack
 from tensor2tensor.utils import contrib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def build_fake_controller(cell):
