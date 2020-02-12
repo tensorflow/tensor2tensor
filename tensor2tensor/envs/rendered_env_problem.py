@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import video_utils
 from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.utils import contrib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _IMAGE_ENCODED_FIELD = "image/encoded"
 _IMAGE_FORMAT_FIELD = "image/format"

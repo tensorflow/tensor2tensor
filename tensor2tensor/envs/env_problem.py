@@ -33,7 +33,7 @@ from tensor2tensor.envs import gym_spaces_utils
 from tensor2tensor.envs import trajectory
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import contrib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # Names for data fields in stored tf.Examples.
 TIMESTEP_FIELD = "timestep"

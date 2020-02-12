@@ -32,7 +32,7 @@ from tensor2tensor.utils import decoding
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.python import debug as tfdbg
 
 flags = tf.flags

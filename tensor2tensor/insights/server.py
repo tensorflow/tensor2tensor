@@ -25,7 +25,7 @@ from gunicorn.app.base import BaseApplication
 from gunicorn.six import iteritems
 import numpy as np
 from tensor2tensor.insights import transformer_model
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
