@@ -32,6 +32,7 @@ from __future__ import print_function
 import os
 import numpy as np
 
+from six.moves import range
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems  # pylint: disable=unused-import
 from tensor2tensor.utils import data_reader
