@@ -18,7 +18,7 @@ namespace tensor2tensor {
 
 class SubwordTextEncoder {
  public:
-  explicit SubwordTextEncoder(const string& vocab_filename);
+  explicit SubwordTextEncoder(const std::string& vocab_filename);
   virtual ~SubwordTextEncoder() {}
 
   // Breaks up input text into subtokens.
@@ -30,10 +30,10 @@ class SubwordTextEncoder {
   void EncodeSubtokens(absl::string_view token, std::vector<int>* ids);
 
   // Escapes a token so unencodable characters are replaced by escape sequences.
-  string EscapeToken(absl::string_view token);
+  std::string EscapeToken(absl::string_view token);
 
   // Maps subword tokens to IDs.
-  absl::flat_hash_map<string, int64> vocab_;
+  absl::flat_hash_map<std::string, int64> vocab_;
   // A set containing all valid unicode code points that can be encoded without
   // being escaped.
   absl::flat_hash_set<UChar32> alphabet_;

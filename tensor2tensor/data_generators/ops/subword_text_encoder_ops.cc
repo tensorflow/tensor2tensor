@@ -30,7 +30,7 @@ class SubwordTextEncoderEncodeOp : public OpKernel {
  public:
   explicit SubwordTextEncoderEncodeOp(
       OpKernelConstruction* ctx) : OpKernel(ctx) {
-    string vocab_filename;
+    std::string vocab_filename;
     OP_REQUIRES_OK(ctx, ctx->GetAttr("vocab_filename", &vocab_filename));
     encoder_ = absl::make_unique<SubwordTextEncoder>(vocab_filename);
   }

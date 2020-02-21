@@ -18,9 +18,9 @@ constexpr int64 kEosTokenId = 1;
 
 }  // namespace
 
-SubwordTextEncoder::SubwordTextEncoder(const string& vocab_filename) {
+SubwordTextEncoder::SubwordTextEncoder(const std::string& vocab_filename) {
   // TODO(ormandi): Add a unified vocabulary reader function.
-  string vocab_contents;
+  std::string vocab_contents;
   TF_CHECK_OK(
       ReadFileToString(Env::Default(), vocab_filename, &vocab_contents));
   std::vector<absl::string_view> vocab_list =
@@ -42,7 +42,7 @@ SubwordTextEncoder::SubwordTextEncoder(const string& vocab_filename) {
       CHECK_GE(c, 0);
       alphabet_.insert(c);
     } while (char_index < token.length());
-    vocab_.insert({string(token), i});
+    vocab_.insert({std::string(token), i});
   }
 }
 
@@ -76,7 +76,7 @@ void SubwordTextEncoder::Encode(absl::string_view text, std::vector<int>* ids) {
 
 void SubwordTextEncoder::EncodeSubtokens(
     absl::string_view token, std::vector<int> *ids) {
-  string token_s = EscapeToken(token);
+  std::string token_s = EscapeToken(token);
   token = token_s;
   int subtoken_start = 0;
   // TODO(noam): this algorithm is quadratic in the length of the token.
@@ -102,8 +102,8 @@ void SubwordTextEncoder::EncodeSubtokens(
   }
 }
 
-string SubwordTextEncoder::EscapeToken(absl::string_view token) {
-  string token_s;
+std::string SubwordTextEncoder::EscapeToken(absl::string_view token) {
+  std::string token_s;
   int i = 0;
   do {
     int prev = i;
