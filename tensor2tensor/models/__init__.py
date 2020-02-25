@@ -69,7 +69,11 @@ from tensor2tensor.models.video import basic_recurrent
 from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.models.video import emily
 from tensor2tensor.models.video import epva
-from tensor2tensor.models.video import savp
+# Fathom BEGIN
+# removed because gan packages were split off into tensorflow-gan
+# rather than supporting gans, we simply do not import gan models
+# from tensor2tensor.models.video import savp
+# Fathom END
 from tensor2tensor.models.video import sv2p
 
 from tensor2tensor.utils import registry
