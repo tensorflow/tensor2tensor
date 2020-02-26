@@ -21,6 +21,7 @@ from __future__ import print_function
 
 import os
 
+from six.moves import range
 from tensor2tensor.bin import t2t_decoder
 from tensor2tensor.utils import video_metrics
 import tensorflow.compat.v1 as tf
