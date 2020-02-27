@@ -21,6 +21,7 @@ from __future__ import print_function
 import os
 from absl import flags
 import numpy as np
+from six.moves import zip
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.layers import common_layers
