@@ -1164,7 +1164,7 @@ class Problem(object):
     of chunk length
 
     features:
-        inputs_chunk_mask [num_chunks * max_docs_per_pack]
+        chunk_mask [num_chunks * max_docs_per_pack]
         inputs_* [packed_length]
 
     """
