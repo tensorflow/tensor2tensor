@@ -203,7 +203,7 @@ def decode_from_dataset(estimator,
   ##############
 
   # Get the predictions as an iterable
-  predictions = estimator.predict(infer_input_fn)
+  predictions = estimator.predict(infer_input_fn, yield_single_examples=False)
 
   # Just return the generator directly if requested
   if return_generator:
