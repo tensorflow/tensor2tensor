@@ -222,7 +222,7 @@ def decode_from_dataset(estimator,
 
   # Get the predictions as an iterable
   predictions = estimator.predict(infer_input_fn,
-                                  yield_single_examples=is_packed(hparams))
+                                  yield_single_examples=not is_packed(hparams))
 
   # Just return the generator directly if requested
   if return_generator:
