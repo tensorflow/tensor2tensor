@@ -143,6 +143,18 @@ def log_decode_results(inputs,
   return decoded_inputs, decoded_outputs, decoded_targets
 
 
+##############
+# BEGIN FATHOM
+##############
+
+def is_packed(hparams):
+  return hasattr(hparams, "packed_length")
+
+##############
+# END FATHOM
+##############
+
+
 def decode_from_dataset(estimator,
                         problem_name,
                         hparams,
@@ -202,8 +214,15 @@ def decode_from_dataset(estimator,
   # BEGIN FATHOM
   ##############
 
+  # When our problems are packed, a single example corresponds to multiple docs
+  # As a consequence, when we feed a single example into our model, it will
+  # return multiple logits. When estimator sees a discrepancy between examples
+  # coming in and predictions going out, it will throw an error unless told
+  # to yield multiple examples
+
   # Get the predictions as an iterable
-  predictions = estimator.predict(infer_input_fn, yield_single_examples=False)
+  predictions = estimator.predict(infer_input_fn,
+                                  yield_single_examples=is_packed(hparams))
 
   # Just return the generator directly if requested
   if return_generator:
