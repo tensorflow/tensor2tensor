@@ -761,7 +761,7 @@ class Transformer(t2t_model.T2TModel):
           decode_length + 1, hparams.hidden_size)
     elif hparams.pos == "timing_from_features":
       positional_encoding = common_attention.add_timing_signals_from_features(
-          tf.zeros([1, decode_length + 1, hparams.hidden_size]), features,
+          tf.zeros([1, decode_length, hparams.hidden_size]), features,
           hparams.position_features)
     elif hparams.pos == "emb":
       positional_encoding = common_attention.add_positional_embedding(
