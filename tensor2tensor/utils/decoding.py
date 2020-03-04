@@ -29,7 +29,7 @@ import six
 
 from six.moves import input  # pylint: disable=redefined-builtin
 
-from fathomt2t_dependencies.t2t_trainer_utils import is_hparams_packed
+from fathomt2t_dependencies.hparam_utils import is_hparams_packed
 
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
