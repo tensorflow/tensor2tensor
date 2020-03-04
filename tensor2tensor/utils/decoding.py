@@ -29,6 +29,8 @@ import six
 
 from six.moves import input  # pylint: disable=redefined-builtin
 
+from fathomt2t.models.fh_transformer import is_hparams_packed
+
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
@@ -143,18 +145,6 @@ def log_decode_results(inputs,
   return decoded_inputs, decoded_outputs, decoded_targets
 
 
-##############
-# BEGIN FATHOM
-##############
-
-def is_packed(hparams):
-  return hasattr(hparams, "packed_length")
-
-##############
-# END FATHOM
-##############
-
-
 def decode_from_dataset(estimator,
                         problem_name,
                         hparams,
@@ -221,8 +211,9 @@ def decode_from_dataset(estimator,
   # to yield multiple examples
 
   # Get the predictions as an iterable
-  predictions = estimator.predict(infer_input_fn,
-                                  yield_single_examples=not is_packed(hparams))
+  predictions = estimator.predict(
+      infer_input_fn,
+      yield_single_examples=not is_hparams_packed(hparams))
 
   # Just return the generator directly if requested
   if return_generator:
