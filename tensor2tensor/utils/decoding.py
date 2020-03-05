@@ -29,15 +29,13 @@ import six
 
 from six.moves import input  # pylint: disable=redefined-builtin
 
+from fathomt2t_dependencies.hparam_utils import is_hparams_packed
+
 from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
-# Note: The PACKED_TO_PREDICTION_PROBLEM dict should not be in the
-#  dag_management code, and should instead be fathomt2t/problems/
-# Once dag code is allowed to import non-dag code again, please move this dict
-from fathomairflow.dags.dag_management.common import PACKED_TO_PREDICTION_PROBLEM
 import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
@@ -211,11 +209,11 @@ def decode_from_dataset(estimator,
   # return multiple logits. When estimator sees a discrepancy between examples
   # coming in and predictions going out, it will throw an error unless told
   # to yield multiple examples
-  packed_problem = problem_name in PACKED_TO_PREDICTION_PROBLEM.values()
 
   # Get the predictions as an iterable
   predictions = estimator.predict(
-      infer_input_fn, yield_single_examples=not packed_problem)
+      infer_input_fn,
+      yield_single_examples=not is_hparams_packed(hparams))
 
   # Just return the generator directly if requested
   if return_generator:
