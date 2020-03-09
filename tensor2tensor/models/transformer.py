@@ -675,7 +675,8 @@ class Transformer(t2t_model.T2TModel):
                    decode_length,
                    beam_size=1,
                    top_beams=1,
-                   alpha=1.0):
+                   alpha=1.0,
+                   preprocess_targets_method=None):
     """Fast decoding.
 
     Implements both greedy and beam search decoding, uses beam search iff
@@ -688,6 +689,8 @@ class Transformer(t2t_model.T2TModel):
       top_beams: an integer. How many of the beams to return.
       alpha: Float that controls the length penalty. larger the alpha, stronger
         the preference for longer translations.
+      preprocess_targets_method: method used to preprocess targets. If None,
+      uses method "preprocess_targets" defined inside this method.
 
     Returns:
       A dict of decoding results {
@@ -842,12 +845,14 @@ class Transformer(t2t_model.T2TModel):
               [cache["attention_history"][layer_nbr],
                self.attention_weights[k]],
               axis=2)
+    if not preprocess_targets_method:
+      preprocess_targets_method = preprocess_targets
 
     def symbols_to_logits_fn(ids, i, cache):
       """Go from ids to logits for next symbol."""
       ids = ids[:, -1:]
       targets = tf.expand_dims(tf.expand_dims(ids, axis=2), axis=3)
-      targets = preprocess_targets(targets, i)
+      targets = preprocess_targets_method(targets, i)
 
       bias = decoder_self_attention_bias[:, :, i:i + 1, :i + 1]
       with tf.variable_scope("body"):
