@@ -8,7 +8,7 @@ jobs:
 
       - type: shell
         name: DockerHub login
-        command: &DOCKER_LOGIN docker login -u _json_key -p "$(echo $GOOGLE_CLOUD_KEY | base64 --decode --ignore-garbage)" https://us.gcr.io
+        command: &DOCKER_LOGIN docker login -u _json_key -p "$(echo $CIRCLECI_GCP_SA_KEY_270618 | base64 --decode --ignore-garbage)" https://us.gcr.io
 
       - type: shell
         name: Checkout diseaseTools & gdm repos
