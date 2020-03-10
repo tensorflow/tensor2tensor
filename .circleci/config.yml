@@ -7,10 +7,6 @@ jobs:
       - type: checkout
 
       - type: shell
-        name: DockerHub login
-        command: &DOCKER_LOGIN docker login -u _json_key -p "$(echo $CIRCLECI_GCP_SA_KEY_270618 | base64 --decode --ignore-garbage)" https://us.gcr.io
-
-      - type: shell
         name: Checkout diseaseTools & gdm repos
         command: |
           DT_BRANCH='develop';
@@ -30,6 +26,10 @@ jobs:
         name: Setup Google Cloud Credentials
         workDir: ~/
         command: &GCP_LOGIN mkdir -p ~/diseaseTools/gcloud/keys && echo $CIRCLECI_GCP_SA_KEY_270618 | base64 --decode --ignore-garbage > ~/diseaseTools/gcloud/keys/google-auth.json
+
+      - type: shell
+        name: Docker login
+        command: &DOCKER_LOGIN docker login -u _json_key -p "$(cat ~/diseaseTools/gcloud/keys/google-auth.json)" https://us.gcr.io
 
       - type: shell
         name: Running tests
