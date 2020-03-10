@@ -34,7 +34,7 @@ def exp_warmup(hparams, step_num):
     end = hparams.log_warmup_end
     warmup_steps = hparams.learning_rate_warmup_steps
     mult = (end / start) ** (1 / warmup_steps)
-    tf.logging.info(f'Exponential warmup from {start} to {end}
+    tf.logging.info(f'Exponential warmup from {start} to {end}'
                     f'with multiplier {mult}')
     return start * (mult ** step_num)
 # FATHOM END
