@@ -22,11 +22,31 @@ import numpy as np
 import tensorflow as tf
 
 
+# FATHOM BEGIN
+def exp_warmup(hparams, step_num):
+    """Returns LR value for a exponential warmup.
+
+    inspired by
+    https://github.com/fastai/fastai/blob/f15ecfcab552b60e116a9ab2c89aee4fe687fe9a/fastai/callbacks/lr_finder.py#L9
+
+    """
+    start = hparams.log_warmup_start
+    end = hparams.log_warmup_end
+    warmup_steps = hparams.learning_rate_warmup_steps
+    mult = (end / start) ** (1 / warmup_steps)
+    tf.logging.info(f'Exponential warmup from {start} to {end}'
+                    f'with multiplier {mult}')
+    return start * (mult ** step_num)
+# FATHOM END
+
+
 def learning_rate_factor(name, step_num, hparams):
   """Compute the designated learning rate factor from hparams."""
   if name == "constant":
     tf.logging.info("Base learning rate: %f", hparams.learning_rate_constant)
     return hparams.learning_rate_constant
+  elif name == 'exp_warmup':
+    return exp_warmup(hparams, step_num)
   elif name == "linear_warmup":
     return tf.minimum(1.0, step_num / hparams.learning_rate_warmup_steps)
   elif name == "linear_decay":
