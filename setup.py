@@ -69,7 +69,7 @@ setup(
         'tqdm',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.15.0'],
+        'tensorflow': ['tensorflow>=1.15.0,<2.0'],
         'tensorflow-hub': ['tensorflow-hub>=0.1.1'],
         'tests': [
             # Needed to fix a Travis pytest error.
