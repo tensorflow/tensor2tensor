@@ -1744,6 +1744,10 @@ class T2TModel(base.Layer):
     if "scores" in predictions:
       export_out["scores"] = predictions["scores"]
 
+    if decode_hparams.get("export_extra_infer_outputs"):
+      for output in decode_hparams.export_extra_infer_outputs.split(","):
+        export_out[output] = infer_out[output]
+
     # Necessary to rejoin examples in the correct order with the Cloud ML Engine
     # batch prediction API.
     if "batch_prediction_key" in predictions:

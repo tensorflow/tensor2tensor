@@ -97,7 +97,9 @@ def decode_hparams(overrides=""):
       # Used for MLPerf compliance logging.
       mlperf_decode_step=0.0,
       mlperf_threshold=25.0,
-      mlperf_success=False)
+      mlperf_success=False,
+      # A comma-delimited list of additional infer() outputs to be exported.
+      export_extra_infer_outputs="")
   hp.parse(overrides)
   return hp
 
