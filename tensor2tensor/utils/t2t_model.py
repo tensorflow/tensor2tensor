@@ -1511,9 +1511,9 @@ class T2TModel(base.Layer):
         else:
           # if dataset is packed, reshape targets
           if hasattr(problem, 'packed_length'):
-            assert hasattr(problem, 'max_examples_per_pack')
+            assert hasattr(problem, 'max_docs_per_packed_example')
             # TODO: should be able to reshape from
-            # [batch_size, max_target_seq_length] -> [batch_size, max_examples_per_pack, -1, 1, 1]
+            # [batch_size, max_target_seq_length] -> [batch_size, max_docs_per_packed_example, -1, 1, 1]
             # https://app.asana.com/0/1137246510213018/1143626077249177/f
             features['targets'] = tf.reshape(
                 tensor=features['targets'],
