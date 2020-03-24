@@ -49,8 +49,6 @@ def _build_vocab(filename, vocab_path, vocab_size):
   """Reads a file to build a vocabulary of `vocab_size` most common words.
 
    The vocabulary is sorted by occurrence count and has one word per line.
-   Originally from:
-   https://github.com/tensorflow/models/blob/master/tutorials/rnn/ptb/reader.py
 
   Args:
     filename: file to read list of words from.
