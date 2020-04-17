@@ -59,6 +59,7 @@ from tensor2tensor.models.research import multiquery_paper
 from tensor2tensor.models.research import neural_stack
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import shuffle_network
+from tensor2tensor.models.research import residual_shuffle_exchange
 from tensor2tensor.models.research import similarity_transformer
 from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
