@@ -28,7 +28,7 @@ from tensor2tensor.utils import test_utils
 
 import tensorflow.compat.v1 as tf
 
-tf.compat.v1.enable_eager_execution()
+tf.enable_eager_execution()
 
 
 class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):

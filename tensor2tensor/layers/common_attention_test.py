@@ -34,7 +34,7 @@ import tensorflow.compat.v1 as tf
 
 tfe = contrib.tfe()
 # from tensorflow.contrib.eager.python import tfe as tfe
-tf.compat.v1.enable_eager_execution()
+tf.enable_eager_execution()
 
 
 class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):

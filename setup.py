@@ -5,7 +5,7 @@ from setuptools import setup
 
 setup(
     name='tensor2tensor',
-    version='1.15.4',
+    version='1.15.5',
     description='Tensor2Tensor',
     long_description=(
         'Tensor2Tensor, or T2T for short, is a library of '
@@ -61,7 +61,7 @@ setup(
         'pypng',
         'requests',
         'scipy',
-        'six',
+        'six>=1.12.0',
         'sympy',
         'tensorflow-datasets',
         'tensorflow-gan',
