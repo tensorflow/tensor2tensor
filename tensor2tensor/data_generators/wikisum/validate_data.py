@@ -23,6 +23,8 @@ import os
 
 import numpy as np
 
+import six
+from six.moves import zip
 from tensor2tensor.data_generators.wikisum import wikisum
 
 import tensorflow.compat.v1 as tf
@@ -44,7 +46,7 @@ def aggregate_stats(stats_files):
   for fname in stats_files:
     with tf.gfile.Open(fname) as f:
       stats = json.loads(f.read())
-      for k, v in stats.iteritems():
+      for k, v in six.iteritems(stats):
         if k not in all_stats:
           if isinstance(v, list):
             all_stats[k] = []
