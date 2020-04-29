@@ -704,10 +704,54 @@ class CommonLayersTest(parameterized.TestCase, tf.test.TestCase):
     logits = np.random.randn(batch_size, seq_len, 1, 1, vocab_size)
     temperature = np.random.rand(batch_size)
 
-    out = common_layers.sample_temperature_per_example(logits, temperature)
+    out = common_layers.sample_temperature_per_example(logits, temperature, -1)
 
     self.assertAllEqual(
         self.evaluate(tf.shape(out)), [batch_size, seq_len, 1, 1])
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testSampleTemperaturePerExampleWithTopK(self):
+    batch_size = 3
+    seq_len = 5
+    vocab_size = 7
+
+    logits = np.random.randn(batch_size, seq_len, 1, 1, vocab_size)
+    temperature = np.random.rand(batch_size)
+    top_k = np.array([3, -1, 4], dtype=np.int32)
+
+    out = common_layers.sample_temperature_per_example(logits, temperature,
+                                                       top_k)
+
+    self.assertAllEqual(
+        self.evaluate(tf.shape(out)), [batch_size, seq_len, 1, 1])
+
+  @test_utils.run_in_graph_and_eager_modes()
+  def testSampleTemperaturePerExampleWithTopK2(self):
+    batch_size = 3
+    vocab_size = 7
+
+    logits = np.random.randn(batch_size, vocab_size)
+    temperature = np.random.rand(batch_size)
+    top_k = np.array([3, -1, 4], dtype=np.int32)
+
+    out = common_layers.sample_temperature_per_example(logits, temperature,
+                                                       top_k)
+
+    self.assertAllEqual(self.evaluate(tf.shape(out)), [batch_size])
+
+  @test_utils.run_in_graph_mode_only()
+  def testSampleTemperaturePerExampleDynamicBatchSize(self):
+    batch_size = None
+    vocab_size = 7
+
+    logits = tf.placeholder(tf.float32, shape=(batch_size, vocab_size))
+    temperature = tf.placeholder(tf.float32, shape=(batch_size, 1))
+    sampling_keep_top_k = tf.placeholder(tf.int32, shape=(batch_size, 1))
+
+    out = common_layers.sample_temperature_per_example(logits, temperature,
+                                                       sampling_keep_top_k)
+
+    self.assertAllEqual(out.shape.as_list(), [batch_size])
 
   @test_utils.run_in_graph_and_eager_modes()
   def testCycleGANUpsampleNnUpsampleConv(self):

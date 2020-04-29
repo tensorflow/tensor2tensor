@@ -2886,25 +2886,6 @@ def sample_with_temperature(logits, temperature, sampling_keep_top_k=-1):
     return choices
 
 
-def _to_nd_indices(indices):
-  """Returns indices used for tf.gather_nd or tf.scatter_nd.
-
-  Args:
-    indices: A `Tensor` of shape [batch_size, size] with integer values. The
-      values are the indices of another `Tensor`. For example, `indices` is the
-      output of tf.argsort or tf.math.top_k.
-
-  Returns:
-    A `Tensor` with shape [batch_size, size, 2] that can be used by tf.gather_nd
-    or tf.scatter_nd.
-
-  """
-  indices.get_shape().assert_has_rank(2)
-  batch_ids = tf.ones_like(indices) * tf.expand_dims(
-      tf.range(tf.shape(input=indices)[0]), 1)
-  return tf.stack([batch_ids, indices], axis=-1)
-
-
 def _select_top_k(logits, top_k):
   """Replaces logits, expect the top k highest values, with small number (-1e6).
 
@@ -2918,26 +2899,15 @@ def _select_top_k(logits, top_k):
     A `Tensor` with same shape  as logits.
   """
   vocab_size = logits.shape[-1]
-  flat_logits = tf.reshape(logits, [-1, vocab_size])
+
   top_k = tf.where(
       tf.not_equal(top_k, -1), top_k,
       tf.ones_like(top_k) * vocab_size)
-  values, idx = tf.math.top_k(flat_logits, k=vocab_size, sorted=False)
-  nd_idx = _to_nd_indices(idx)
 
-  mask_idx = tf.reshape(
-      tf.range(vocab_size), [1] * (len(logits.shape) - 1) + [-1])
-  for i, size in enumerate(logits.shape[:-1]):
-    mask_idx = tf.repeat(mask_idx, size, axis=i)
-  mask = tf.reshape(
-      mask_idx < tf.reshape(top_k, [-1] + [1] * (len(logits.shape) - 1)), [-1])
-
-  topk_logits = tf.tensor_scatter_nd_update(
-      tf.ones_like(flat_logits) * -1e6,
-      tf.reshape(nd_idx, [-1, 2])[mask],
-      tf.reshape(values, [-1])[mask])
-
-  return tf.reshape(topk_logits, logits.shape)
+  return tf.where(
+      tf.argsort(logits) < tf.reshape(top_k, [-1] + [1] *
+                                      (len(logits.shape) - 1)), logits,
+      tf.ones_like(logits) * -1e6)
 
 
 def sample_temperature_per_example(logits, temperature, sampling_keep_top_k=-1):
@@ -2950,9 +2920,7 @@ def sample_temperature_per_example(logits, temperature, sampling_keep_top_k=-1):
   Returns:
     a Tensor with one fewer dimension than logits.
   """
-  if sampling_keep_top_k != -1:
-    logits = _select_top_k(logits, sampling_keep_top_k)
-
+  logits = _select_top_k(logits, sampling_keep_top_k)
   logits /= tf.reshape(temperature, [-1] + [1] * (len(logits.shape) - 1))
   reshaped_logits = tf.reshape(logits, [-1, shape_list(logits)[-1]])
   choices = tf.multinomial(reshaped_logits, 1)
