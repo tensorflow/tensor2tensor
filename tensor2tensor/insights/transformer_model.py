@@ -15,6 +15,10 @@
 
 """A QueryProcessor using the Transformer framework."""
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 from collections import deque
 
 import glob
@@ -24,6 +28,7 @@ import time
 
 import numpy as np
 
+from six.moves import range
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.insights import graph
