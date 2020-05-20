@@ -23,23 +23,40 @@ from __future__ import division  # Not necessary in a Python 3-only module
 from __future__ import print_function  # Not necessary in a Python 3-only module
 
 from absl import logging
-from tensorflow.python import tf2  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
-is_tf2 = tf2.enabled()
+import tensorflow.compat.v1 as tf
+
+# Check if we have contrib available
+try:
+  from tensorflow.contrib import slim as tf_slim  # pylint: disable=g-import-not-at-top
+  is_tf2 = False
+except:  # pylint: disable=bare-except
+  # tf.contrib, including slim and certain optimizers are not available in TF2
+  # Some features are now available in separate packages. We shim support for
+  # these as needed.
+  import tensorflow_addons as tfa  # pylint: disable=g-import-not-at-top
+  import tf_slim  # pylint: disable=g-import-not-at-top
+  is_tf2 = True
 
 
 def err_if_tf2(msg='err'):
   if is_tf2:
-    msg = 'contrib is unavailable in tf2.'
     if msg == 'err':
+      msg = 'contrib is unavailable in tf2.'
       raise ImportError(msg)
     else:
+      msg = 'contrib is unavailable in tf2.'
       logging.info(msg)
 
 
+class DummyModule(object):
+
+  def __init__(self, **kw):
+    for k, v in kw.items():
+      setattr(self, k, v)
+
+
 def slim():
-  err_if_tf2()
-  from tensorflow.contrib import slim as contrib_slim  # pylint: disable=g-import-not-at-top
-  return contrib_slim
+  return tf_slim
 
 
 def util():
@@ -54,8 +71,26 @@ def tfe():
   return contrib_eager
 
 
+def deprecated(reason, date):
+  del reason
+  del date
+  def decorator(fn):
+    return fn
+  return decorator
+
+
 def framework(msg='err'):
-  err_if_tf2(msg=msg)
+  """Return framework module or dummy version."""
+  del msg
+  if is_tf2:
+    return DummyModule(
+        arg_scope=None,
+        get_name_scope=lambda: tf.get_default_graph().get_name_scope(),
+        name_scope=tf.name_scope,
+        deprecated=deprecated,
+        nest=tf.nest,
+        argsort=tf.argsort)
+
   from tensorflow.contrib import framework as contrib_framework  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
   return contrib_framework
 
@@ -67,9 +102,13 @@ def nn():
 
 
 def layers():
-  err_if_tf2(msg='err')
-  from tensorflow.contrib import layers as contrib_layers  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
-  return contrib_layers
+  """Return layers module or dummy version."""
+  try:
+    from tensorflow.contrib import layers as contrib_layers  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
+    return contrib_layers
+  except:  # pylint: disable=bare-except
+    return DummyModule(
+        OPTIMIZER_CLS_NAMES={}, optimize_loss=tf_slim.optimize_loss)
 
 
 def rnn():
@@ -109,9 +148,13 @@ def metrics():
 
 
 def opt():
-  err_if_tf2(msg='err')
-  from tensorflow.contrib import opt as contrib_opt  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
-  return contrib_opt
+  if not is_tf2:
+    from tensorflow.contrib import opt as contrib_opt  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
+    return contrib_opt
+  return DummyModule(
+      LazyAdam=tfa.optimizers.LazyAdam,
+      LazyAdamOptimizer=tfa.optimizers.LazyAdam,
+  )
 
 
 def mixed_precision():
@@ -132,10 +175,31 @@ def distribute():
   return contrib_distribute
 
 
+def replace_monitors_with_hooks(monitors_or_hooks, estimator):
+  """Stub for missing function."""
+  del estimator
+  monitors_or_hooks = monitors_or_hooks or []
+  hooks = [
+      m for m in monitors_or_hooks if isinstance(m, tf.estimator.SessionRunHook)
+  ]
+  deprecated_monitors = [
+      m for m in monitors_or_hooks
+      if not isinstance(m, tf.estimator.SessionRunHook)
+  ]
+  assert not deprecated_monitors
+  return hooks
+
+
 def learn():
-  err_if_tf2(msg='err')
-  from tensorflow.contrib import learn as contrib_learn  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
-  return contrib_learn
+  """Return tf.contrib.learn module or dummy version."""
+  if not is_tf2:
+    from tensorflow.contrib import learn as contrib_learn  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
+    return contrib_learn
+  return DummyModule(
+      RunConfig=tf.estimator.RunConfig,
+      monitors=DummyModule(
+          replace_monitors_with_hooks=replace_monitors_with_hooks),
+  )
 
 
 def tf_prof():

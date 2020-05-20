@@ -200,7 +200,7 @@ def create_run_config(model_name,
       "keep_checkpoint_max": keep_checkpoint_max,
       "keep_checkpoint_every_n_hours": keep_checkpoint_every_n_hours,
       "tf_random_seed": random_seed,
-      "log_step_count_steps": log_step_count_steps
+      "log_step_count_steps": log_step_count_steps,
   }
   if save_checkpoints_secs:
     del run_config_args["save_checkpoints_steps"]
@@ -238,6 +238,12 @@ def create_run_config(model_name,
     run_config_cls = tf.estimator.RunConfig
     del run_config_args["master"]
     del run_config_args["evaluation_master"]
+
+  # tf.estimator RunConfig construction got totally broken in TF2.
+  # we now have to specify master in a global environment variable
+  if contrib.is_tf2:
+    del run_config_args["evaluation_master"]
+    del run_config_args["master"]
 
   config = run_config_cls(**run_config_args)
 

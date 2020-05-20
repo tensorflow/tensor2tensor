@@ -63,13 +63,15 @@ setup(
         'scipy',
         'six>=1.12.0',
         'sympy',
+        'tensorflow-addons',
         'tensorflow-datasets',
         'tensorflow-gan',
         'tensorflow-probability==0.7.0',
+        'tf_slim',
         'tqdm',
     ],
     extras_require={
-        'tensorflow': ['tensorflow>=1.15.0,<2.0'],
+        'tensorflow': ['tensorflow>=1.15.0'],
         'tensorflow-hub': ['tensorflow-hub>=0.1.1'],
         'tests': [
             # Needed to fix a Travis pytest error.

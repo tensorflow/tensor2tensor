@@ -112,13 +112,22 @@ def optimize(loss,
 
 @registry.register_optimizer
 def adam(learning_rate, hparams):
+  """Return adam optimizer for the given params."""
   # We change the default epsilon for Adam.
   # Using LazyAdam as it's much faster for large vocabulary embeddings.
-  return contrib.opt().LazyAdamOptimizer(
-      learning_rate,
-      beta1=hparams.optimizer_adam_beta1,
-      beta2=hparams.optimizer_adam_beta2,
-      epsilon=hparams.optimizer_adam_epsilon)
+  if contrib.is_tf2:
+    # in TF2 beta1 -> beta_1 :/
+    return contrib.opt().LazyAdamOptimizer(
+        learning_rate,
+        beta_1=hparams.optimizer_adam_beta1,
+        beta_2=hparams.optimizer_adam_beta2,
+        epsilon=hparams.optimizer_adam_epsilon)
+  else:
+    return contrib.opt().LazyAdamOptimizer(
+        learning_rate,
+        beta1=hparams.optimizer_adam_beta1,
+        beta2=hparams.optimizer_adam_beta2,
+        epsilon=hparams.optimizer_adam_epsilon)
 
 
 @registry.register_optimizer
@@ -229,7 +238,12 @@ class ConditionalOptimizer(tf.train.Optimizer):
     self._zero_grads = hparams.optimizer_zero_grads
 
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
-    gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
+    if contrib.is_tf2:
+      gradients = self._opt.get_gradients(loss, var_list)
+      gradients = zip(gradients, var_list)
+    else:
+      gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
+
     def cast_grad(g, v):
       if v is not None and g is not None:
         g = common_layers.cast_like(g, v)
@@ -240,8 +254,13 @@ class ConditionalOptimizer(tf.train.Optimizer):
     return gradients
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-    return self._opt.apply_gradients(
-        grads_and_vars, global_step=global_step, name=name)
+    if contrib.is_tf2:
+      with tf.control_dependencies(
+          [tf.assign_add(tf.train.get_or_create_global_step(), 1)]):
+        return self._opt.apply_gradients(grads_and_vars, name=name)
+    else:
+      return self._opt.apply_gradients(
+          grads_and_vars, global_step=global_step, name=name)
 
 
 def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):
