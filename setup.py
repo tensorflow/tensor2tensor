@@ -1,5 +1,5 @@
 """Install tensor2tensor."""
-
+print('test')
 from setuptools import find_packages
 from setuptools import setup
 
