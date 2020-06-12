@@ -245,7 +245,7 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
 
     Args:
       images: tensor of ground truth image sequences
-      actions: NOT used list of action tensors
+      actions: list of action tensors
       rewards: NOT used list of reward tensors
 
     Returns:
@@ -256,7 +256,19 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     """
     # model does not support action conditioned and reward prediction
     fake_reward_prediction = rewards
-    del actions, rewards
+    del rewards
+    action_repeat = self.hparams.action_repeat
+    action_type = self.hparams.action_type
+
+    assert action_type in ["", "image", "vector"], "Invalid action type."
+    if not action_type:
+      a_dim = 0
+    elif action_type == "image":
+      a_dim = self.hparams.g_dim
+    else:
+      assert action_repeat > 0, "Action repeat has to be positive integer."
+      actions = tf.tile(actions, (1, 1, action_repeat))
+      a_dim = actions.shape[-1]
 
     z_dim = self.hparams.z_dim
     g_dim = self.hparams.g_dim
@@ -277,13 +289,20 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     tf.logging.info(">>>> Encoding")
     # Encoding:
     enc_images, enc_skips = [], []
+    enc_actions = []
     images = tf.unstack(images, axis=0)
+    actions = tf.unstack(actions, axis=0)
     for i, image in enumerate(images):
       with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
         enc, skips = self.encoder(image, g_dim, has_batchnorm=has_batchnorm)
         enc = tfl.flatten(enc)
         enc_images.append(enc)
         enc_skips.append(skips)
+        if action_type == "image":
+          enc_action, _ = self.encoder(
+              actions[i], g_dim, has_batchnorm=has_batchnorm)
+          enc_action = tfl.flatten(enc_action)
+          enc_actions.append(enc_action)
 
     tf.logging.info(">>>> Prediction")
     # Prediction
@@ -304,6 +323,13 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
         # target encoding
         h_target = enc_images[i]
 
+        if action_type == "image":
+          h_current = tf.concat([h_current, enc_actions[i - 1]], axis=1)
+          h_target = tf.concat([h_target, enc_actions[i]], axis=1)
+        elif action_type == "vector":
+          h_current = tf.concat([h_current, actions[i - 1]], axis=1)
+          h_target = tf.concat([h_target, actions[i]], axis=1)
+
       with tf.variable_scope("prediction", reuse=tf.AUTO_REUSE):
         # Prior parameters
         if self.hparams.learned_prior:
@@ -315,7 +341,8 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
           logvar_prior = tf.zeros((batch_size, z_dim))
 
         # Only use Posterior if it's training time
-        if self.is_training or len(gen_images) < context_frames:
+        if self.hparams.stochastic_model and \
+            (self.is_training or len(gen_images) < context_frames):
           mu_pos, logvar_pos, posterior_states = self.lstm_gaussian(
               h_target, posterior_states, rnn_size, z_dim, posterior_rnn_layers,
               "posterior")
@@ -338,7 +365,11 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
 
       with tf.variable_scope("decoding", reuse=tf.AUTO_REUSE):
         skip_index = min(context_frames-1, i-1)
-        h_pred = tf.reshape(h_pred, [batch_size, 1, 1, g_dim])
+        if action_type == "vector":
+          h_pred = tf.concat([h_pred, actions[i - 1]], axis=-1)
+        elif action_type == "image":
+          h_pred = tf.concat([h_pred, enc_actions[i - 1]], axis=-1)
+        h_pred = tf.reshape(h_pred, [batch_size, 1, 1, g_dim + a_dim])
         if self.hparams.has_skips:
           x_pred = self.decoder(
               h_pred, color_channels,
@@ -373,21 +404,36 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     input_frames = common_video.swap_time_and_batch_axes(features["inputs"])
     target_frames = common_video.swap_time_and_batch_axes(features["targets"])
 
-    # Get actions if exist otherwise use zeros
-    input_actions = self.get_input_if_exists(
-        features, "input_action", batch_size, hparams.video_num_input_frames)
-    target_actions = self.get_input_if_exists(
-        features, "target_action", batch_size, hparams.video_num_target_frames)
-
     # Get rewards if exist otherwise use zeros
     input_rewards = self.get_input_if_exists(
         features, "input_reward", batch_size, hparams.video_num_input_frames)
     target_rewards = self.get_input_if_exists(
         features, "target_reward", batch_size, hparams.video_num_target_frames)
 
-    all_actions = tf.concat([input_actions, target_actions], axis=0)
     all_rewards = tf.concat([input_rewards, target_rewards], axis=0)
     all_frames = tf.concat([input_frames, target_frames], axis=0)
+
+    # Get actions if exist otherwise use zeros
+    visualization_kwargs = {}
+    if hparams.action_type == "image":
+      input_actions = common_video.swap_time_and_batch_axes(
+          features["input_action"])
+      target_actions = common_video.swap_time_and_batch_axes(
+          features["target_action"])
+      all_actions = tf.concat([input_actions, target_actions], axis=0)
+      time, _, h, w, c = all_frames.shape
+      all_actions = tf.reshape(all_actions, (time, -1, h, w, c))
+      if self.hparams.action_normalize:
+        all_actions /= 255.
+      visualization_kwargs["actions"] = all_actions[:-1]
+    else:
+      input_actions = self.get_input_if_exists(features, "input_action",
+                                               batch_size,
+                                               hparams.video_num_input_frames)
+      target_actions = self.get_input_if_exists(features, "target_action",
+                                                batch_size,
+                                                hparams.video_num_target_frames)
+      all_actions = tf.concat([input_actions, target_actions], axis=0)
 
     # Each image is being used twice, in latent tower and main tower.
     # This is to make sure we are using the *same* image for both, ...
@@ -414,7 +460,8 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
 
     # Visualize predictions in Tensorboard
     if self.is_training:
-      self.visualize_predictions(all_frames[1:], gen_images)
+      self.visualize_predictions(all_frames[1:], gen_images,
+                                 **visualization_kwargs)
 
     # Ignore the predictions from the input frames.
     # This is NOT the same as original paper/implementation.
@@ -473,4 +520,8 @@ def next_frame_emily():
   hparams.add_hparam("predictor_rnn_layers", 2)
   hparams.add_hparam("has_skips", True)
   hparams.add_hparam("has_batchnorm", True)
+  # Repeat actions to signify gradients.
+  # Action type can be '', 'image' or 'vector'.
+  hparams.add_hparam("action_repeat", 40)
+  hparams.add_hparam("action_type", "")
   return hparams

@@ -57,6 +57,7 @@ def next_frame_sv2p():
   hparams.add_hparam("upsample_method", "conv2d_transpose")
   hparams.add_hparam("reward_model", "basic")
   hparams.add_hparam("visualize_logits_histogram", True)
+  hparams.add_hparam("action_normalize", False)
   return hparams
 
 
