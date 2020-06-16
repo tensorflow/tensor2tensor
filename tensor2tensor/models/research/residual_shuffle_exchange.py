@@ -27,13 +27,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.models.research.shuffle_network import ShuffleNetwork
-from tensor2tensor.models.research.shuffle_network import shuffle_layer
-from tensor2tensor.models.research.shuffle_network import reverse_shuffle_layer
-from tensor2tensor.layers.common_layers import gelu
-from tensor2tensor.utils import registry
-
 import numpy as np
+from tensor2tensor.layers.common_layers import gelu
+from tensor2tensor.models.research.shuffle_network import reverse_shuffle_layer
+from tensor2tensor.models.research.shuffle_network import shuffle_layer
+from tensor2tensor.models.research.shuffle_network import ShuffleNetwork
+from tensor2tensor.utils import registry
 import tensorflow.compat.v1 as tf
 
 
@@ -46,6 +45,7 @@ class LayerNormalization(tf.keras.layers.Layer):
     Args:
       axis: Tuple or number of axis for calculating mean and variance
       epsilon: Small epsilon to avoid division by zero
+      **kwargs: keyword args passed to super.
     """
     self.axis = axis
     self.epsilon = epsilon
@@ -53,22 +53,26 @@ class LayerNormalization(tf.keras.layers.Layer):
     super(LayerNormalization, self).__init__(**kwargs)
 
   def build(self, input_shape):
-    """ Initialize bias weights for layer normalization.
+    """Initialize bias weights for layer normalization.
+
     Args:
       input_shape: shape of input tensor
     """
     num_units = input_shape.as_list()[-1]
-    self.bias = self.add_weight("bias", [1, 1, num_units],
-                                initializer=tf.zeros_initializer)
+    self.bias = self.add_weight(
+        "bias", [1, 1, num_units], initializer=tf.zeros_initializer)
     super(LayerNormalization, self).build(input_shape)
 
   def call(self, inputs, **kwargs):
-    """ Apply Layer Normalization without output bias and gain.
+    """Apply Layer Normalization without output bias and gain.
 
     Args:
-      inputs: tensor to be normalized. Axis should be smaller than input
-      tensor dimensions.
+      inputs: tensor to be normalized. Axis should be smaller than input tensor
+        dimensions.
       **kwargs: more arguments (unused)
+
+    Returns:
+      tensor output.
     """
     inputs -= tf.reduce_mean(inputs, axis=self.axis, keepdims=True)
     inputs += self.bias
@@ -81,6 +85,9 @@ def inv_sigmoid(y):
 
   Args:
     y: float in range 0 to 1
+
+  Returns:
+    the inverse sigmoid.
   """
   return np.log(y / (1 - y))
 
@@ -107,7 +114,7 @@ class RSU(tf.keras.layers.Layer):
     self.residual_scale = None
 
     residual_weight = 0.9
-    self.candidate_weight = np.sqrt(1 - residual_weight ** 2) * 0.25
+    self.candidate_weight = np.sqrt(1 - residual_weight**2) * 0.25
     self.init_value = inv_sigmoid(residual_weight)
 
   def build(self, input_shape):
@@ -119,33 +126,35 @@ class RSU(tf.keras.layers.Layer):
     in_units = input_shape[-1]
     middle_units = in_units * 4
     out_units = in_units * 2
-    init = tf.variance_scaling_initializer(scale=1.0, mode="fan_avg",
-                                           distribution="uniform")
+    init = tf.variance_scaling_initializer(
+        scale=1.0, mode="fan_avg", distribution="uniform")
 
-    self.first_linear = tf.keras.layers.Dense(middle_units,
-                                              use_bias=False,
-                                              kernel_initializer=init,
-                                              name=self.prefix + "/cand1")
+    self.first_linear = tf.keras.layers.Dense(
+        middle_units,
+        use_bias=False,
+        kernel_initializer=init,
+        name=self.prefix + "/cand1")
 
-    self.second_linear = tf.keras.layers.Dense(out_units,
-                                               kernel_initializer=init,
-                                               name=self.prefix + "/cand2")
+    self.second_linear = tf.keras.layers.Dense(
+        out_units, kernel_initializer=init, name=self.prefix + "/cand2")
     self.layer_norm = LayerNormalization()
 
     init = tf.constant_initializer(self.init_value)
-    self.residual_scale = self.add_weight(self.prefix + "/residual",
-                                          [out_units], initializer=init)
+    self.residual_scale = self.add_weight(
+        self.prefix + "/residual", [out_units], initializer=init)
     super(RSU, self).build(input_shape)
 
   def call(self, inputs, **kwargs):
     """Apply Residual Switch Layer to inputs.
 
     Args:
-      inputs: Input tensor
+      inputs: Input tensor.
+      **kwargs: unused kwargs.
 
     Returns:
       tf.Tensor: New candidate value
     """
+    del kwargs
     input_shape = tf.shape(inputs)
     batch_size = input_shape[0]
     length = input_shape[1]
@@ -201,7 +210,7 @@ def residual_shuffle_network(inputs, hparams):
 
 
 def reverse_part(inputs, hparams, n_bits):
-  """ Reverse part of Beneš block.
+  """Reverse part of Benes block.
 
   Repeatably applies interleaved Residual Switch layer and Reverse Shuffle
   Layer. One set of weights used for all Switch layers.
@@ -222,24 +231,23 @@ def reverse_part(inputs, hparams, n_bits):
       return reverse_shuffle_layer(new_state)
 
   reverse_outputs = tf.scan(
-    reverse_step,
-    tf.range(n_bits, n_bits * 2),
-    initializer=inputs,
-    parallel_iterations=1,
-    swap_memory=True)
+      reverse_step,
+      tf.range(n_bits, n_bits * 2),
+      initializer=inputs,
+      parallel_iterations=1,
+      swap_memory=True)
 
   return reverse_outputs[-1, :, :, :]
 
 
 def forward_part(block_out, hparams, n_bits):
-  """ Forward part of Beneš block.
+  """Forward part of Benes block.
 
   Repeatably applies interleaved Residual Switch layer and Shuffle
   Layer. One set of weights used for all Switch layers.
 
   Args:
-    inputs: inputs for forward part. Should be inputs from previous layers
-    or Beneš block.
+    block_out: TODO(authors) document.
     hparams: params of the network.
     n_bits: count of repeated layer applications.
 
@@ -254,11 +262,11 @@ def forward_part(block_out, hparams, n_bits):
       return shuffle_layer(new_state)
 
   forward_outputs = tf.scan(
-    forward_step,
-    tf.range(0, n_bits),
-    initializer=block_out,
-    parallel_iterations=1,
-    swap_memory=True)
+      forward_step,
+      tf.range(0, n_bits),
+      initializer=block_out,
+      parallel_iterations=1,
+      swap_memory=True)
 
   return forward_outputs[-1, :, :, :]
 
@@ -272,6 +280,9 @@ class ResidualShuffleExchange(ShuffleNetwork):
 
     Args:
       features: dictionary of inputs and targets
+
+    Returns:
+      the network output.
     """
 
     inputs = tf.squeeze(features["inputs"], axis=2)

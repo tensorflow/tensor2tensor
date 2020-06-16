@@ -47,9 +47,9 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import cycle_gan
 from tensor2tensor.models.research import gene_expression
 from tensor2tensor.models.research import neural_stack
+from tensor2tensor.models.research import residual_shuffle_exchange
 from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import shuffle_network
-from tensor2tensor.models.research import residual_shuffle_exchange
 from tensor2tensor.models.research import similarity_transformer
 from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
