@@ -1,4 +1,18 @@
 # coding=utf-8
+# Copyright 2020 The Tensor2Tensor Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Copyright 2019 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,8 +33,8 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-from tensor2tensor.utils import multistep_optimizer
-import tensorflow as tf
+from tensor2tensor.utils import multistep_with_adamoptimizer
+import tensorflow.compat.v1 as tf
 
 
 class MultistepAdamOptimizerTest(tf.test.TestCase):
@@ -56,7 +70,7 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
 
           singlestep_opt = tf.train.AdamOptimizer(
               beta1=beta1, beta2=beta2, learning_rate=alpha)
-          multistep_opt = multistep_optimizer.MultistepAdamOptimizer(
+          multistep_opt = multistep_with_adamoptimizer.MultistepAdamOptimizer(
               n=n, beta1=beta1, beta2=beta2, learning_rate=alpha)
 
           singlestep_update = singlestep_opt.apply_gradients([
@@ -100,7 +114,7 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
       tape.watch([v1, v2])
       loss = tf.reduce_sum(tf.gather(params=v1, indices=[0]) + v2)
     v1_grad, v2_grad = tape.gradient(loss, [v1, v2])
-    multistep_opt = multistep_optimizer.MultistepAdamOptimizer(0.1)
+    multistep_opt = multistep_with_adamoptimizer.MultistepAdamOptimizer(0.1)
     multistep_opt.apply_gradients(((v1_grad, v1), (v2_grad, v2)))
 
 
