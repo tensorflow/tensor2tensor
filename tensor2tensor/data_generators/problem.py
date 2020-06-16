@@ -399,6 +399,7 @@ class Problem(object):
   # END SUBCLASS INTERFACE
   # ============================================================================
 
+  @tf.autograph.experimental.do_not_convert()
   def preprocess(self, dataset, mode, hparams, interleave=True):
     """Runtime preprocessing on the whole dataset.
 
@@ -587,6 +588,7 @@ class Problem(object):
     self.maybe_copy_features(example)
     return example
 
+  @tf.autograph.experimental.do_not_convert()
   def dataset(self,
               mode,
               data_dir=None,

@@ -50,7 +50,7 @@ setup(
         'gin-config',
         'google-api-python-client',
         'gunicorn',
-        'gym==0.14.0',
+        'gym',
         'h5py',
         'kfac',
         'mesh-tensorflow',
