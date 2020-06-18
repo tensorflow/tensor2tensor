@@ -1718,7 +1718,7 @@ class T2TModel(base.Layer):
 
     inputs = features.get("inputs")
     if inputs is None:
-      inputs = features["targets"]
+      inputs = features.get("targets")
 
     predictions = {
         "outputs": outputs,
