@@ -20,7 +20,7 @@ research](https://research.googleblog.com/2017/06/accelerating-deep-learning-res
 
 T2T was developed by researchers and engineers in the
 [Google Brain team](https://research.google.com/teams/brain/) and a community
-of users. It is now in maintenance mode &mdash; we keep it running and welcome
+of users. It is now deprecated &mdash; we keep it running and welcome
 bug-fixes, but encourage users to use the successor library [Trax](https://github.com/google/trax).
 
 ### Quick Start
