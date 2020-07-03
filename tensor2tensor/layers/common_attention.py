@@ -2451,7 +2451,7 @@ def _extract_blocks(x, block_h, block_w):
     block_h: An integer. block height
     block_w: An inteter. block width
 
-  returns:
+  Returns:
     a [batch, num_heads, height/block_h, width/block_w, depth] tensor
   """
   (_, height, width, depth) = common_layers.shape_list(x)
