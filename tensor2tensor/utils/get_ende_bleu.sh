@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo Do not use this script because the tokenization and treatment of the reference is not standard.  Use sacrebleu instead.  When comparing to a paper that used this script, explain how their BLEU was non-standard. 1>&2
+
 mosesdecoder=~/mosesdecoder
 tok_gold_targets=newstest2013.tok.de
 
