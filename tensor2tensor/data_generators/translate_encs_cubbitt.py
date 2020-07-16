@@ -30,11 +30,15 @@ you should use checkpoint averaging (see t2t-avg-all).
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import os
+
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
 from tensor2tensor.data_generators import translate_encs
+from tensor2tensor.models.transformer import transformer_big_single_gpu
 
 from tensor2tensor.utils import registry
 
@@ -92,3 +96,16 @@ class TranslateEncsCubbitt(translate_encs.TranslateEncsWmt32k):
         for example in text_problems.text2text_txt_iterator(
             data_path + ".lang1", data_path + ".lang2"):
           yield example
+
+
+@registry.register_hparams
+def transformer_cubbitt():
+  """Transformer hyperparameters used in CUBBITT experiments."""
+  hparams = transformer_big_single_gpu()
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  hparams.batch_size = 2900
+  hparams.learning_rate_warmup_steps = 8000
+  hparams.max_length = 150
+  hparams.layer_prepostprocess_dropout = 0
+  hparams.optimizer = "Adafactor"
+  return hparams
