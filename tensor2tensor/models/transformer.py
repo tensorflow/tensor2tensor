@@ -2187,6 +2187,19 @@ def transformer_base_multistep8():
 
 
 @registry.register_hparams
+def transformer_cubbitt():
+  """Transformer hyperparameters used in CUBBITT experiments."""
+  hparams = transformer_big_single_gpu()
+  hparams.learning_rate_schedule = "rsqrt_decay"
+  hparams.batch_size = 2900
+  hparams.learning_rate_warmup_steps = 8000
+  hparams.max_length = 150
+  hparams.layer_prepostprocess_dropout = 0
+  hparams.optimizer = "Adafactor"
+  return hparams
+
+
+@registry.register_hparams
 def transformer_parsing_base():
   """HParams for parsing on WSJ only."""
   hparams = transformer_base()
