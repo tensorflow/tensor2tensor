@@ -113,9 +113,11 @@ ALL_MODULES = list(MODULES)
 def _is_import_err_msg(err_str, module):
   parts = module.split(".")
   suffixes = [".".join(parts[i:]) for i in range(len(parts))]
-  return err_str in (
-      ["No module named %s" % suffix for suffix in suffixes] +
-      ["No module named '%s'" % suffix for suffix in suffixes])
+  prefixes = [".".join(parts[:i]) for i in range(len(parts))]
+  return err_str in (["No module named %s" % suffix for suffix in suffixes] +
+                     ["No module named '%s'" % suffix for suffix in suffixes] +
+                     ["No module named %s" % prefix for prefix in prefixes] +
+                     ["No module named '%s'" % prefix for prefix in prefixes])
 
 
 def _handle_errors(errors):
