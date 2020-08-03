@@ -105,7 +105,7 @@ def _decode(output_ids, output_decoder):
 
 
 
-def make_grpc_request_fn(servable_name, server, timeout_secs):
+def make_grpc_request_fn(servable_name, server, timeout_secs, version_label, version):
   """Wraps function to make grpc requests with runtime args."""
   stub = _create_stub(server)
 
@@ -113,6 +113,12 @@ def make_grpc_request_fn(servable_name, server, timeout_secs):
     """Builds and sends request to TensorFlow model server."""
     request = predict_pb2.PredictRequest()
     request.model_spec.name = servable_name
+
+    if version_label is not None:
+        request.model_spec.version_label = version_label
+    elif version is not None:
+        request.model_spec.version = version
+
     request.inputs["input"].CopyFrom(
         tf.make_tensor_proto(
             [ex.SerializeToString() for ex in examples], shape=[len(examples)]))
