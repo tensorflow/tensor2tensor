@@ -46,8 +46,6 @@ from __future__ import print_function
 
 import inspect
 import re
-from functools import lru_cache
-
 import tensorflow as tf
 
 _ATTACKS = {}
@@ -239,7 +237,6 @@ def register_problem(name=None):
   return lambda p_cls: decorator(p_cls, name)
 
 
-@lru_cache(maxsize=3)
 def problem(name):
   """Retrieve a problem by name."""
 
@@ -272,6 +269,11 @@ def problem(name):
                   ] + all_problem_names
     error_msg = "\n  * ".join(error_lines)
     raise LookupError(error_msg)
+  print('PROOOOOOOOOOOOOOOOOOOBLEEEEEEEEEEEm')
+  print("")
+  print("")
+  print("")
+  print("")
   return _PROBLEMS[base_name](was_reversed, was_copy)
 
 

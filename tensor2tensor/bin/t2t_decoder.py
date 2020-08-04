@@ -131,7 +131,10 @@ def decode(estimator, hparams, decode_hp):
     if FLAGS.fathom_output_predictions:
       print('Assuming only one problem...')
       assert '-' not in FLAGS.problems
-      problem = registry.problem(FLAGS.problems)
+      if hasattr(hparams, 'problem'):
+        problem = hparams.problem
+      else:
+        problem = registry.problem(FLAGS.problems)
       problem.output_predictions(
           predictions=predictions,
           num_examples=FLAGS.num_examples)
