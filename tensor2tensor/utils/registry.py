@@ -269,11 +269,6 @@ def problem(name):
                   ] + all_problem_names
     error_msg = "\n  * ".join(error_lines)
     raise LookupError(error_msg)
-  print('PROOOOOOOOOOOOOOOOOOOBLEEEEEEEEEEEm')
-  print("")
-  print("")
-  print("")
-  print("")
   return _PROBLEMS[base_name](was_reversed, was_copy)
 
 
