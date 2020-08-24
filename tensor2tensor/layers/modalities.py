@@ -637,6 +637,7 @@ def video_raw_targets_bottom(x, model_hparams, vocab_size):
 
 def ctc_symbol_loss(top_out, targets, model_hparams, vocab_size, weights_fn):
   """Compute the CTC loss."""
+
   del model_hparams, vocab_size  # unused arg
   logits = top_out
   with tf.name_scope("ctc_loss", values=[logits, targets]):
