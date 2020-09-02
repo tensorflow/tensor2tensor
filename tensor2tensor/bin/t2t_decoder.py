@@ -73,6 +73,7 @@ setup_decoder_flags()
 flags.DEFINE_bool("fathom_output_predictions", False, "Output predictions based on problem?")
 flags.DEFINE_bool("use_original_input", False,
                   "Use the input that was used for validation during training?")
+flags.DEFINE_integer("shard_id", None, "Id of shard.")
 # Fathom end
 flags.DEFINE_bool("decode_in_memory", False, "Decode in memory.")
 
@@ -88,7 +89,10 @@ def create_hparams():
 def create_decode_hparams():
   decode_hp = decoding.decode_hparams(FLAGS.decode_hparams)
   decode_hp.shards = FLAGS.decode_shards
-  decode_hp.shard_id = FLAGS.worker_id
+  if FLAGS.shard_id:
+    decode_hp.shard_id = FLAGS.shard_id
+  else:
+    decode_hp.shard_id = FLAGS.worker_id
   decode_hp.decode_in_memory = FLAGS.decode_in_memory
   decode_hp.decode_to_file = FLAGS.decode_to_file
   decode_hp.decode_reference = FLAGS.decode_reference
@@ -97,6 +101,18 @@ def create_decode_hparams():
 
 def decode(estimator, hparams, decode_hp):
   """Decode from estimator. Interactive, from file, or from dataset."""
+
+  print("FLAAAAAAAAAAGS", FLAGS.shard_id, FLAGS.decode_shards)
+  print('')
+  print('')
+  print('')
+  print('')
+  print('')
+  print('')
+  print('')
+  print('')
+  print('')
+  print('')
   if FLAGS.decode_interactive:
     if estimator.config.use_tpu:
       raise ValueError("TPU can only decode from dataset.")
@@ -249,9 +265,10 @@ def main(_):
   # TODO: since the truncation-boundary xcom value should be available in
   #  the hparams_set, we should probably have consumers access this via a
   #  SavedModel.hparams property rather than XCOM
-  echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path),
-                             'output-file': FLAGS.decode_output_file,
-                             'truncation-boundary': hp.max_input_seq_length})
+  if FLAGS.shard_id is None:
+    echo_yaml_for_xcom_ingest({'output-dir': os.path.dirname(checkpoint_path),
+                               'output-file': FLAGS.decode_output_file,
+                               'truncation-boundary': hp.max_input_seq_length})
 
 
 if __name__ == "__main__":
