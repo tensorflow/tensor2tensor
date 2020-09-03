@@ -102,17 +102,6 @@ def create_decode_hparams():
 def decode(estimator, hparams, decode_hp):
   """Decode from estimator. Interactive, from file, or from dataset."""
 
-  print("FLAAAAAAAAAAGS", FLAGS.shard_id, FLAGS.decode_shards)
-  print('')
-  print('')
-  print('')
-  print('')
-  print('')
-  print('')
-  print('')
-  print('')
-  print('')
-  print('')
   if FLAGS.decode_interactive:
     if estimator.config.use_tpu:
       raise ValueError("TPU can only decode from dataset.")
