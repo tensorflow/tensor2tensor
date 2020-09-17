@@ -107,7 +107,8 @@ def _collect_data(directory):
       _ = next(transcript_reader)
       for transcript_line in transcript_reader:
         try:
-          media_name, label = transcript_line[6:7]
+          media_name = transcript_line[6]
+          label = transcript_line[7]
         except Exception as e:
           print(e)
         filepath = os.path.join(directory, "clips/")
