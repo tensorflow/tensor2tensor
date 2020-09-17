@@ -63,6 +63,8 @@ flags.DEFINE_string("tmp_dir", "/tmp/t2t_datagen",
                     "Temporary storage directory.")
 flags.DEFINE_string("problem", "",
                     "The name of the problem to generate data for.")
+flags.DEFINE_string("language", "en",
+                    "Common Voice language code.")
 flags.DEFINE_string("exclude_problems", "",
                     "Comma-separates list of problems to exclude.")
 flags.DEFINE_integer(
