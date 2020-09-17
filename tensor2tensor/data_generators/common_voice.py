@@ -197,7 +197,7 @@ class CommonVoice(speech_recognition.SpeechRecognitionProblem):
     for dataset in datasets:
       data_pairs = (tup for tup in data_tuples[dataset])
       for utt_id, media_file, text_data in tqdm.tqdm(
-          sorted(data_tuples)[start_from:]):
+          sorted(data_pairs)[start_from:]):
         if how_many > 0 and i == how_many:
           return
         i += 1
