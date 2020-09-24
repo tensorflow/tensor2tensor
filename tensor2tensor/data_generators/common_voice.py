@@ -82,41 +82,6 @@ _LANGUAGES = {
   "zh-HK",
   "rm-sursilv"
 }
-def _collect_data(directory):
-  """Traverses directory collecting input and target files.
-
-  Args:
-   directory: base path to extracted audio and transcripts.
-  Returns:
-   A list with as keys the .tsv filenames and value a list of all the tuples (media_name, full_path, label)
-   Example: data_files[test] = [(tuple1), (tuple2) .. etc]
-  """
-  # Returns:
-  data_files = []
-  transcripts = [
-      filename for filename in os.listdir(directory)
-      if filename.endswith(".tsv") and filename.split(".")[0] in _COMMONVOICE_TRAIN_DATASETS+_COMMONVOICE_TEST_DATASETS+_COMMONVOICE_DEV_DATASETS
-  ]
-  for transcript in transcripts:
-    raw_filename = transcript.split(".")[0]
-    data_csv = []
-    transcript_path = os.path.join(directory, transcript)
-    with open(transcript_path, "r") as transcript_file:
-      transcript_reader = csv.reader(transcript_file, delimiter="\t")
-      # skip header
-      _ = next(transcript_reader)
-      for transcript_line in transcript_reader:
-        try:
-          media_name = transcript_line[6]
-          label = transcript_line[7]
-        except Exception as e:
-          print(e)
-        filepath = os.path.join(directory, "clips/")
-        filename = os.path.join(filepath, media_name)
-        data_csv.append((media_name, filename, label))
-      data_files[raw_filename] = data_csv
-  return data_files
-
 
 def _file_exists(path, filename):
   """Checks if the filename exists under the path."""
@@ -125,7 +90,7 @@ def _file_exists(path, filename):
 
 def _is_relative(path, filename):
   """Checks if the filename is relative, not absolute."""
-  return os.path.abspath(os.path.join(path, filename)).startswith(path)
+  return not os.path.abspath(os.path.join(path, filename)).startswith(path)
 
 
 @registry.register_problem()
@@ -162,12 +127,7 @@ class CommonVoice(speech_recognition.SpeechRecognitionProblem):
                 data_dir,
                 tmp_dir,
                 language,
-                datasets,
-                eos_list=None,
-                start_from=0,
-                how_many=0):
-    del eos_list
-    i = 0
+                datasets):
     if language in _LANGUAGES:
       _CODE = language
     else:
@@ -190,29 +150,30 @@ class CommonVoice(speech_recognition.SpeechRecognitionProblem):
       corpus_tar.extractall(tmp_dir, members=members)
 
     raw_data_dir = os.path.join(tmp_dir, _CORPUS_VERSION + _CODE + "/")
-    data_tuples = _collect_data(raw_data_dir)
     encoders = self.feature_encoders(data_dir)
     audio_encoder = encoders["waveforms"]
     text_encoder = encoders["targets"]
+
     for dataset in datasets:
-      data_pairs = (tup for tup in data_tuples[dataset])
-      for utt_id, media_file, text_data in tqdm.tqdm(
-          sorted(data_pairs)[start_from:]):
-        if how_many > 0 and i == how_many:
-          return
-        i += 1
-        try:
-          wav_data = audio_encoder.encode(media_file)
-          yield {
-              "waveforms": wav_data,
-              "waveform_lens": [len(wav_data)],
-              "targets": text_encoder.encode(text_data),
-              "raw_transcript": [text_data],
-              "utt_id": [utt_id],
-              "spk_id": ["unknown"],
-          }
-        except Exception as e:
-          print(e)
+      full_dataset_filename = dataset + ".tsv"
+      with tf.io.gfile.GFile(os.path.join(raw_data_dir, full_dataset_filename)) as file_:
+        dataset = csv.DictReader(file_, delimiter="\t")
+        f_length = len(file_.readlines())
+        file_.seek(0, 0)
+        for i, row in tqdm.tqdm(enumerate(dataset), total=f_length):
+          file_path = os.path.join(os.path.join(raw_data_dir, "clips/"), row["path"])
+          if tf.io.gfile.exists(file_path):
+            try:
+              wav_data = audio_encoder.encode(file_path)
+              yield {
+                "waveforms": wav_data,
+                "waveform_lens": [len(wav_data)],
+                "targets": text_encoder.encode(row["sentence"]),
+                "raw_transcript": [row["sentence"]],
+                "utt_id": row["client_id"]
+              }
+            except Exception as e:
+              print(e)
 
   def generate_data(self, data_dir, tmp_dir, language, task_id=-1):
     train_paths = self.training_filepaths(
