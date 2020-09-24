@@ -901,41 +901,6 @@ class Problem(object):
     return dataset
 
   # Fathom
-  def apply_batch_settings_tpu(self, dataset, hparams, num_shards, num_threads,
-                               batch_size) -> tf.data.Dataset:
-    """Applies appropriate padding to dataset in preparation for batching.
-
-    Ensures every feature in each batch is padded to a fixed length
-    as required by TPU. Applies packing specific padding without bucketing.
-    """
-
-    max_length = self.max_length(hparams)
-
-    def tpu_valid_size(example):
-      return data_reader.example_valid_size(example, hparams.min_length,
-                                            max_length)
-
-    dataset = dataset.filter(tpu_valid_size)
-    padded_shapes = self._pad_for_tpu(dataset.output_shapes, hparams)
-    tf.logging.info(f'Padding features for fixed inputs: {padded_shapes}')
-    tf.logging.info(f'Batch size per shard: {batch_size} / {num_shards}')
-    if hparams.pad_batch:
-      tf.logging.warn(
-        "Padding the batch to ensure that remainder eval batches are "
-        "processed. This may lead to incorrect metrics for "
-        "non-zero-padded features, e.g. images. Use a smaller batch "
-        "size that has no remainder in that case.")
-      dataset = dataset.padded_batch(
-        batch_size, padded_shapes, drop_remainder=False)
-      dataset = dataset.map(
-        functools.partial(pad_batch, batch_multiple=batch_size),
-        num_parallel_calls=num_threads)
-    else:
-      dataset = dataset.padded_batch(
-        batch_size, padded_shapes, drop_remainder=True)
-    return dataset
-
-  # Fathom
   def apply_batch_settings(self, dataset, hparams, num_shards, num_threads,
                            config, params, is_training):
     """ Applies batch settings according to TPU or GPU specifications.
