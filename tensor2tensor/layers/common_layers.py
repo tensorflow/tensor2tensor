@@ -37,15 +37,9 @@ from tensorflow.python.ops import control_flow_util
 from tensorflow.python.ops import inplace_ops
 
 
-_cached_layers = None
-
-
 # TODO(lukaszkaiser): remove this function when not needed any more.
 def layers():
   """Get the layers module good for TF 1 and TF 2 work for now."""
-  global _cached_layers
-  if _cached_layers is not None:
-    return _cached_layers
   layers_module = None
   try:
     layers_module = tf.layers
@@ -58,7 +52,6 @@ def layers():
       layers_module = tf.keras.layers
   except ImportError:
     pass
-  _cached_layers = layers_module
   return layers_module
 
 
