@@ -52,7 +52,7 @@ setup(
         'gunicorn',
         'gym',
         'h5py',
-        'kfac',
+        'kfac==0.1.5',
         'mesh-tensorflow',
         'numpy',
         'oauth2client',
