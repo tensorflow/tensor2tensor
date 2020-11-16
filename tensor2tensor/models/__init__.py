@@ -56,6 +56,7 @@ from tensor2tensor.models.research import transformer_moe
 from tensor2tensor.models.research import transformer_nat
 from tensor2tensor.models.research import transformer_parallel
 from tensor2tensor.models.research import transformer_revnet
+from tensor2tensor.models.research import transformer_seq2edits
 from tensor2tensor.models.research import transformer_sketch
 from tensor2tensor.models.research import transformer_symshard
 from tensor2tensor.models.research import transformer_vae
