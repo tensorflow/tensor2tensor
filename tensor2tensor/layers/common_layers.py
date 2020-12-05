@@ -3993,7 +3993,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
                      data_init=True)(net)
   ```
 
-  Arguments:
+  Args:
     layer: a layer instance.
     data_init: If `True` use data dependent variable initialization
 
