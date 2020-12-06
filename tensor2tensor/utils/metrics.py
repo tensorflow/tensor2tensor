@@ -28,7 +28,7 @@ from tensor2tensor.utils import rouge
 
 import tensorflow.compat.v1 as tf
 
-from tf.eager.python import tfe
+from tensorflow.compat.v1.eager.python import tfe
 
 
 class Metrics(object):
