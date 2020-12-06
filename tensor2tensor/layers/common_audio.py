@@ -56,7 +56,7 @@ def compute_mel_filterbank_features(
     waveforms,
     sample_rate=16000, dither=1.0 / np.iinfo(np.int16).max, preemphasis=0.97,
     frame_length=25, frame_step=10, fft_length=None,
-    window_fn=functools.partial(tf.contrib.signal.hann_window, periodic=True),
+    window_fn=functools.partial(tf.signal.hann_window, periodic=True),
     lower_edge_hertz=80.0, upper_edge_hertz=7600.0, num_mel_bins=80,
     log_noise_floor=1e-3, apply_mask=True):
   """Implement mel-filterbank extraction using tf ops.
