@@ -26,9 +26,9 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import rouge
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
-from tensorflow.contrib.eager.python import tfe
+from tf.eager.python import tfe
 
 
 class Metrics(object):
