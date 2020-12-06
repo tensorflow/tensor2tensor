@@ -27,7 +27,7 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.ops import summary_op_util
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+tfcl = tf.layers
 
 
 def swap_time_and_batch_axes(inputs):
@@ -60,7 +60,7 @@ def decode_to_shape(inputs, shape, scope):
 def basic_lstm(inputs, state, num_units, name=None):
   """Basic LSTM."""
   input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=name)
+  cell = tf.rnn.BasicLSTMCell(num_units, name=name)
   if state is None:
     state = cell.zero_state(input_shape[0], tf.float32)
   outputs, new_state = cell(inputs, state)
@@ -80,7 +80,7 @@ def lstm_cell(inputs,
               name=None):
   """Full LSTM cell."""
   input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.LSTMCell(num_units,
+  cell = tf.rnn.LSTMCell(num_units,
                                  use_peepholes=use_peepholes,
                                  cell_clip=cell_clip,
                                  initializer=initializer,
@@ -106,7 +106,7 @@ def conv_lstm_2d(inputs, state, output_channels,
   else:
     input_shape = spatial_dims + [input_channels]
 
-  cell = tf.contrib.rnn.ConvLSTMCell(
+  cell = tf.rnn.ConvLSTMCell(
       2, input_shape, output_channels,
       [kernel_size, kernel_size], name=name)
   if state is None:
