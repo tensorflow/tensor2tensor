@@ -4043,9 +4043,6 @@ class WeightNorm(tf.keras.layers.Wrapper):
 
   def build(self, input_shape=None):
     """Build `Layer`."""
-    input_shape = tf.TensorShape(input_shape).as_list()
-    self.input_spec = layers().InputSpec(shape=input_shape)
-
     if not self.layer.built:
       self.layer.build(input_shape)
       self.layer.built = False
@@ -4072,6 +4069,7 @@ class WeightNorm(tf.keras.layers.Wrapper):
       self._compute_weights()
 
       self.layer.built = True
+    self.input_spec = self.layer.input_spec
 
     super(WeightNorm, self).build()
     self.built = True

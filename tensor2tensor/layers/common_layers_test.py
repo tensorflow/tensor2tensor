@@ -965,5 +965,20 @@ class RecomputeTest(tf.test.TestCase):
         self.assertAllClose(g1, g2)
 
 
+class WeightNormTest(tf.test.TestCase):
+
+  def testInputSpec(self):
+    """Test that WeighNorm does not overspecify the input_spec."""
+    conv = common_layers.WeightNorm(
+        tf.keras.layers.Conv1D(filters=8, kernel_size=3))
+    # Call with one batch size:
+    conv(tf.zeros([1, 16, 2]))
+    # Should allow call with another batch size.
+    conv(tf.zeros([2, 16, 2]))
+    # Input spec does detect incorrect input feature dim.
+    with self.assertRaises(ValueError):
+      conv(tf.zeros([2, 16, 3]))
+
+
 if __name__ == "__main__":
   tf.test.main()
