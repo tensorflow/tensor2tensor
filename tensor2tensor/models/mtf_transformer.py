@@ -242,6 +242,8 @@ class MtfTransformer(mtf_model.MtfModel):
     hparams = self._hparams
     extra_losses = []
     targets = tf.to_int32(features["targets"])
+    mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
     if len(targets.get_shape()) > 2:
       tf.logging.info("targets = %s" % targets)
       targets = tf.squeeze(targets, [2, 3])
@@ -289,7 +291,7 @@ class MtfTransformer(mtf_model.MtfModel):
 
     def layer_prepostprocess_dropout(x):
       return mtf.dropout(
-          x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
+          x, is_training, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
           noise_shape=mtf.Shape(self.batch_dims + [self.model_dim]))
 
     (inputs_embedding_var,
@@ -426,10 +428,11 @@ class MtfTransformer(mtf_model.MtfModel):
       ValueError: if hparams make no sense
     """
     hparams = self._hparams
-
+    mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
     if layer_type == "drd":
       return mtf.layers.dense_relu_dense(
-          x, self.feedforward_dim, dropout=hparams.relu_dropout,
+          x, self.feedforward_dim, is_training, dropout=hparams.relu_dropout,
           dropout_broadcast_dims=[self.length_dim],
           master_dtype=self.master_dtype,
           slice_dtype=self.slice_dtype)
@@ -493,11 +496,13 @@ class MtfTransformer(mtf_model.MtfModel):
     """
     hparams = self._hparams
     is_incremental = (step_num is not None)
+    mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
+    is_training = mode == tf.estimator.ModeKeys.TRAIN
     def layer_prepostprocess_dropout(x):
       if is_incremental:
         return x
       return mtf.dropout(
-          x, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
+          x, is_training, keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
           noise_shape=mtf.Shape(self.batch_dims + [self.model_dim]))
     num_layers = len(layers)
     num_layer_norms = num_layers + 1
@@ -540,6 +545,7 @@ class MtfTransformer(mtf_model.MtfModel):
                 mtf.layers.multihead_attention(
                     normalize(x), None,
                     self_attention_mask, self.kv_dim, self.heads_dim,
+                    is_training,
                     dropout=hparams.attention_dropout,
                     dropout_broadcast_dims=[self.length_dim],
                     master_dtype=self.master_dtype,
@@ -560,6 +566,7 @@ class MtfTransformer(mtf_model.MtfModel):
                 mtf.layers.multihead_attention(
                     normalize(x), encoder_output,
                     encdec_attention_mask, self.kv_dim, self.heads_dim,
+                    is_training,
                     dropout=hparams.attention_dropout,
                     dropout_broadcast_dims=[self.length_dim],
                     master_dtype=self.master_dtype,
@@ -582,7 +589,7 @@ class MtfTransformer(mtf_model.MtfModel):
             x += layer_prepostprocess_dropout(
                 mtf.layers.masked_local_attention_1d(
                     normalize(x),
-                    self.kv_dim, self.heads_dim,
+                    self.kv_dim, self.heads_dim, is_training,
                     window_size=hparams.local_attention_window_size,
                     master_dtype=self.master_dtype,
                     slice_dtype=self.slice_dtype,
@@ -601,6 +608,7 @@ class MtfTransformer(mtf_model.MtfModel):
                     compression_factor=hparams.compression_factor,
                     kv_channels=self.kv_dim,
                     heads=self.heads_dim,
+                    is_training=is_training,
                     dropout=hparams.attention_dropout,
                     dropout_broadcast_dims=[self.length_dim],
                     master_dtype=self.master_dtype,

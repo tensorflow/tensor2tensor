@@ -243,8 +243,10 @@ class MtfImageTransformer(mtf_model.MtfModel):
 def layer_prepostprocess_dropout(x, hparams):
   batch_dim = x.shape.dims[0]
   model_dim = x.shape.dims[-1]
+  mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
   return mtf.dropout(
-      x,
+      x, is_training,
       keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
       noise_shape=mtf.Shape([batch_dim, model_dim]))
 
@@ -259,6 +261,8 @@ def local_attention1d_spatial_decoder(x, kv_dim, heads_dim,
   x = mtf.reshape(
       x, mtf.Shape([batch_dim, num_w_blocks_dim, blocks_w_dim, model_dim]))
   # [ self attention - ffn - residual + dropout] x n
+  mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
   for layer in range(hparams.num_decoder_layers):
     layer_name = "decoder_layer_%d" % layer
     with tf.variable_scope(layer_name):
@@ -268,6 +272,7 @@ def local_attention1d_spatial_decoder(x, kv_dim, heads_dim,
               mtf.layers.layer_norm(x, model_dim, name="layer_norm_att"),
               kv_dim,
               heads_dim,
+              is_training,
               memory_w_dim=blocks_w_dim,
               mask_right=True,
               name="self_att"), hparams)
@@ -276,6 +281,7 @@ def local_attention1d_spatial_decoder(x, kv_dim, heads_dim,
           mtf.layers.dense_relu_dense(
               mtf.layers.layer_norm(x, model_dim, name="layer_norm_ffn"),
               feedforward_dim,
+              is_training,
               hparams.dropout,
               dropout_broadcast_dims=[length_dim]), hparams)
 
@@ -305,6 +311,8 @@ def local_attention2d_spatial_decoder(x, kv_dim, heads_dim,
           batch_dim, num_h_blocks_dim, num_w_blocks_dim,
           blocks_h_dim, blocks_w_dim, model_dim
       ]))
+  mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
   # Image Transformer Decoder
   # [ self attention - ffn - residual + dropout] x n
   for layer in range(hparams.num_decoder_layers):
@@ -316,6 +324,7 @@ def local_attention2d_spatial_decoder(x, kv_dim, heads_dim,
               mtf.layers.layer_norm(x, model_dim, name="layer_norm_att"),
               kv_dim,
               heads_dim,
+              is_training,
               memory_h_dim=num_h_blocks_dim,
               memory_w_dim=num_w_blocks_dim,
               name="self_att"), hparams)
@@ -336,6 +345,8 @@ def local_attention1d_masked_decoder(x, kv_dim, heads_dim,
   """Image Transformer decoder with local1D masked layers."""
   print(x)
   _, length_dim, model_dim = x.shape.dims
+  mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
+  is_training = mode == tf.estimator.ModeKeys.TRAIN
   for layer in range(hparams.num_decoder_layers):
     layer_name = "decoder_layer_%d" % layer
     with tf.variable_scope(layer_name):
@@ -347,6 +358,7 @@ def local_attention1d_masked_decoder(x, kv_dim, heads_dim,
               mtf.layers.layer_norm(x, model_dim, name="layer_norm_att"),
               kv_dim,
               heads_dim,
+              is_training,
               window_size=hparams.block_length,
               length_per_split=length_per_split,
               name="self_att"), hparams)
