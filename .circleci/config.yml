@@ -4,12 +4,7 @@ jobs:
     machine: true
     workDir: ~/tensor2tensor
     steps:
-      - type: checkout**ASANA TASK LINK:**
-https://app.asana.com/0/1142555270241225/1200192823710200/f
-
-DETAILS
--------
-Rotate CI keys
+      - type: checkout
 
       - type: shell
         name: Checkout diseaseTools & gdm repos
