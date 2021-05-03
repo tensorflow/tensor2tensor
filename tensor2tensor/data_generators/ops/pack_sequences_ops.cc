@@ -1,22 +1,31 @@
+#include "base/integral_types.h"
 #include "third_party/tensorflow/core/framework/op_kernel.h"
 #include "third_party/tensorflow/core/framework/shape_inference.h"
 #include "third_party/tensorflow/core/framework/tensor.h"
 #include "third_party/tensorflow/core/framework/types.h"
+#include "third_party/tensorflow/core/framework/types.proto.h"
+#include "third_party/tensorflow/core/platform/errors.h"
 
 namespace tensor2tensor {
 namespace {
 
+using ::tensorflow::bfloat16;
+using ::tensorflow::DataTypeVector;
 using ::tensorflow::DEVICE_CPU;
+using ::tensorflow::OpInputList;
 using ::tensorflow::OpKernel;
 using ::tensorflow::OpKernelConstruction;
 using ::tensorflow::OpKernelContext;
+using ::tensorflow::OpOutputList;
 using ::tensorflow::Status;
 using ::tensorflow::Tensor;
 using ::tensorflow::TensorShape;
+using ::tensorflow::TTypes;
+using ::tensorflow::errors::InvalidArgument;
+using ::tensorflow::shape_inference::DimensionHandle;
 using ::tensorflow::shape_inference::InferenceContext;
+using ::tensorflow::shape_inference::ShapeHandle;
 
-// TODO(noam): this op packs a dataset of pairs of sequences (inputs, targets)
-// Generalize later to an arbitrary number of sequences.
 REGISTER_OP("PackSequences2")
     .Input("inputs: int64")
     .Input("targets: int64")
@@ -161,8 +170,397 @@ class PackSequences2Op : public OpKernel {
   }
 };
 
+REGISTER_OP("PackSequencesK")
+    .Input("inputs: Tinput_types")
+    .Input("max_lengths: Tinput_count * int32")
+    .Attr("Tinput_types: list(type)")
+    .Attr("Tinput_count: int")
+    .Output("outputs_packed: Tinput_types")
+    .Output("outputs_segmentation: Tinput_count * int32")
+    .Output("outputs_position: Tinput_count * int32")
+    .SetShapeFn([](InferenceContext* ctx) {
+      DataTypeVector input_types;
+      int input_count;
+      TF_RETURN_IF_ERROR(ctx->GetAttr("Tinput_types", &input_types));
+      TF_RETURN_IF_ERROR(ctx->GetAttr("Tinput_count", &input_count));
+      if (input_types.size() != input_count) {
+        return InvalidArgument(
+            "`inputs` and `max_lengths` had different numbers of elements");
+      }
+      auto inputs = ctx->input_handle_shapes_and_types(0);
+      std::vector<ShapeHandle> output_dims(inputs->size());
+      std::vector<ShapeHandle> segmentation_dims(inputs->size());
+      std::vector<ShapeHandle> position_dims(inputs->size());
+      for (int i = 0; i < inputs->size(); i++) {
+        auto input = inputs->at(i);
+        int rank = ctx->Rank(input.shape);
+        std::vector<DimensionHandle> dims(rank);
+        for (int r = 0; r < rank; r++) {
+          dims.push_back(ctx->UnknownDim());
+        }
+        output_dims.push_back(ctx->MakeShape(dims));
+        segmentation_dims.push_back(
+            ctx->Matrix(ctx->UnknownDim(), ctx->UnknownDim()));
+        position_dims.push_back(
+            ctx->Matrix(ctx->UnknownDim(), ctx->UnknownDim()));
+      }
+      TF_RETURN_IF_ERROR(ctx->set_output("outputs_packed", output_dims));
+      TF_RETURN_IF_ERROR(
+          ctx->set_output("outputs_segmentation", segmentation_dims));
+      TF_RETURN_IF_ERROR(ctx->set_output("outputs_position", position_dims));
+      return Status::OK();
+    });
+
+typedef int InputIndex;
+typedef int BatchIndex;
+typedef int SeqIndex;
+
+struct PackingSpec {
+  SeqIndex seq_id;
+  BatchIndex batch_pos;
+  int seq_length;
+  int offset;
+  int segment_id;
+};
+
+class PackSequencesKOp : public OpKernel {
+ public:
+  explicit PackSequencesKOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("Tinput_types", &input_types_));
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("Tinput_count", &input_count_));
+    OP_REQUIRES(
+        ctx, input_types_.size() == input_count_,
+        InvalidArgument(
+            "`inputs` and `max_lengths` had different numbers of elements"));
+  }
+
+  void Compute(OpKernelContext* ctx) override {
+    OpInputList inputs;
+    OpInputList max_lengths_list;
+
+    OP_REQUIRES_OK(ctx, ctx->input_list("inputs", &inputs));
+    OP_REQUIRES_OK(ctx, ctx->input_list("max_lengths", &max_lengths_list));
+    OP_REQUIRES(
+        ctx, inputs.size() == max_lengths_list.size(),
+        InvalidArgument(
+            "`inputs` and `max_lengths` had different numbers of elements"));
+
+    std::map<InputIndex, int> max_lengths;
+    for (InputIndex i = 0; i < max_lengths_list.size(); i++) {
+      max_lengths[i] = max_lengths_list[i].scalar<int32>()();
+    }
+
+    int n = inputs.begin()->dim_size(0);
+    for (const auto& input : inputs) {
+      OP_REQUIRES(ctx, input.dim_size(0) == n,
+                  InvalidArgument("`inputs` had different batch sizes"));
+    }
+
+    std::map<InputIndex, int> padded_inputs_lengths;
+    for (InputIndex i = 0; i < inputs.size(); i++) {
+      padded_inputs_lengths[i] =
+          std::min(static_cast<int>(inputs[i].dim_size(1)), max_lengths[i]);
+    }
+
+    std::map<InputIndex, std::vector<int>> inputs_lengths;
+    for (InputIndex i = 0; i < inputs.size(); i++) {
+      inputs_lengths[i] =
+          GetInputLengths(ctx, inputs[i], padded_inputs_lengths[i]);
+    }
+
+    int num_combined = 0;
+    std::map<InputIndex, std::map<BatchIndex, int>> combined_inputs_lengths;
+    std::map<InputIndex, std::map<SeqIndex, PackingSpec>> packing_specs;
+    std::map<BatchIndex, int> segment_counter;
+
+    for (SeqIndex seq_id = 0; seq_id < n; seq_id++) {
+      for (BatchIndex b = std::max(0, num_combined - 1000); b < n; b++) {
+        bool enough_room = true;
+        for (InputIndex i = 0; i < inputs.size(); i++) {
+          int cur_seq_len = combined_inputs_lengths[i][b];
+          if (cur_seq_len + inputs_lengths[i][seq_id] > max_lengths[i]) {
+            enough_room = false;
+            break;
+          }
+        }
+        if (enough_room) {
+          num_combined = std::max(num_combined, b + 1);
+          for (InputIndex i = 0; i < inputs.size(); i++) {
+            packing_specs[i][seq_id] = {
+              .seq_id = seq_id,
+              .batch_pos = b,
+              .seq_length = inputs_lengths[i][seq_id],
+              .offset = combined_inputs_lengths[i][b],
+              .segment_id = (segment_counter[b] + 1)  // Add 1 because zero=pad
+            };
+            combined_inputs_lengths[i][b] += inputs_lengths[i][seq_id];
+          }
+          segment_counter[b]++;
+          break;
+        }
+      }
+      for (InputIndex i = 0; i < inputs.size(); i++) {
+        if (packing_specs[i].find(seq_id) == packing_specs[i].end()) {
+          ctx->CtxFailure(InvalidArgument(tensorflow::strings::StrCat(
+              "failed to pack example=", seq_id, " into input=", i)));
+        }
+      }
+    }
+
+    OpOutputList outputs_packed;
+    OpOutputList outputs_segmentation;
+    OpOutputList outputs_position;
+
+    OP_REQUIRES_OK(
+        ctx, ctx->output_list("outputs_packed", &outputs_packed));
+    OP_REQUIRES_OK(
+        ctx, ctx->output_list("outputs_segmentation", &outputs_segmentation));
+    OP_REQUIRES_OK(
+        ctx, ctx->output_list("outputs_position", &outputs_position));
+
+    for (InputIndex i = 0; i < inputs.size(); i++) {
+      TensorShape output_shape_2d = {
+        static_cast<int64>(num_combined),
+        static_cast<int64>(max_lengths[i])};
+
+      TensorShape output_shape = output_shape_2d;
+      if (inputs[i].dims() == 3) {
+        output_shape.AddDim(inputs[i].dim_size(2));
+      } else if (inputs[i].dims() != 2) {
+        ctx->CtxFailure(InvalidArgument("invalid rank"));
+      }
+
+      Tensor* packed;
+      Tensor* segmentation;
+      Tensor* position;
+
+      OP_REQUIRES_OK(ctx, outputs_packed.allocate(i, output_shape, &packed));
+      OP_REQUIRES_OK(ctx, outputs_segmentation.allocate(i, output_shape_2d,
+                                                        &segmentation));
+      OP_REQUIRES_OK(ctx,
+                     outputs_position.allocate(i, output_shape_2d, &position));
+
+      auto segmentation_eigen = segmentation->matrix<int32>();
+      auto position_eigen = position->matrix<int32>();
+
+      SetZero(ctx, packed);
+      segmentation_eigen.setZero();
+      position_eigen.setZero();
+
+      for (const auto& pair : packing_specs.at(i)) {
+        PackSequence(ctx, inputs[i], packed, segmentation_eigen,
+                     position_eigen, pair.second);
+      }
+    }
+  }
+
+ private:
+  std::vector<int> GetInputLengths(
+      OpKernelContext* ctx,
+      const Tensor& input,
+      const int padded_input_length) {
+    switch (input.dtype()) {
+      case tensorflow::DT_BFLOAT16:
+        return GetInputLengths<bfloat16>(ctx, input, padded_input_length);
+      case tensorflow::DT_FLOAT:
+        return GetInputLengths<float>(ctx, input, padded_input_length);
+      case tensorflow::DT_INT32:
+        return GetInputLengths<int32>(ctx, input, padded_input_length);
+      case tensorflow::DT_INT64:
+        return GetInputLengths<int64>(ctx, input, padded_input_length);
+      default:
+        ctx->CtxFailure(
+            tensorflow::errors::InvalidArgument("unsupported input dtype"));
+        return {};
+    }
+  }
+
+  template <typename T>
+  std::vector<int> GetInputLengths(
+      OpKernelContext* ctx,
+      const Tensor& input,
+      const int padded_input_length) {
+    if (input.dims() == 2) {
+      return GetInputLengths<const T>(
+          input.tensor<T, 2>(), padded_input_length);
+    } else if (input.dims() == 3) {
+      return GetInputLengths<const T>(
+          input.tensor<T, 3>(), padded_input_length);
+    } else {
+      ctx->CtxFailure(
+          tensorflow::errors::InvalidArgument("unsupported input rank"));
+      return {};
+    }
+  }
+
+  template <typename T>
+  std::vector<int> GetInputLengths(
+      const typename TTypes<T, 2>::Tensor& input,
+      const int padded_input_length) {
+    std::vector<int> input_lengths;
+    for (int i = 0; i < input.dimension(0); i++) {
+      int input_length = 0;
+      for (int j = 0; j < padded_input_length; j++) {
+        if (input(i, j) != 0) {
+          input_length++;
+        }
+      }
+      input_lengths.push_back(input_length);
+    }
+    return input_lengths;
+  }
+
+  template <typename T>
+  std::vector<int> GetInputLengths(
+      const typename TTypes<T, 3>::Tensor& input,
+      const int padded_input_length) {
+    std::vector<int> input_lengths;
+    for (int i = 0; i < input.dimension(0); i++) {
+      int input_length = 0;
+      for (int j = 0; j < padded_input_length; j++) {
+        for (int k = 0; k < input.dimension(2); k++) {
+          if (input(i, j, k) != 0) {
+            input_length++;
+            break;
+          }
+        }
+      }
+      input_lengths.push_back(input_length);
+    }
+    return input_lengths;
+  }
+
+  void SetZero(OpKernelContext* ctx, Tensor* inputs) {
+    switch (inputs->dtype()) {
+      case tensorflow::DT_BFLOAT16:
+        SetZero<bfloat16>(ctx, inputs);
+        break;
+      case tensorflow::DT_FLOAT:
+        SetZero<float>(ctx, inputs);
+        break;
+      case tensorflow::DT_INT32:
+        SetZero<int32>(ctx, inputs);
+        break;
+      case tensorflow::DT_INT64:
+        SetZero<int64>(ctx, inputs);
+        break;
+      default:
+        ctx->CtxFailure(
+            tensorflow::errors::InvalidArgument("unsupported input dtype"));
+    }
+  }
+
+  template <typename T>
+  void SetZero(OpKernelContext* ctx, Tensor* inputs) {
+    switch (inputs->dims()) {
+      case 2:
+        inputs->tensor<T, 2>().setZero();
+        break;
+      case 3:
+        inputs->tensor<T, 3>().setZero();
+        break;
+      default:
+        ctx->CtxFailure(
+            tensorflow::errors::InvalidArgument("unsupported input rank"));
+    }
+  }
+
+  void PackSequence(OpKernelContext* ctx, const Tensor& inputs, Tensor* packed,
+                    TTypes<int32, 2>::Tensor segmentation,
+                    TTypes<int32, 2>::Tensor position,
+                    const PackingSpec& spec) {
+    switch (inputs.dtype()) {
+      case tensorflow::DT_FLOAT:
+        PackSequence<float>(
+            ctx, inputs, packed, segmentation, position, spec);
+        break;
+      case tensorflow::DT_BFLOAT16:
+        PackSequence<bfloat16>(
+            ctx, inputs, packed, segmentation, position, spec);
+        break;
+      case tensorflow::DT_INT32:
+        PackSequence<int32>(
+            ctx, inputs, packed, segmentation, position, spec);
+        break;
+      case tensorflow::DT_INT64:
+        PackSequence<int64>(
+            ctx, inputs, packed, segmentation, position, spec);
+        break;
+      default:
+        ctx->CtxFailure(
+            tensorflow::errors::InvalidArgument("unsupported input dtype"));
+    }
+  }
+
+  template <typename T>
+  void PackSequence(OpKernelContext* ctx, const Tensor& inputs, Tensor* packed,
+                    TTypes<int32, 2>::Tensor segmentation,
+                    TTypes<int32, 2>::Tensor position,
+                    const PackingSpec& spec) {
+    switch (inputs.dims()) {
+      case 2:
+        PackSequence<T>(
+            ctx,
+            inputs.tensor<T, 2>(),
+            packed->tensor<T, 2>(),  // TensorMap is pass-by-ref.
+            segmentation,
+            position,
+            spec);
+        break;
+      case 3:
+        PackSequence<T>(
+            ctx,
+            inputs.tensor<T, 3>(),
+            packed->tensor<T, 3>(),  // TensorMap is pass-by-ref.
+            segmentation,
+            position,
+            spec);
+        break;
+      default:
+        ctx->CtxFailure(
+            tensorflow::errors::InvalidArgument("unsupported input rank"));
+    }
+  }
+
+  template <typename T>
+  void PackSequence(OpKernelContext* ctx,
+                    const typename TTypes<const T, 2>::Tensor& inputs,
+                    typename TTypes<T, 2>::Tensor packed,
+                    TTypes<int32, 2>::Tensor segmentation,
+                    TTypes<int32, 2>::Tensor position,
+                    const PackingSpec& spec) {
+    for (int i = 0; i < spec.seq_length; i++) {
+      packed(spec.batch_pos, spec.offset + i) = inputs(spec.seq_id, i);
+      segmentation(spec.batch_pos, spec.offset + i) = spec.segment_id;
+      position(spec.batch_pos, spec.offset + i) = i;
+    }
+  }
+
+  template <typename T>
+  void PackSequence(OpKernelContext* ctx,
+                    const typename TTypes<const T, 3>::Tensor& inputs,
+                    typename TTypes<T, 3>::Tensor packed,
+                    TTypes<int32, 2>::Tensor segmentation,
+                    TTypes<int32, 2>::Tensor position,
+                    const PackingSpec& spec) {
+    for (int i = 0; i < spec.seq_length; i++) {
+      for (int k = 0; k < inputs.dimension(2); k++) {
+        packed(spec.batch_pos, spec.offset + i, k) = inputs(spec.seq_id, i, k);
+      }
+      segmentation(spec.batch_pos, spec.offset + i) = spec.segment_id;
+      position(spec.batch_pos, spec.offset + i) = i;
+    }
+  }
+
+  DataTypeVector input_types_;
+  int input_count_;
+};
+
 REGISTER_KERNEL_BUILDER(Name("PackSequences2").Device(DEVICE_CPU),
                         PackSequences2Op);
+
+REGISTER_KERNEL_BUILDER(Name("PackSequencesK").Device(DEVICE_CPU),
+                        PackSequencesKOp);
 
 }  // namespace
 }  // namespace tensor2tensor
