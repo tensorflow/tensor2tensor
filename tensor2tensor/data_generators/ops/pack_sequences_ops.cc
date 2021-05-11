@@ -187,27 +187,34 @@ REGISTER_OP("PackSequencesK")
         return InvalidArgument(
             "`inputs` and `max_lengths` had different numbers of elements");
       }
-      auto inputs = ctx->input_handle_shapes_and_types(0);
-      std::vector<ShapeHandle> output_dims(inputs->size());
-      std::vector<ShapeHandle> segmentation_dims(inputs->size());
-      std::vector<ShapeHandle> position_dims(inputs->size());
-      for (int i = 0; i < inputs->size(); i++) {
-        auto input = inputs->at(i);
-        int rank = ctx->Rank(input.shape);
-        std::vector<DimensionHandle> dims(rank);
-        for (int r = 0; r < rank; r++) {
-          dims.push_back(ctx->UnknownDim());
+      std::vector<ShapeHandle> input_shapes;
+      TF_RETURN_IF_ERROR(ctx->input("inputs", &input_shapes));
+      std::vector<ShapeHandle> output_shapes;
+      std::vector<ShapeHandle> segmentation_shapes;
+      std::vector<ShapeHandle> position_shapes;
+      for (int i = 0; i < input_shapes.size(); i++) {
+        const auto& input_shape = input_shapes.at(i);
+        int rank = ctx->Rank(input_shape);
+        segmentation_shapes.push_back(
+            ctx->Matrix(ctx->UnknownDim(), ctx->UnknownDim()));
+        position_shapes.push_back(
+            ctx->Matrix(ctx->UnknownDim(), ctx->UnknownDim()));
+        if (rank == 2) {
+          output_shapes.push_back(
+              ctx->MakeShape({ctx->UnknownDim(), ctx->UnknownDim()}));
+        } else if (rank == 3) {
+          output_shapes.push_back(
+              ctx->MakeShape({ctx->UnknownDim(), ctx->UnknownDim(),
+                              ctx->Value(ctx->Dim(input_shape, 2))}));
+        } else {
+          return InvalidArgument(
+              "Only rank 2 and rank 3 inputs are supported");
         }
-        output_dims.push_back(ctx->MakeShape(dims));
-        segmentation_dims.push_back(
-            ctx->Matrix(ctx->UnknownDim(), ctx->UnknownDim()));
-        position_dims.push_back(
-            ctx->Matrix(ctx->UnknownDim(), ctx->UnknownDim()));
       }
-      TF_RETURN_IF_ERROR(ctx->set_output("outputs_packed", output_dims));
+      TF_RETURN_IF_ERROR(ctx->set_output("outputs_packed", output_shapes));
       TF_RETURN_IF_ERROR(
-          ctx->set_output("outputs_segmentation", segmentation_dims));
-      TF_RETURN_IF_ERROR(ctx->set_output("outputs_position", position_dims));
+          ctx->set_output("outputs_segmentation", segmentation_shapes));
+      TF_RETURN_IF_ERROR(ctx->set_output("outputs_position", position_shapes));
       return Status::OK();
     });
 
