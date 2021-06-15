@@ -12,6 +12,7 @@ jobs:
           DT_BRANCH='develop';
           GDM_BRANCH='develop';
           git clone -b ${DT_BRANCH} git@github.com:medicode/diseaseTools.git ~/diseaseTools;
+          git clone -b master git@github.com:medicode/diseaseTools-config.git ~/diseaseTools-config;
           git clone -b ${GDM_BRANCH} git@github.com:medicode/gdm.git ~/gdm;
 
       - type: shell
