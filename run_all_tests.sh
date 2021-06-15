@@ -6,6 +6,7 @@
 #!/usr/bin/env bash
 T2T=tensor2tensor
 DT=diseaseTools
+DTC=diseaseTools-config
 IMAGE=us.gcr.io/fathom-containers/t2t_test
 GCS_KEY_NAME=GOOGLE_APPLICATION_CREDENTIALS
 GCS_KEY_PATH=/usr/src/diseaseTools/gcloud/keys/google-auth.json
@@ -14,10 +15,11 @@ docker pull $IMAGE
 
 docker run -it \
        -v $HOME/$DT:/usr/src/diseaseTools \
+       -v $HOME/$DTC:/usr/src/diseaseTools-config \
        -v $HOME/gdm:/usr/src/diseaseTools/gcloud/gdm \
        -v $HOME/$T2T:/usr/src/t2t \
        -w /usr/src/t2t \
-       --env PYTHONPATH=/usr/src/t2t:/usr/src/diseaseTools \
+       --env PYTHONPATH=/usr/src/t2t:/usr/src/diseaseTools:/usr/src/diseaseTools-config \
        --env $GCS_KEY_NAME=$GCS_KEY_PATH \
        $IMAGE \
        python3 -m pytest -vv \
