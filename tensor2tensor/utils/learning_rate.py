@@ -21,6 +21,7 @@ import numpy as np
 
 import tensorflow as tf
 
+from fathomt2t_dependencies.hparam_utils import get_global_step_offset_for_lr
 
 # FATHOM BEGIN
 def exp_warmup(hparams, step_num):
@@ -106,6 +107,16 @@ def legacy_learning_rate_schedule(hparams):
 def _global_step(hparams):
   """Adjust global step if a multi-step optimizer is used."""
   step = tf.to_float(tf.train.get_or_create_global_step())
+
+  # Modify global_step prior to the multiplier since the hparam is defined
+  # w.r.t. the actual global_step rather than the optimizer-dependent version.
+  # get_global_step_offset_for_lr defaults to 0 so this statement is a no-op
+  # if the hparam is not set.
+  step_offset = tf.to_float(
+    get_global_step_offset_for_lr(hparams)
+  )
+  step -= step_offset
+
   multiplier = hparams.optimizer_multistep_accumulate_steps
   if not multiplier:
     return step
