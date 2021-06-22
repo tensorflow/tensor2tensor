@@ -266,6 +266,7 @@ def compile_data(tmp_dir, datasets, filename, datatypes_to_clean=None):
 class TranslateDistillProblem(TranslateProblem):
   """Base class for translation problems."""
 
+  @property
   def is_generate_per_split(self):
     return True
 
@@ -311,3 +312,37 @@ class TranslateDistillProblem(TranslateProblem):
     return text_problems.text2text_distill_iterator(data_path + "inputs",
                                                     data_path + "gold",
                                                     data_path + "prediction")
+
+
+class TranslateWmt20Problem(TranslateProblem):
+  """Base class for WMT20 Datasets."""
+
+  @property
+  def is_generate_per_split(self):
+    return True
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
+    vocab = self.get_or_create_vocab(data_dir, tmp_dir)
+    # For each example, encode the text and append EOS ID.
+    for sample in generator:
+      if self.has_inputs:
+        sample["inputs"] = vocab.encode(sample["inputs"])
+        sample["inputs"].append(text_encoder.EOS_ID)
+        sample["targets"] = vocab.encode(sample["targets"])
+        sample["targets"].append(text_encoder.EOS_ID)
+        yield sample
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    for i, sample in enumerate(
+        self.generate_samples(data_dir, tmp_dir, problem.DatasetSplit.TRAIN)):
+      if self.has_inputs:
+        yield sample["inputs"]
+      yield sample["targets"]
+      if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
+        break
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    data_path = self.source_data_files(dataset_split)[0]
+    assert tf.gfile.Exists(data_path)
+    return text_problems.text2text_txt_tab_iterator(data_path)

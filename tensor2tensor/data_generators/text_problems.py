@@ -799,6 +799,32 @@ def text2real_txt_iterator(source_txt_path, target_txt_path):
     yield {"inputs": inputs, "targets": targets}
 
 
+def txt_line_sharded_iterator(txt_pattern):
+  """Iterate through lines of sharded file."""
+  all_files = tf.gfile.Glob(txt_pattern)
+  for txt_path in all_files:
+    with tf.gfile.Open(txt_path) as f:
+      for line in f:
+        yield line.strip()
+
+
+def text2text_txt_sharded_iterator(source_txt_pattern, target_txt_pattern):
+  """Yield dicts for Text2TextProblem.generate_samples from lines of files.
+
+  Args:
+    source_txt_pattern: path to the sharded source file
+    target_txt_pattern: path to the sharded target file
+
+  Yields:
+    {"inputs": inputs, "targets": targets}
+
+  """
+  for inputs, targets in zip(
+      txt_line_sharded_iterator(source_txt_pattern),
+      txt_line_sharded_iterator(target_txt_pattern)):
+    yield {"inputs": inputs, "targets": targets}
+
+
 def text2text_txt_tab_iterator(txt_path):
   """Yield dicts for Text2TextProblem.generate_samples from lines of txt_path.
 
@@ -848,6 +874,7 @@ class Text2textTmpdir(Text2TextProblem):
   TRAIN_FILES = ("inputs.train.txt", "targets.train.txt")
   EVAL_FILES = ("inputs.eval.txt", "targets.eval.txt")
 
+  @property
   def is_generate_per_split(self):
     return True
 
