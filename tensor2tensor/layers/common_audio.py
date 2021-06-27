@@ -119,7 +119,7 @@ def compute_mel_filterbank_features(
   magnitude_spectrograms = tf.abs(stfts)
 
   # Warp the linear-scale, magnitude spectrograms into the mel-scale.
-  num_spectrogram_bins = magnitude_spectrograms.shape[-1].value
+  num_spectrogram_bins = magnitude_spectrograms.shape[-1]
   linear_to_mel_weight_matrix = (
       tf.signal.linear_to_mel_weight_matrix(
           num_mel_bins, num_spectrogram_bins, sample_rate, lower_edge_hertz,
