@@ -55,6 +55,7 @@ def _maybe_download_corpus(tmp_dir):
 class Enwik8L65k(text_problems.Text2SelfProblem):
   """Enwiki8, with examples up to 65,536 characters long."""
 
+  READ_MODE = "r"
   DUPE_FACTOR = 4
 
   @property
@@ -92,7 +93,7 @@ class Enwik8L65k(text_problems.Text2SelfProblem):
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     filepath = _maybe_download_corpus(tmp_dir)
-    with tf.io.gfile.GFile(filepath) as f:
+    with tf.io.gfile.GFile(filepath, mode=self.READ_MODE) as f:
       data = f.read()
 
     tf.logging.info("Length of enwik8 = %d", len(data))
@@ -126,3 +127,75 @@ class Enwik8L65k(text_problems.Text2SelfProblem):
     for sample in generator:
       sample["targets"] = vocab.encode(sample["targets"])
       yield sample
+
+
+@registry.register_problem
+class Enwik8L2k(Enwik8L65k):
+  """Enwiki8, with examples up to 2048 characters long. Reads the input
+  byte-wise and chunks it into fragments of maximum length of 2048. Does not
+  shift byte indices (we do not assume cls or pad are used),
+  unlike the base class!"""
+
+  READ_MODE = "rb"
+
+  @property
+  def sequence_length(self):
+    """Length of each example (number of characters)."""
+    return 2048
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    return self.generate_samples(data_dir, tmp_dir, dataset_split)
+
+
+@registry.register_problem
+class Enwik8L32k(Enwik8L2k):
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 32768
+
+
+@registry.register_problem
+class Enwik8L16k(Enwik8L2k):
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 16384
+
+
+@registry.register_problem
+class Enwik8L8k(Enwik8L2k):
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 8192
+
+
+@registry.register_problem
+class Enwik8L4k(Enwik8L2k):
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 4096
+
+
+@registry.register_problem
+class Enwik8L1k(Enwik8L2k):
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 1024
+
+
+@registry.register_problem
+class Enwik8L512(Enwik8L2k):
+
+  @property
+  def sequence_length(self):
+    """Length of each example (in tokens)."""
+    return 512
