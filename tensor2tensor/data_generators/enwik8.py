@@ -131,10 +131,12 @@ class Enwik8L65k(text_problems.Text2SelfProblem):
 
 @registry.register_problem
 class Enwik8L2k(Enwik8L65k):
-  """Enwiki8, with examples up to 2048 characters long. Reads the input
-  byte-wise and chunks it into fragments of maximum length of 2048. Does not
-  shift byte indices (we do not assume cls or pad are used),
-  unlike the base class!"""
+  """Enwiki8, with examples up to 2048 characters long.
+
+  Reads the input byte-wise and chunks it into fragments of maximum
+  length of 2048. Does not shift byte indices (we do not assume cls or
+  pad are used), unlike the base class!
+  """
 
   READ_MODE = "rb"
 
