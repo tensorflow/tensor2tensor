@@ -835,7 +835,11 @@ def text2text_txt_tab_iterator(txt_path):
   Yields:
     {"inputs": inputs, "targets": targets}
   """
-  for line in txt_line_iterator(txt_path):
+  if txt_path.endswith(".tsv*"):
+    data_iterator = txt_line_sharded_iterator(txt_path)
+  else:
+    data_iterator = txt_line_iterator(txt_path)
+  for line in data_iterator:
     if line and "\t" in line:
       parts = line.split("\t", 1)
       inputs, targets = parts[:2]

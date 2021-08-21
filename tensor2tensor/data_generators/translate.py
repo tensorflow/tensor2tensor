@@ -344,5 +344,13 @@ class TranslateWmt20Problem(TranslateProblem):
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     data_path = self.source_data_files(dataset_split)[0]
-    assert tf.gfile.Exists(data_path)
     return text_problems.text2text_txt_tab_iterator(data_path)
+
+
+class TranslateSamanantarProblem(TranslateWmt20Problem):
+  """Base class for Samanantar Datasets."""
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    src_data_path = self.source_data_files(dataset_split)[0]
+    tgt_data_path = self.source_data_files(dataset_split)[1]
+    return text_problems.text2text_txt_iterator(src_data_path, tgt_data_path)
