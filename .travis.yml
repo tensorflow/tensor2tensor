@@ -1,0 +1,33 @@
+sudo: required
+language: python
+cache: pip
+git:
+  depth: 3
+  quiet: true
+services:
+  - docker
+python:
+  - "3.6"
+env:
+  global:
+    - T2T_PROBLEM=algorithmic_reverse_binary40_test
+    - T2T_DATA_DIR=/tmp/t2t-data
+    - T2T_TRAIN_DIR=/tmp/t2t-train
+    - TF_LATEST="1.15.*"
+    # This is necessary to have gsutil work with Python 2.7
+    - BOTO_CONFIG=/dev/null
+  matrix:
+    - TF_VERSION="1.15.*"
+install:
+  - ./oss_scripts/oss_pip_install.sh
+script:
+  - ./oss_scripts/oss_tests.sh
+  - ./oss_scripts/oss_integration_test.sh
+
+  # Conditional commands should each be in a separate block to get proper
+  # errors on Travis.
+  #
+  # TODO(afrozm): Re-enable if this becomes an issue.
+  # - if [[ "$TRAVIS_PYTHON_VERSION" == "2.7" ]]; then
+  #       pylint -j 2 tensor2tensor;
+  #   fi

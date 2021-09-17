@@ -245,8 +245,8 @@ class TransformerGlowLayersTest(parameterized.TestCase, tf.test.TestCase):
             [x, x_mask, x_inv, x_inv_inv, logabsdet, logabsdet_inv]))
     diff = x - x_inv_inv
     logabsdet_sum = logabsdet + logabsdet_inv
-    self.assertTrue(np.allclose(diff, 0.0, atol=1e-5))
-    self.assertTrue(np.allclose(logabsdet_sum, 0.0, atol=1e-5))
+    self.assertTrue(np.allclose(diff, 0.0, atol=2e-5))
+    self.assertTrue(np.allclose(logabsdet_sum, 0.0, atol=2e-5))
 
   @parameterized.parameters(
       ("1", "cat", "affine"),
