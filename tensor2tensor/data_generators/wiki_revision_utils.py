@@ -33,6 +33,10 @@ from tensor2tensor.data_generators import text_encoder
 import tensorflow.compat.v1 as tf
 
 
+def to_unicode(s):
+  return s.decode("utf-8")
+
+
 def include_revision(revision_num, skip_factor=1.1):
   """Decide whether to include a revision.
 
@@ -76,6 +80,10 @@ def file_page_generator(my_file, max_page_size=2**28):
   leftovers = ""
   while True:
     chunk = my_file.read(chunk_size)
+    try:
+      chunk = to_unicode(chunk)
+    except UnicodeDecodeError:
+      chunk = ""
     if not chunk:
       break
     chunk = leftovers + chunk
@@ -112,7 +120,7 @@ def get_title(page):
   assert start_pos != -1
   assert end_pos != -1
   start_pos += len("<title>")
-  return text_encoder.to_unicode_utf8(page[start_pos:end_pos])
+  return page[start_pos:end_pos]
 
 
 def get_id(page):
@@ -251,7 +259,6 @@ def get_text(revision, strip=True):
     ret = revision[end_tag_pos:end_pos]
   if strip:
     ret = strip_text(ret)
-  ret = text_encoder.to_unicode_utf8(ret)
   return ret
 
 
