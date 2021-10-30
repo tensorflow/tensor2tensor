@@ -517,8 +517,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
       ("", 1, 1, 8, 4, 4, (2, 2)),
       ("dynamic_batch", None, 1, 8, 4, 4, (2, 2)),
       ("batches", 3, 2, 8, 4, 4, (2, 2)),
-      # TODO(trandustin): Extend function to enable depth_k != depth_v.
-      # ("depth_v", 1, 1, 8, 4, 1, (2, 2)),
+      ("depth_v", 1, 1, 8, 4, 1, (2, 2)),
       ("query_shape", 1, 1, 8, 4, 4, (4, 4)),
   )
   def testMaskedLocalAttention2D(self, batch, heads, length, depth_k, depth_v,
@@ -567,8 +566,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
       ("matching_block_length", 3, 4, 25, 16, 16, (4, 4)),
       ("unmatching_block_length", 3, 4, 25, 16, 16, (5, 5)),
       ("dynamic_batch", None, 4, 25, 16, 16, (4, 4)),
-      # TODO(trandustin): Extend function to enable depth_k != depth_v.
-      # ("different_depth_v", 3, 4, 25, 16, 17, (4, 4)),
+      ("different_depth_v", 3, 4, 25, 16, 17, (4, 4)),
   )
   def testLocalUnmaskedAttention2D(self, batch, heads, length,
                                    depth_k, depth_v, query_shape):
