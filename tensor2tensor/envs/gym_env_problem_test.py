@@ -68,7 +68,7 @@ class GymEnvProblemTest(tf.test.TestCase):
     # Passing reward_range=None means take the reward range of the underlying
     # environment as the reward range.
     ep = gym_env_problem.GymEnvProblem(
-        base_env_name="FrozenLake-v0", batch_size=5, reward_range=None)
+        base_env_name="FrozenLake-v1", batch_size=5, reward_range=None)
     ep.assert_common_preconditions()
 
     # Assert reward range is finite here.
