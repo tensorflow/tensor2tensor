@@ -122,7 +122,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
 
     Args:
       multiply_by_parameter_scale: a boolean
-      learning_rate: an optional Scalar.
+      learning_rate: an optional Scalar or callable.
       decay_rate: an optional Scalar.
       beta1: a float value between 0 and 1
       clipping_threshold: an optional float >= 1
@@ -218,7 +218,9 @@ class AdafactorOptimizer(tf.train.Optimizer):
     grad_squared = tf.square(grad) + self._epsilon1
     grad_squared_mean = tf.reduce_mean(grad_squared)
     decay_rate = self._decay_rate
-    update_scale = self._learning_rate
+    update_scale = self._call_if_callable(self._learning_rate)
+    update_scale = tf.convert_to_tensor(update_scale, name="update_scale")
+    update_scale = tf.cast(update_scale, grad_squared_mean.dtype.base_dtype)
     old_val = var
     if var.dtype.base_dtype == tf.bfloat16:
       old_val = tf.to_float(self._parameter_encoding.decode(old_val))
@@ -272,6 +274,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       new_val = quantization.simulated_quantize(
           var - subtrahend, self._simulated_quantize_bits,
           self._quantization_noise)
+    new_val = tf.cast(new_val, var.dtype)
     var_update = tf.assign(var, new_val, use_locking=self._use_locking)
     updates = [var_update] + updates
     return tf.group(*updates)
