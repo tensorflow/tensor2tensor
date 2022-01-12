@@ -217,7 +217,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
     grad = tf.to_float(grad)
     grad_squared = tf.square(grad) + self._epsilon1
     grad_squared_mean = tf.reduce_mean(grad_squared)
-    decay_rate = self._decay_rate
+    decay_rate = self._call_if_callable(self._decay_rate)
     update_scale = self._call_if_callable(self._learning_rate)
     update_scale = tf.convert_to_tensor(update_scale, name="update_scale")
     update_scale = tf.cast(update_scale, grad_squared_mean.dtype.base_dtype)
