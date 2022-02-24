@@ -343,7 +343,7 @@ def make_gym_env(name,
                          output_dtype, num_actions)
 
 
-def register_gym_env(class_entry_point, version="v0", kwargs=None):
+def register_gym_env(class_entry_point, version="v0", **kwargs):
   """Registers the class in Gym and returns the registered name and the env."""
 
   split_on_colon = class_entry_point.split(":")
