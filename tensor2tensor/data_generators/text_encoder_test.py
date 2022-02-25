@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Tensor2Tensor Authors.
+# Copyright 2022 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -259,7 +259,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     original = "This has UPPER CASE letters that are out of alphabet"
 
     # Previously there was a bug which produced an infinite loop in this case.
-    with self.assertRaises(AssertionError):
+    with self.assertRaises(ValueError):
       encoder.encode(original)
 
   def test_load_from_file(self):

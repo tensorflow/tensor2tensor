@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2021 The Tensor2Tensor Authors.
+# Copyright 2022 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -624,7 +624,9 @@ class SubwordTextEncoder(TextEncoder):
         # If there is no possible encoding of the escaped token then one of the
         # characters in the token is not in the alphabet. This should be
         # impossible and would be indicative of a bug.
-        assert False, "Token substring not found in subtoken vocabulary."
+        raise ValueError(
+            "Token substring '%s' not found in subtoken vocabulary." %
+            escaped_token)
 
     return ret
 
