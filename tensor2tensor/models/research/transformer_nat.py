@@ -94,10 +94,8 @@ def vq_discrete_bottleneck(x, hparams):
   updated_ema_count = (
       (updated_ema_count + hparams.epsilon) /
       (n + bottleneck_size * hparams.epsilon) * n)
-  # pylint: disable=g-no-augmented-assignment
   updated_ema_means = updated_ema_means / tf.expand_dims(
       updated_ema_count, axis=-1)
-  # pylint: enable=g-no-augmented-assignment
   with tf.control_dependencies([e_loss]):
     update_means = tf.assign(means, updated_ema_means)
     with tf.control_dependencies([update_means]):
