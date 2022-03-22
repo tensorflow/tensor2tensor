@@ -30,6 +30,7 @@ from tensor2tensor.utils import hparam
 from tensor2tensor.utils import test_utils
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 tf.enable_eager_execution()
 
 
@@ -58,7 +59,7 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
   @test_utils.run_in_graph_mode_only()
   def testNoShuffleDeterministic(self):
     problem = algorithmic.TinyAlgo()
-    dataset = problem.dataset(mode=tf.estimator.ModeKeys.TRAIN,
+    dataset = problem.dataset(mode=tf_estimator.ModeKeys.TRAIN,
                               data_dir=algorithmic.TinyAlgo.data_dir,
                               shuffle_files=False)
 
@@ -72,10 +73,10 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
   def testNoShufflePreprocess(self):
 
     problem = algorithmic.TinyAlgo()
-    dataset1 = problem.dataset(mode=tf.estimator.ModeKeys.TRAIN,
+    dataset1 = problem.dataset(mode=tf_estimator.ModeKeys.TRAIN,
                                data_dir=algorithmic.TinyAlgo.data_dir,
                                shuffle_files=False, preprocess=False)
-    dataset2 = problem.dataset(mode=tf.estimator.ModeKeys.TRAIN,
+    dataset2 = problem.dataset(mode=tf_estimator.ModeKeys.TRAIN,
                                data_dir=algorithmic.TinyAlgo.data_dir,
                                shuffle_files=False, preprocess=True)
 

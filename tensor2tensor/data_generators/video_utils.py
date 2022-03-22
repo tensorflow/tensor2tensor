@@ -36,6 +36,7 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import video_metrics
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 FLAGS = flags.FLAGS
@@ -405,7 +406,7 @@ class VideoProblem(problem.Problem):
         ])
 
     # TODO(michalski): add support for passing input_action and input_reward.
-    return tf.estimator.export.ServingInputReceiver(
+    return tf_estimator.export.ServingInputReceiver(
         features={"inputs": video_input_frames},
         receiver_tensors=video_input_frames)
 
@@ -514,12 +515,12 @@ class VideoProblem(problem.Problem):
 
     num_frames = (
         hparams.video_num_input_frames + hparams.video_num_target_frames)
-    if mode == tf.estimator.ModeKeys.PREDICT:
+    if mode == tf_estimator.ModeKeys.PREDICT:
       num_frames = min(self.max_frames_per_video(hparams), num_frames)
 
     # We jump by a random position at the beginning to add variety.
     if (self.random_skip and self.settable_random_skip and interleave and
-        mode == tf.estimator.ModeKeys.TRAIN):
+        mode == tf_estimator.ModeKeys.TRAIN):
       random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
       preprocessed_dataset = preprocessed_dataset.skip(random_skip)
     if (self.use_not_breaking_batching and
@@ -529,7 +530,7 @@ class VideoProblem(problem.Problem):
       batch_dataset = preprocessed_dataset.batch(num_frames,
                                                  drop_remainder=True)
     dataset = batch_dataset.map(features_from_batch)
-    if self.shuffle and interleave and mode == tf.estimator.ModeKeys.TRAIN:
+    if self.shuffle and interleave and mode == tf_estimator.ModeKeys.TRAIN:
       dataset = dataset.shuffle(hparams.get("shuffle_buffer_size", 128))
     return dataset
 
@@ -719,7 +720,7 @@ class VideoAugmentationProblem(VideoProblem):
     video_augment_func = functools.partial(
         video_augmentation, hue=self.hue, contrast=self.contrast,
         saturate=self.saturate)
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       dataset = dataset.map(video_augment_func)
     return dataset
 

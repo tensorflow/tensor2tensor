@@ -26,11 +26,12 @@ from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.utils import contrib
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 tfe = contrib.eager()
 tfe.enable_eager_execution()
-Modes = tf.estimator.ModeKeys  # pylint: disable=invalid-name
+Modes = tf_estimator.ModeKeys  # pylint: disable=invalid-name
 
 
 def mock_raw_image(x_dim=1024, y_dim=1024, num_channels=3,
@@ -195,7 +196,7 @@ class TestAllenBrain(tf.test.TestCase):
         p_hparams = problem_object.get_hparams(hparams)
 
         model = image_transformer_2d.Img2imgTransformer(
-            hparams, tf.estimator.ModeKeys.TRAIN, p_hparams
+            hparams, tf_estimator.ModeKeys.TRAIN, p_hparams
         )
 
         @tfe.implicit_value_and_gradients

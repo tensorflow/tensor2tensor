@@ -35,6 +35,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 # URLs and filenames for CIFAR data.
 _CIFAR10_URL = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
@@ -131,7 +132,7 @@ class ImageCifar10Tune(mnist.ImageMnistTune):
   def preprocess_example(self, example, mode, unused_hparams):
     image = example["inputs"]
     image.set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       image = image_utils.cifar_image_augmentation(image)
     if not self._was_reversed:
       image = tf.image.per_image_standardization(image)
@@ -211,7 +212,7 @@ class ImageCifar10PlainRandomShift(ImageCifar10Plain):
   def preprocess_example(self, example, mode, unused_hparams):
     example["inputs"].set_shape([_CIFAR10_IMAGE_SIZE, _CIFAR10_IMAGE_SIZE, 3])
     example["inputs"] = tf.to_int64(example["inputs"])
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       example["inputs"] = image_utils.random_shift(
           example["inputs"], wsr=0.1, hsr=0.1)
     return example
@@ -391,7 +392,7 @@ class ImageCifar100Tune(mnist.ImageMnistTune):
   def preprocess_example(self, example, mode, unused_hparams):
     image = example["inputs"]
     image.set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       image = image_utils.cifar_image_augmentation(image)
     if not self._was_reversed:
       image = tf.image.per_image_standardization(image)
@@ -522,7 +523,7 @@ class ImageCifar20Tune(mnist.ImageMnistTune):
   def preprocess_example(self, example, mode, unused_hparams):
     image = example["inputs"]
     image.set_shape([_CIFAR100_IMAGE_SIZE, _CIFAR100_IMAGE_SIZE, 3])
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       image = image_utils.cifar_image_augmentation(image)
     if not self._was_reversed:
       image = tf.image.per_image_standardization(image)

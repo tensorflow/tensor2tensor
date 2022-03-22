@@ -26,6 +26,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_problem
@@ -63,7 +64,7 @@ class ImageCelebahq128(image_utils.ImageProblem):
       shard_str = "000[0-8]"
     else:
       assert mode in [problem.DatasetSplit.EVAL,
-                      tf.estimator.ModeKeys.PREDICT,
+                      tf_estimator.ModeKeys.PREDICT,
                       problem.DatasetSplit.TEST]
       # Use the last 10 shards.
       shard_str = "0009"

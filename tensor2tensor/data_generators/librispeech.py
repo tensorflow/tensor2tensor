@@ -22,7 +22,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 _LIBRISPEECH_TRAIN_DATASETS = [
     [
@@ -216,7 +216,7 @@ class LibrispeechTrainFullTestClean(Librispeech):
     if mode == problem.DatasetSplit.TRAIN:
       path = os.path.join(data_dir, "librispeech")
       suffix = "train"
-    elif mode in [problem.DatasetSplit.EVAL, tf.estimator.ModeKeys.PREDICT]:
+    elif mode in [problem.DatasetSplit.EVAL, tf_estimator.ModeKeys.PREDICT]:
       path = os.path.join(data_dir, "librispeech_clean")
       suffix = "dev"
     else:
@@ -264,7 +264,7 @@ class LibrispeechTrainFullTestOther(Librispeech):
     if mode == problem.DatasetSplit.TRAIN:
       path = os.path.join(data_dir, "librispeech")
       suffix = "train"
-    elif mode in [problem.DatasetSplit.EVAL, tf.estimator.ModeKeys.PREDICT]:
+    elif mode in [problem.DatasetSplit.EVAL, tf_estimator.ModeKeys.PREDICT]:
       path = os.path.join(data_dir, "librispeech_noisy")
       suffix = "dev"
     else:

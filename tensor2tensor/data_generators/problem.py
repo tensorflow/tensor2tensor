@@ -33,6 +33,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 # pylint: disable=g-import-not-at-top
 try:
   from tensorflow.contrib.tpu.python.tpu import tpu_config
@@ -44,8 +45,8 @@ except ImportError:
 
 
 class DatasetSplit(object):
-  TRAIN = tf.estimator.ModeKeys.TRAIN
-  EVAL = tf.estimator.ModeKeys.EVAL
+  TRAIN = tf_estimator.ModeKeys.TRAIN
+  EVAL = tf_estimator.ModeKeys.EVAL
   TEST = "test"
 
 
@@ -151,7 +152,7 @@ def preprocess_example_common(example, mode, hparams):
   if "inputs" in example and hparams.max_input_seq_length > 0:
     example["inputs"] = example["inputs"][:hparams.max_input_seq_length]
   if hparams.prepend_mode != "none":
-    if mode == tf.estimator.ModeKeys.PREDICT:
+    if mode == tf_estimator.ModeKeys.PREDICT:
       example["partial_targets"] = tf.concat([example["inputs"], [0]], 0)
     else:
       example["targets"] = tf.concat(
@@ -484,7 +485,7 @@ class Problem(object):
     shard_str = "-%05d" % shard if shard is not None else ""
     if mode == DatasetSplit.TRAIN:
       suffix = "train"
-    elif mode in [DatasetSplit.EVAL, tf.estimator.ModeKeys.PREDICT]:
+    elif mode in [DatasetSplit.EVAL, tf_estimator.ModeKeys.PREDICT]:
       suffix = "dev"
     else:
       assert mode == DatasetSplit.TEST
@@ -633,7 +634,7 @@ class Problem(object):
     Raises:
       ValueError: if num_partitions is greater than the number of data files.
     """
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
     shuffle_files = shuffle_files or shuffle_files is None and is_training
 
     dataset_split = dataset_split or mode
@@ -825,7 +826,7 @@ class Problem(object):
       partition_id: an integer
       num_partitions: an integer
     """
-    if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
+    if mode != tf_estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
       # Reset in the case when using TPU but alternating TRAIN and EVAL.
       self._next_partition_id = 0
       return 0, 1
@@ -875,7 +876,7 @@ class Problem(object):
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
     partition_id, num_partitions = self._dataset_partition(mode, config, params)
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
     if config and config.use_tpu:
       num_threads = 64
     else:
@@ -919,7 +920,7 @@ class Problem(object):
   def serving_input_fn(self, hparams, decode_hparams=None, use_tpu=False):
     """Input fn for serving export, starting from serialized example."""
     self._hparams = hparams
-    mode = tf.estimator.ModeKeys.PREDICT
+    mode = tf_estimator.ModeKeys.PREDICT
     serialized_example = tf.placeholder(
         dtype=tf.string, shape=[None], name="serialized_example")
     dataset = tf.data.Dataset.from_tensor_slices(serialized_example)
@@ -947,7 +948,7 @@ class Problem(object):
     if self.has_inputs:
       features.pop("targets", None)
 
-    return tf.estimator.export.ServingInputReceiver(
+    return tf_estimator.export.ServingInputReceiver(
         features=features, receiver_tensors=serialized_example)
 
 

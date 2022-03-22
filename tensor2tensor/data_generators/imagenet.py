@@ -28,6 +28,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 # URLs and filenames for IMAGENET 32x32 data from
 # https://arxiv.org/abs/1601.06759.
@@ -105,7 +106,7 @@ def imagenet_preprocess_example(example, mode, resize_size=None,
   assert resize_size[0] == resize_size[1]
 
   image = example["inputs"]
-  if mode == tf.estimator.ModeKeys.TRAIN:
+  if mode == tf_estimator.ModeKeys.TRAIN:
     image = preprocess_for_train(image, image_size=resize_size[0],
                                  normalize=normalize)
   else:

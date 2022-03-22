@@ -21,6 +21,7 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_problem
@@ -99,7 +100,7 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
             }
 
   def preprocess_example(self, example, mode, unused_hparams):
-    if mode != tf.estimator.ModeKeys.TRAIN:
+    if mode != tf_estimator.ModeKeys.TRAIN:
       example["embed_code"] = [0]
     return example
 

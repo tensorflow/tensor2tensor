@@ -26,6 +26,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class Test1(text_problems.Text2textTmpdir):
@@ -171,7 +172,7 @@ class TextProblems(tf.test.TestCase):
     self.assertTrue(tf.gfile.Exists(train_file))
     self.assertTrue(tf.gfile.Exists(eval_file))
 
-    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, self.tmp_dir)
+    dataset = problem.dataset(tf_estimator.ModeKeys.TRAIN, self.tmp_dir)
     features = dataset.make_one_shot_iterator().get_next()
 
     examples = []

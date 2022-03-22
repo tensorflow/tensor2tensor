@@ -39,6 +39,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 UNSHUFFLED_SUFFIX = "-unshuffled"
 
@@ -1168,7 +1169,7 @@ def make_tmp_dir(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefine
 
 
 def tfrecord_iterator_for_problem(problem, data_dir,
-                                  dataset_split=tf.estimator.ModeKeys.TRAIN):
+                                  dataset_split=tf_estimator.ModeKeys.TRAIN):
   """Iterate over the records on disk for the Problem."""
   filenames = tf.gfile.Glob(problem.filepattern(data_dir, mode=dataset_split))
   example_spec = problem.example_reading_spec()[0]

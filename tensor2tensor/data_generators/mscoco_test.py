@@ -24,6 +24,7 @@ from tensor2tensor.data_generators import mscoco
 from tensor2tensor.utils import hparam
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class MscocoTest(parameterized.TestCase, tf.test.TestCase):
@@ -34,7 +35,7 @@ class MscocoTest(parameterized.TestCase, tf.test.TestCase):
       ("Dilated", "DILATED"))
   def testMsCocoMultiResolutionPreprocessExample(self, resize_method):
     example = {"inputs": tf.random_uniform([400, 400, 3], minval=-1.)}
-    mode = tf.estimator.ModeKeys.TRAIN
+    mode = tf_estimator.ModeKeys.TRAIN
     hparams = hparam.HParams(resolutions=[8, 16, 32])
     if resize_method is not None:
       hparams.resize_method = resize_method

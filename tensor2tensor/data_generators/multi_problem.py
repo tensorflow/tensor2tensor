@@ -26,6 +26,7 @@ from tensor2tensor.layers import discretization
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class MixingSchedule(object):
@@ -192,8 +193,8 @@ class MultiProblem(problem.Problem):
     # A list of datasets corresponding to the tasks in the task_list object
     # that need to be mixed.
     datasets = []
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
-    is_infer = mode == tf.estimator.ModeKeys.PREDICT
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
+    is_infer = mode == tf_estimator.ModeKeys.PREDICT
     enc = self.task_list[0].feature_encoders(data_dir=data_dir)["targets"]
     self.update_task_ids(enc.vocab_size)
 
