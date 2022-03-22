@@ -29,6 +29,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 # The transformer architecture can be defined using the layer_types hparams.
@@ -108,7 +109,7 @@ class TransformerMoe(t2t_model.T2TModel):
         dp=dp,
     )
 
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
 
       # Display the encoder-decoder architecture
       def print_layer(name, layers):

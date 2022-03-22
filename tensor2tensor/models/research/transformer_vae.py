@@ -38,6 +38,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 _DO_SUMMARIES = True
@@ -104,7 +105,7 @@ def top_k_softmax(x, k):
 def top_k_experts(x, k, hparams):
   x_shape = common_layers.shape_list(x)
   x_flat = tf.reshape(x, [-1, common_layers.shape_list(x)[-1]])
-  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+  is_training = hparams.mode == tf_estimator.ModeKeys.TRAIN
   gates, load = expert_utils.noisy_top_k_gating(
       x_flat, 2 ** hparams.z_size, is_training, k)
   gates_shape = [x_shape[0], x_shape[1], x_shape[2], 2 ** hparams.z_size]
@@ -400,7 +401,7 @@ def ae_transformer_internal(inputs,
       targets_noisy = targets
 
     targets_c = compress(targets_noisy, inputs, False, hparams, "compress")
-    if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode != tf_estimator.ModeKeys.PREDICT:
       # Compress and bottleneck.
       latents_dense, latents_discrete, extra_loss, embed, neg_q_entropy = (
           hparams.bottleneck(inputs=targets_c,
@@ -410,7 +411,7 @@ def ae_transformer_internal(inputs,
       if _DO_SUMMARIES:
         tf.summary.histogram("b0", tf.reshape(latents_discrete[:, 0, :], [-1]))
       pc = common_layers.inverse_exp_decay(hparams.startup_steps)
-      pc = pc if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
+      pc = pc if hparams.mode == tf_estimator.ModeKeys.TRAIN else 1.0
       cond = tf.less(tf.random_uniform([batch_size]), pc)
       latents_dense = tf.where(cond, latents_dense, targets_c)
       # TODO(lukaszkaiser): return extra losses batchwise, multiply before mean.
@@ -449,7 +450,7 @@ def ae_transformer_internal(inputs,
           return bn
         inputs_c = bn_inputs()
         ptc = 1.0 - common_layers.inverse_lin_decay(200000) * 0.5
-        ptc = ptc if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
+        ptc = ptc if hparams.mode == tf_estimator.ModeKeys.TRAIN else 1.0
         latents_dense = tf.where(tf.less(tf.random_uniform([batch_size]), ptc),
                                  latents_dense, inputs_c)
     else:
@@ -497,7 +498,7 @@ def ae_transformer_internal(inputs,
       masking = tf.minimum(tf.maximum(masking, 0.0), 1.0)
       if hparams.use_predict_mask:
         masking = predict_mask
-      if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+      if hparams.mode == tf_estimator.ModeKeys.PREDICT:
         masking = predict_mask
       mask = tf.less(masking, tf.random_uniform(
           common_layers.shape_list(targets)[:-1]))

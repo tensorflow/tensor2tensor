@@ -20,6 +20,7 @@ from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -37,7 +38,7 @@ class SimilarityTransformer(t2t_model.T2TModel):
     return body_output
 
   def body(self, features):
-    if self.hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    if self.hparams.mode != tf_estimator.ModeKeys.PREDICT:
       # In training mode we need to embed both the queries and the code
       # using the inputs and targets respectively.
       with tf.variable_scope('string_embedding'):

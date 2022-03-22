@@ -25,6 +25,7 @@ import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models.research import transformer_aux
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class TransformerAuxTest(parameterized.TestCase, tf.test.TestCase):
@@ -100,7 +101,7 @@ class TransformerAuxTest(parameterized.TestCase, tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32),
     }
     tf.train.create_global_step()
-    model = transformer_aux.TransformerAux(hparams, tf.estimator.ModeKeys.TRAIN,
+    model = transformer_aux.TransformerAux(hparams, tf_estimator.ModeKeys.TRAIN,
                                            p_hparams)
     logits, losses = model(features)
 

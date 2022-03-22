@@ -24,6 +24,7 @@ from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.models.research import gene_expression
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def gene_expression_conv_test():
@@ -53,7 +54,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
     }
     p_hparams = hparams.problem_hparams
     logits, _ = model_cls(
-        hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)(features)
+        hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)(features)
 
     with self.test_session() as sess:
       sess.run(tf.global_variables_initializer())

@@ -36,9 +36,10 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
-ModeKeys = tf.estimator.ModeKeys  # pylint: disable=invalid-name
+ModeKeys = tf_estimator.ModeKeys  # pylint: disable=invalid-name
 
 
 class AttentionType(object):

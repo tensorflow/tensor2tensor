@@ -24,6 +24,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models.research import transformer_revnet
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def transformer_revnet_test():
@@ -57,7 +58,7 @@ class TransformerRevnetTest(tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32),
     }
     model = transformer_revnet.TransformerRevnet(
-        hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+        hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
     logits, _ = model(features)
     grads = tf.gradients(
         tf.reduce_mean(logits), [features["inputs"]] + tf.global_variables())

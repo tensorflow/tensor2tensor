@@ -34,6 +34,7 @@ from tensor2tensor.models.research.shuffle_network import shuffle_layer
 from tensor2tensor.models.research.shuffle_network import ShuffleNetwork
 from tensor2tensor.utils import registry
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class LayerNormalization(tf.keras.layers.Layer):
@@ -177,7 +178,7 @@ class RSU(tf.keras.layers.Layer):
 
     if self.dropout > 0:
       candidate = tf.nn.dropout(candidate, rate=self.dropout / n_bits)
-    if self.dropout != 0.0 and self.mode == tf.estimator.ModeKeys.TRAIN:
+    if self.dropout != 0.0 and self.mode == tf_estimator.ModeKeys.TRAIN:
       noise = tf.random_normal(tf.shape(candidate), mean=1.0, stddev=0.001)
       candidate = candidate * noise
 

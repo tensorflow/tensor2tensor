@@ -26,6 +26,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.utils import contrib
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 import tensorflow_probability as tfp
 
 arg_scope = contrib.framework().arg_scope
@@ -931,7 +932,7 @@ def noise_op(latents, hparams):
   Returns:
     latents: latents with isotropic gaussian noise appended.
   """
-  if hparams.latent_noise == 0 or hparams.mode != tf.estimator.ModeKeys.TRAIN:
+  if hparams.latent_noise == 0 or hparams.mode != tf_estimator.ModeKeys.TRAIN:
     return latents
   latent_shape = common_layers.shape_list(latents)
   return latents + tf.random_normal(latent_shape, stddev=hparams.latent_noise)

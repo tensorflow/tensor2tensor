@@ -31,6 +31,7 @@ from tensor2tensor.utils import registry
 # from tensor2tensor.utils import restore_hook
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 from tensorflow.contrib.layers.python.layers import utils
 
@@ -57,7 +58,7 @@ class VqaRecurrentSelfAttention(vqa_attention.VqaAttentionBaseline):
           features["inputs"],
           model_fn=eval(hp.image_model_fn),
           trainable=hp.train_resnet,
-          is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
+          is_training=hp.mode == tf_estimator.ModeKeys.TRAIN)
     else:
       image_feat = features["inputs"]
 

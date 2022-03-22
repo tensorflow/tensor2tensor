@@ -40,6 +40,7 @@ from tensor2tensor.utils import t2t_model
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 import tensorflow_probability as tfp
 
 
@@ -319,7 +320,7 @@ def get_policy(observations, hparams, action_space,
   trainer_lib.add_problem_hparams(hparams, policy_problem)
   hparams.force_full_predict = True
   model = registry.model(hparams.policy_network)(
-      hparams, tf.estimator.ModeKeys.TRAIN
+      hparams, tf_estimator.ModeKeys.TRAIN
   )
   try:
     num_target_frames = hparams.video_num_target_frames

@@ -21,6 +21,7 @@ import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models.research import transformer_vae
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class TransformerVaeTest(tf.test.TestCase):
@@ -47,7 +48,7 @@ class TransformerVaeTest(tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32),
     }
     tf.train.create_global_step()
-    model = transformer_vae.TransformerAE(hparams, tf.estimator.ModeKeys.TRAIN,
+    model = transformer_vae.TransformerAE(hparams, tf_estimator.ModeKeys.TRAIN,
                                           p_hparams)
     logits, _ = model(features)
     with self.test_session() as session:

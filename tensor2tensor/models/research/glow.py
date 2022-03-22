@@ -28,6 +28,7 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 arg_scope = contrib.framework().arg_scope
 add_arg_scope = contrib.framework().add_arg_scope
@@ -101,7 +102,7 @@ class Glow(t2t_model.T2TModel):
 
   @property
   def is_training(self):
-    return self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    return self.hparams.mode == tf_estimator.ModeKeys.TRAIN
 
   def infer(self, features, *args, **kwargs):  # pylint: disable=arguments-differ
     del args, kwargs
@@ -129,7 +130,7 @@ class Glow(t2t_model.T2TModel):
       init_features: initialization features.
     """
     train_dataset = self.hparams.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN, hparams=self.hparams)
+        tf_estimator.ModeKeys.TRAIN, hparams=self.hparams)
     train_dataset = train_dataset.batch(self.hparams.init_batch_size)
     train_dataset = self.init_preprocess(train_dataset)
     return train_dataset.make_one_shot_iterator().get_next()

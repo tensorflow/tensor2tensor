@@ -36,6 +36,7 @@ from tensor2tensor.utils import optimize
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -53,15 +54,15 @@ class TransformerVaeFlowPrior(t2t_model.T2TModel):
 
   @property
   def is_training(self):
-    return self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    return self.hparams.mode == tf_estimator.ModeKeys.TRAIN
 
   @property
   def is_evaluating(self):
-    return self._hparams.mode == tf.estimator.ModeKeys.EVAL
+    return self._hparams.mode == tf_estimator.ModeKeys.EVAL
 
   @property
   def is_predicting(self):
-    return self._hparams.mode == tf.estimator.ModeKeys.PREDICT
+    return self._hparams.mode == tf_estimator.ModeKeys.PREDICT
 
   def loss_iw(self, logits, features):
     if isinstance(logits, dict):
@@ -494,7 +495,7 @@ class TransformerVaeFlowPrior(t2t_model.T2TModel):
       else:
         logits = self.top(output, features)
         losses["training"] = 0.0
-        if (self._hparams.mode != tf.estimator.ModeKeys.PREDICT and
+        if (self._hparams.mode != tf_estimator.ModeKeys.PREDICT and
             self._hparams.mode != "attack"):
           losses["training"] = self.loss(logits, features)
 

@@ -31,6 +31,7 @@ from tensor2tensor.models.research import glow_ops
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import hparam
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 arg_scope = contrib.framework().arg_scope
 add_arg_scope = contrib.framework().add_arg_scope
@@ -40,7 +41,7 @@ class GlowOpsTest(parameterized.TestCase, tf.test.TestCase):
 
   def get_glow_hparams(self):
     hparams = glow.glow_hparams()
-    hparams.add_hparam("mode", tf.estimator.ModeKeys.TRAIN)
+    hparams.add_hparam("mode", tf_estimator.ModeKeys.TRAIN)
     hparams.add_hparam("num_cond_latents", 1)
     hparams.add_hparam("latent_architecture", "glow_resnet")
     # Use latent skip connections

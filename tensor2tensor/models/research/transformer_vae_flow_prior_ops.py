@@ -28,6 +28,7 @@ from tensor2tensor.models.transformer import transformer_prepare_encoder
 from tensor2tensor.utils import learning_rate as lr
 from tensor2tensor.utils import mlperf_log
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def _mixed_precision_is_enabled(hparams):
@@ -140,7 +141,7 @@ def decoder(name, latents, hparams, decoder_self_attention_bias, **kwargs):
 
 def drop_2d(targets, mode, dropout_p):
   """Dropout in 2D."""
-  if dropout_p > 0 and mode == tf.estimator.ModeKeys.TRAIN:
+  if dropout_p > 0 and mode == tf_estimator.ModeKeys.TRAIN:
     batch_size, targets_length, hidden_size = common_layers.shape_list(targets)
     mask_prob = tf.random_uniform(
         shape=(batch_size, targets_length), minval=0.0, maxval=1.0)

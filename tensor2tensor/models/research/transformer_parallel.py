@@ -25,6 +25,7 @@ from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -68,9 +69,9 @@ class TransformerBlockParallel(transformer.Transformer):
   def top(self, body_output, features):
     assert self._hparams.block_size > 0
 
-    if (self._hparams.mode == tf.estimator.ModeKeys.TRAIN or
-        self._hparams.mode == tf.estimator.ModeKeys.EVAL):
-      if self._hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if (self._hparams.mode == tf_estimator.ModeKeys.TRAIN or
+        self._hparams.mode == tf_estimator.ModeKeys.EVAL):
+      if self._hparams.mode == tf_estimator.ModeKeys.TRAIN:
         features["block_index"] = tf.random_uniform(
             shape=[], minval=0, maxval=self._hparams.block_size, dtype=tf.int64)
       else:
@@ -94,8 +95,8 @@ class TransformerBlockParallel(transformer.Transformer):
         for i in range(self._hparams.block_size)
     ], axis=2)
 
-    if (self._hparams.mode == tf.estimator.ModeKeys.TRAIN or
-        self._hparams.mode == tf.estimator.ModeKeys.EVAL):
+    if (self._hparams.mode == tf_estimator.ModeKeys.TRAIN or
+        self._hparams.mode == tf_estimator.ModeKeys.EVAL):
       assert "block_index" in features
       k = features["block_index"]
       targets = targets[:, :, k:k + 1, :]
@@ -104,7 +105,7 @@ class TransformerBlockParallel(transformer.Transformer):
 
     loss = super(TransformerBlockParallel, self).loss(logits, features)
 
-    if self._hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if self._hparams.mode == tf_estimator.ModeKeys.TRAIN:
       loss_num, loss_den = loss
       loss_val = loss_num / loss_den
       for i in range(self._hparams.block_size):

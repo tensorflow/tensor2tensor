@@ -26,12 +26,13 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class AutoencoderTest(tf.test.TestCase):
 
   def get_mnist_random_output(self, model_name, hparams_set=None,
-                              mode=tf.estimator.ModeKeys.TRAIN):
+                              mode=tf_estimator.ModeKeys.TRAIN):
     hparams_set = hparams_set or model_name
     x = np.random.randint(256, size=(1, 28, 28, 1))
     y = np.random.randint(10, size=(1, 1))
