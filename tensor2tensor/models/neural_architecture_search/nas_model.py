@@ -40,6 +40,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 # Keys for the activation map.
@@ -358,7 +359,7 @@ class NasSeq2Seq(transformer.Transformer):
         save_weights_to=self.attention_weights)
 
     if (common_layers.is_xla_compiled() and
-        hparams.mode == tf.estimator.ModeKeys.TRAIN):
+        hparams.mode == tf_estimator.ModeKeys.TRAIN):
       # TPU does not react kindly to extra dimensions.
       return decoder_output
 
@@ -421,8 +422,8 @@ class NasSeq2Seq(transformer.Transformer):
         eval_metrics[metric_name] = metric_fn(logits, features,
                                               features["targets"])
 
-    return tf.estimator.EstimatorSpec(
-        tf.estimator.ModeKeys.EVAL,
+    return tf_estimator.EstimatorSpec(
+        tf_estimator.ModeKeys.EVAL,
         predictions={"predictions": logits},
         eval_metric_ops=eval_metrics,
         loss=loss)
@@ -446,12 +447,12 @@ class NasSeq2Seq(transformer.Transformer):
       # eval_metrics_fn. Here we add the labels to those arguments.
       logits.update({"labels": labels})
       return contrib.tpu().TPUEstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
+          tf_estimator.ModeKeys.EVAL,
           eval_metrics=(eval_metrics_fn, logits),
           loss=loss)
     else:
       return contrib.tpu().TPUEstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
+          tf_estimator.ModeKeys.EVAL,
           eval_metrics=(eval_metrics_fn, [logits, labels]),
           loss=loss)
 

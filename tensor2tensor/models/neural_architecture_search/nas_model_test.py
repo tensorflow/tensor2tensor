@@ -26,6 +26,7 @@ from tensor2tensor.models import transformer
 from tensor2tensor.models.neural_architecture_search import nas_layers as layers
 from tensor2tensor.models.neural_architecture_search import nas_model as translation_nas_net
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 _BATCH_SIZE = 5
 _INPUT_LENGTH = 5
@@ -185,7 +186,7 @@ class NasSeq2SeqTest(parameterized.TestCase, tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32)
     }
 
-    model = model_cls(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+    model = model_cls(hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
     logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())

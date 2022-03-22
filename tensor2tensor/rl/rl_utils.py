@@ -40,6 +40,7 @@ from tensor2tensor.utils import misc_utils
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def compute_mean_reward(rollouts, clipped):
@@ -119,7 +120,7 @@ def evaluate_all_configs(
 
 def evaluate_world_model(
     real_env, hparams, world_model_dir, debug_video_path,
-    split=tf.estimator.ModeKeys.EVAL,
+    split=tf_estimator.ModeKeys.EVAL,
 ):
   """Evaluate the world model (reward accuracy)."""
   frame_stack_size = hparams.frame_stack_size
@@ -339,7 +340,7 @@ def random_rollout_subsequences(rollouts, num_subsequences, subsequence_length):
 def make_initial_frame_chooser(
     real_env, frame_stack_size, simulation_random_starts,
     simulation_flip_first_random_for_beginning,
-    split=tf.estimator.ModeKeys.TRAIN,
+    split=tf_estimator.ModeKeys.TRAIN,
 ):
   """Make frame chooser.
 

@@ -35,6 +35,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 # Lazy load PIL.Image
@@ -140,7 +141,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     trainer_lib.add_problem_hparams(model_hparams, problem)
     model_hparams.force_full_predict = True
     self._model = registry.model(model_name)(
-        model_hparams, tf.estimator.ModeKeys.PREDICT
+        model_hparams, tf_estimator.ModeKeys.PREDICT
     )
 
     self.history_buffer = HistoryBuffer(

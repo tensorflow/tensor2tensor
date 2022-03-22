@@ -27,6 +27,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 EOS_ID = 1
 
@@ -138,7 +139,7 @@ def build_model(hparams_set, model_name, data_dir, problem_name, beam_size=1):
   hparams = trainer_lib.create_hparams(
       hparams_set, data_dir=data_dir, problem_name=problem_name)
   translate_model = registry.model(model_name)(
-      hparams, tf.estimator.ModeKeys.EVAL)
+      hparams, tf_estimator.ModeKeys.EVAL)
 
   inputs = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name="inputs")
   targets = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name="targets")

@@ -26,6 +26,7 @@ from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 import tensorflow_hub as hub
 
 FLAGS = tf.flags.FLAGS
@@ -155,7 +156,7 @@ def export_as_tfhub_module(model_name,
     # we must do a copy of the features, as the model_fn can add additional
     # entries there (like hyperparameter settings etc).
     original_features = features.copy()
-    spec = model_fn(features, labels=None, mode=tf.estimator.ModeKeys.PREDICT)
+    spec = model_fn(features, labels=None, mode=tf_estimator.ModeKeys.PREDICT)
 
     hub.add_signature(
         inputs=original_features,
@@ -204,7 +205,7 @@ def main(_):
 
   estimator = create_estimator(run_config, hparams)
 
-  exporter = tf.estimator.FinalExporter(
+  exporter = tf_estimator.FinalExporter(
       "exporter",
       lambda: problem.serving_input_fn(hparams, decode_hparams, FLAGS.use_tpu),
       as_text=FLAGS.as_text)

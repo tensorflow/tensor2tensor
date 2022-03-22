@@ -31,6 +31,7 @@ from tensor2tensor.envs import env_problem_utils
 from tensor2tensor.envs import gym_env_problem
 from tensor2tensor.layers import modalities
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class GymEnvProblemTest(tf.test.TestCase):
@@ -324,7 +325,7 @@ class GymEnvProblemTest(tf.test.TestCase):
         dev_filenames, ep)
 
     # Count them using a tf.data.Dataset.
-    dev_dataset = ep.dataset(tf.estimator.ModeKeys.EVAL, data_dir=self.tmp_dir)
+    dev_dataset = ep.dataset(tf_estimator.ModeKeys.EVAL, data_dir=self.tmp_dir)
 
     last_timestep = -1
     dev_timesteps_ds = 0

@@ -43,6 +43,7 @@ from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 mpl.use("Agg")
 flags = tf.flags
@@ -81,7 +82,7 @@ def main(_):
     frame_shape += [hparams.problem.num_channels]
 
   dataset = registry.problem(FLAGS.problem).dataset(
-      tf.estimator.ModeKeys.TRAIN,
+      tf_estimator.ModeKeys.TRAIN,
       shuffle_files=True,
       data_dir=os.path.expanduser(FLAGS.data_dir),
       hparams=hparams)
@@ -103,7 +104,7 @@ def main(_):
     }
   # Create model.
   model_cls = registry.model(FLAGS.model)
-  model = model_cls(hparams, tf.estimator.ModeKeys.PREDICT)
+  model = model_cls(hparams, tf_estimator.ModeKeys.PREDICT)
   prediction_ops = model.infer(placeholders)
 
   states_q = Queue(maxsize=hparams.video_num_input_frames)
