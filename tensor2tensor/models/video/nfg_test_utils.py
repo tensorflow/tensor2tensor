@@ -26,7 +26,8 @@ from tensor2tensor.data_generators import video_generated  # pylint: disable=unu
 from tensor2tensor.models.video import next_frame_glow
 from tensor2tensor.utils import registry
 import tensorflow.compat.v1 as tf
-MODES = tf.estimator.ModeKeys
+from tensorflow.compat.v1 import estimator as tf_estimator
+MODES = tf_estimator.ModeKeys
 
 
 # TODO(mechcoder): Refactor or merge tests with the other next_frame_tests when
@@ -165,7 +166,7 @@ class NextFrameGlowTest(tf.test.TestCase):
                              apply_dilations, activation)
       features = create_basic_features(hparams)
       model = next_frame_glow.NextFrameGlow(
-          hparams, tf.estimator.ModeKeys.PREDICT)
+          hparams, tf_estimator.ModeKeys.PREDICT)
       predictions = model.infer(features)
       outputs = predictions["outputs"]
       model_path = os.path.join(curr_dir, "model")

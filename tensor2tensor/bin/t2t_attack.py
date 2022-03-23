@@ -49,6 +49,7 @@ from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -134,7 +135,7 @@ def create_surrogate_run_config(hp):
 def prepare_data(problem, hparams, params, config):
   """Construct input pipeline."""
   input_fn = problem.make_estimator_input_fn(
-      tf.estimator.ModeKeys.EVAL, hparams, force_repeat=True)
+      tf_estimator.ModeKeys.EVAL, hparams, force_repeat=True)
   dataset = input_fn(params, config)
   features, _ = dataset.make_one_shot_iterator().get_next()
   inputs, labels = features["targets"], features["inputs"]

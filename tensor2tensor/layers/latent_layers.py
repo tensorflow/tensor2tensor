@@ -27,6 +27,7 @@ from tensor2tensor.layers import transformer_layers
 from tensor2tensor.utils import beam_search
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 import tensorflow_probability as tfp
 
 DO_SUMMARIES = True
@@ -556,7 +557,7 @@ def latent_prediction_model(inputs,
     latents_pred_loss: Tensor of shape [batch, length_q].
   """
   with tf.variable_scope(name, default_name="latent_prediction"):
-    if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode != tf_estimator.ModeKeys.PREDICT:
       latents_pred = transformer_latent_decoder(tf.stop_gradient(latents_dense),
                                                 inputs,
                                                 ed_attention_bias,
@@ -617,10 +618,10 @@ def transformer_autoencoder(inputs,
   losses = {"extra": 0.,
             "extra_loss": 0.,
             "latent_pred": 0.}
-  if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+  if hparams.mode != tf_estimator.ModeKeys.PREDICT:
     targets_compressed = compress_fn(targets, hparams, name="compress")
 
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
       scale = common_layers.inverse_exp_decay(hparams.startup_steps)
     else:
       scale = 1.0
@@ -681,7 +682,7 @@ def transformer_autoencoder(inputs,
       [-1, hparams.img_len, hparams.img_len, hparams.hidden_size])
 
   if hparams.use_gold_targets:
-    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode == tf_estimator.ModeKeys.PREDICT:
       masking = predict_mask
     else:
       masking = common_layers.inverse_exp_decay(hparams.mask_startup_steps)

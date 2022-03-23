@@ -35,6 +35,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 flags = tf.flags
@@ -243,7 +244,7 @@ def create_run_config(hp, output_dir=None):
         "num_cores_per_replica":
             1,
         "per_host_input_for_training":
-            tf.estimator.tpu.InputPipelineConfig.BROADCAST,
+            tf_estimator.tpu.InputPipelineConfig.BROADCAST,
     }
 
   # the various custom getters we have written do not play well together yet.

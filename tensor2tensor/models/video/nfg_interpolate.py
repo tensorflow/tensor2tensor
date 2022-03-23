@@ -31,6 +31,7 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import trainer_lib
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 # Flags placeholders.
 flags.DEFINE_string("checkpoint_path", None,
@@ -222,7 +223,7 @@ def main(_):
   # prepare dataset using Predict mode.
   dataset_split = "test" if FLAGS.eval_use_test_set else None
   dataset = hparams.problem.dataset(
-      tf.estimator.ModeKeys.PREDICT, shuffle_files=False, hparams=hparams,
+      tf_estimator.ModeKeys.PREDICT, shuffle_files=False, hparams=hparams,
       data_dir=FLAGS.data_dir, dataset_split=dataset_split)
   dataset = dataset.batch(hparams.batch_size)
   dataset = dataset.make_one_shot_iterator().get_next()

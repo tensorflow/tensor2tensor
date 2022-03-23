@@ -28,6 +28,7 @@ from tensor2tensor.models import transformer
 from tensor2tensor.utils import test_utils
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 tf.enable_eager_execution()
 
 
@@ -110,7 +111,7 @@ class LatentLayersTest(tf.test.TestCase):
   @test_utils.run_in_graph_and_eager_modes()
   def testTransformerAutoencoder(self):
     hparams = imagetransformer_latent_tiny()
-    hparams.mode = tf.estimator.ModeKeys.TRAIN
+    hparams.mode = tf_estimator.ModeKeys.TRAIN
     block_dim = int(hparams.hidden_size // hparams.num_blocks)
     block_v_size = 2**(hparams.bottleneck_bits /
                        (hparams.num_residuals * hparams.num_blocks))

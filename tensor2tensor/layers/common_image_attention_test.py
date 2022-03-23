@@ -25,6 +25,7 @@ from tensor2tensor.layers import common_image_attention
 from tensor2tensor.utils import hparam
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
@@ -40,7 +41,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
     hparams = hparam.HParams(
         hidden_size=2,
         likelihood=likelihood,
-        mode=tf.estimator.ModeKeys.TRAIN,
+        mode=tf_estimator.ModeKeys.TRAIN,
         num_mixtures=num_mixtures,
     )
     inputs = tf.random_uniform([batch, rows, cols, hparams.hidden_size],
@@ -63,7 +64,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
         block_raster_scan=True,
         hidden_size=2,
         likelihood=likelihood,
-        mode=tf.estimator.ModeKeys.PREDICT,
+        mode=tf_estimator.ModeKeys.PREDICT,
         num_mixtures=num_mixtures,
         query_shape=[block_length, block_width],
     )
@@ -95,7 +96,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
         hidden_size=2,
         likelihood=likelihood,
         num_channels=channels,
-        mode=tf.estimator.ModeKeys.TRAIN,
+        mode=tf_estimator.ModeKeys.TRAIN,
         num_mixtures=num_mixtures,
     )
     decoder_output = tf.random_normal([batch, rows, cols, hparams.hidden_size])

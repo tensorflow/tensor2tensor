@@ -42,6 +42,7 @@ from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -129,7 +130,7 @@ def score_file(filename):
     features = {"targets": batch_targets}
 
   # Prepare the model and the graph when model runs on features.
-  model = registry.model(FLAGS.model)(hparams, tf.estimator.ModeKeys.EVAL)
+  model = registry.model(FLAGS.model)(hparams, tf_estimator.ModeKeys.EVAL)
   _, losses = model(features)
   saver = tf.train.Saver()
 

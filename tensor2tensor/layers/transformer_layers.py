@@ -25,6 +25,7 @@ from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 # TODO(lukaszkaiser): remove this function when not needed any more.
@@ -237,8 +238,8 @@ def transformer_encoder(encoder_input,
               memory_height=memory_height,
               area_key_mode=hparams.get("area_key_mode", "none"),
               area_value_mode=hparams.get("area_value_mode", "none"),
-              training=(hparams.get("mode", tf.estimator.ModeKeys.TRAIN)
-                        == tf.estimator.ModeKeys.TRAIN))
+              training=(hparams.get("mode", tf_estimator.ModeKeys.TRAIN)
+                        == tf_estimator.ModeKeys.TRAIN))
           x = common_layers.layer_postprocess(x, y, hparams)
         with tf.variable_scope("ffn"):
           y = transformer_ffn_layer(
@@ -371,7 +372,7 @@ def transformer_ffn_layer(x,
     return common_layers.sru(x)
   elif ffn_layer == "local_moe_tpu":
     overhead = hparams.moe_overhead_eval
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
       overhead = hparams.moe_overhead_train
     ret, loss = expert_utils.local_moe_tpu(
         x,
@@ -382,7 +383,7 @@ def transformer_ffn_layer(x,
         loss_coef=hparams.moe_loss_coef)
   elif ffn_layer == "local_moe":
     overhead = hparams.moe_overhead_eval
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
       overhead = hparams.moe_overhead_train
     ret, loss = expert_utils.local_moe(
         x,

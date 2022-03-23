@@ -27,6 +27,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class AttentionType(object):
@@ -460,7 +461,7 @@ def ffn_layer(x, hparams, losses=None):
       y = tf.reshape(y, x_shape)
     elif hparams.ffn_layer == "local_moe_tpu":
       overhead = (hparams.moe_overhead_train
-                  if hparams.mode == tf.estimator.ModeKeys.TRAIN
+                  if hparams.mode == tf_estimator.ModeKeys.TRAIN
                   else hparams.moe_overhead_eval)
       x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
       y, loss = expert_utils.local_moe_tpu(
@@ -531,7 +532,7 @@ def postprocess_image(x, rows, cols, hparams):
                               use_bias=True,
                               activation=None,
                               name="output_conv")
-  if (hparams.mode == tf.estimator.ModeKeys.PREDICT and
+  if (hparams.mode == tf_estimator.ModeKeys.PREDICT and
       hparams.block_raster_scan):
     y = targets
     yshape = common_layers.shape_list(y)
@@ -577,7 +578,7 @@ def prepare_decoder(targets, hparams):
 
   # during training, images are [batch, IMG_LEN, IMG_LEN, 3].
   # At inference, they are [batch, curr_infer_length, 1, 1]
-  if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+  if hparams.mode == tf_estimator.ModeKeys.PREDICT:
     curr_infer_length = targets_shape[1]
     if hparams.block_raster_scan:
       assert hparams.img_len*channels % hparams.query_shape[1] == 0
@@ -659,7 +660,7 @@ def create_output(decoder_output, rows, cols, targets, hparams):
   batch = common_layers.shape_list(decoded_image)[0]
   depth = common_layers.shape_list(decoded_image)[-1]
   likelihood = getattr(hparams, "likelihood", DistributionType.CAT)
-  if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+  if hparams.mode == tf_estimator.ModeKeys.PREDICT:
     y = tf.reshape(decoded_image, [batch, -1, 1, 1, depth])
     output = y[:, :rows, :, :, :]
   elif likelihood == DistributionType.CAT:

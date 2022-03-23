@@ -25,6 +25,7 @@ from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 import tensorflow_probability as tfp
 
 from tensorflow.python.training import moving_averages  # pylint: disable=g-direct-tensorflow-import
@@ -472,7 +473,7 @@ def gumbel_softmax(x,
     d_dev = -tf.reduce_mean(d_variance)
     ret = s
 
-    if mode != tf.estimator.ModeKeys.TRAIN:
+    if mode != tf_estimator.ModeKeys.TRAIN:
       ret = tf.reshape(maxvhot, common_layers.shape_list(s))  # Just hot @eval.
     return m, ret, d_dev * 5.0 + tf.reduce_mean(kl) * 0.002
 
@@ -754,7 +755,7 @@ def discrete_bottleneck(inputs,
       y_clean = common_layers.saturating_sigmoid(outputs_discrete)
       if summary:
         tf.summary.histogram("y_clean", tf.reshape(y_clean, [-1]))
-      if noise_dev > 0 and mode == tf.estimator.ModeKeys.TRAIN:
+      if noise_dev > 0 and mode == tf_estimator.ModeKeys.TRAIN:
         noise = tf.truncated_normal(
             common_layers.shape_list(outputs_discrete),
             mean=0.0,
@@ -766,7 +767,7 @@ def discrete_bottleneck(inputs,
       y_discrete = tf.stop_gradient(d) + y - tf.stop_gradient(y)
       pd = common_layers.inverse_exp_decay(startup_steps * 2)
       pd *= discrete_mix
-      pd = pd if mode == tf.estimator.ModeKeys.TRAIN else 1.0
+      pd = pd if mode == tf_estimator.ModeKeys.TRAIN else 1.0
       c = tf.where(
           tf.less(tf.random_uniform([common_layers.shape_list(y)[0]]), pd),
           y_discrete, y)
@@ -1379,17 +1380,17 @@ def tanh_discrete_bottleneck(x, bottleneck_bits, bottleneck_noise,
   """Simple discretization through tanh, flip bottleneck_noise many bits."""
   x = tf.layers.dense(x, bottleneck_bits, name="tanh_discrete_bottleneck")
   d0 = tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x))) - 1.0
-  if mode == tf.estimator.ModeKeys.TRAIN:
+  if mode == tf_estimator.ModeKeys.TRAIN:
     x += tf.truncated_normal(
         common_layers.shape_list(x), mean=0.0, stddev=0.2)
   x = tf.tanh(x)
   d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
-  if mode == tf.estimator.ModeKeys.TRAIN:
+  if mode == tf_estimator.ModeKeys.TRAIN:
     noise = tf.random_uniform(common_layers.shape_list(x))
     noise = 2.0 * tf.to_float(tf.less(bottleneck_noise, noise)) - 1.0
     d *= noise
   d = common_layers.mix(d, x, discretize_warmup_steps,
-                        mode == tf.estimator.ModeKeys.TRAIN)
+                        mode == tf_estimator.ModeKeys.TRAIN)
   return d, d0
 
 
@@ -1410,13 +1411,13 @@ def isemhash_bottleneck(x,
   with tf.variable_scope("isemhash_bottleneck"):
     x = tf.layers.dense(x, bottleneck_bits, name="dense")
     y = common_layers.saturating_sigmoid(x)
-    if isemhash_noise_dev > 0 and mode == tf.estimator.ModeKeys.TRAIN:
+    if isemhash_noise_dev > 0 and mode == tf_estimator.ModeKeys.TRAIN:
       noise = tf.truncated_normal(
           common_layers.shape_list(x), mean=0.0, stddev=isemhash_noise_dev)
       y = common_layers.saturating_sigmoid(x + noise)
     d = tf.to_float(tf.less(0.5, y)) + y - tf.stop_gradient(y)
     d = 2.0 * d - 1.0  # Move from [0, 1] to [-1, 1].
-    if mode == tf.estimator.ModeKeys.TRAIN:  # Flip some bits.
+    if mode == tf_estimator.ModeKeys.TRAIN:  # Flip some bits.
       noise = tf.random_uniform(common_layers.shape_list(x))
       noise = 2.0 * tf.to_float(tf.less(bottleneck_noise, noise)) - 1.0
       d *= noise
@@ -1424,7 +1425,7 @@ def isemhash_bottleneck(x,
           d,
           2.0 * y - 1.0,
           discretize_warmup_steps,
-          mode == tf.estimator.ModeKeys.TRAIN,
+          mode == tf_estimator.ModeKeys.TRAIN,
           max_prob=isemhash_mix_prob)
     return d, 0.0
 

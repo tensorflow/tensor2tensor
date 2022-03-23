@@ -24,6 +24,7 @@ from tensor2tensor.data_generators import problem  # pylint: disable=unused-impo
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -42,7 +43,7 @@ def main(_):
   dataset_split = "test" if FLAGS.eval_use_test_set else None
   dataset_kwargs = {"dataset_split": dataset_split}
   eval_input_fn = hparams.problem.make_estimator_input_fn(
-      tf.estimator.ModeKeys.EVAL, hparams, dataset_kwargs=dataset_kwargs)
+      tf_estimator.ModeKeys.EVAL, hparams, dataset_kwargs=dataset_kwargs)
   config = t2t_trainer.create_run_config(hparams)
 
   # summary-hook in tf.estimator.EstimatorSpec requires

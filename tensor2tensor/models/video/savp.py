@@ -33,6 +33,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import update_ops_hook
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 import tensorflow_gan as tfgan
 
 gan_losses = tfgan.losses.wargs
@@ -398,7 +399,7 @@ class NextFrameSAVP(NextFrameSavpBase, sv2p.NextFrameSv2pLegacy):
       [], [], [], [], []
     pred_image = tf.zeros_like(images[0])
     prior_latent_state, cond_latent_state = None, None
-    train_mode = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    train_mode = self.hparams.mode == tf_estimator.ModeKeys.TRAIN
 
     # Create scheduled sampling function
     ss_func = self.get_scheduled_sample_func(batch_size)
