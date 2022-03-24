@@ -1,7 +1,8 @@
 version: 2
 jobs:
   build-test-tensor2tensor:
-    machine: true
+    machine:
+      image: ubuntu-2004:202201-02
     workDir: ~/tensor2tensor
     steps:
       - type: checkout
@@ -37,7 +38,8 @@ jobs:
       # TODO: build sphinx docs? or will we always use the upstream sphinx docs???
 
   smoke-testinfra:
-    machine: true
+    machine:
+      image: ubuntu-2004:202201-02
     workDir: ~
     environment:
       PYTHONPATH: ~/diseaseTools:.
