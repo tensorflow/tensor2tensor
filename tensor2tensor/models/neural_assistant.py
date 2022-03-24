@@ -24,6 +24,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
 from tensor2tensor.utils import registry
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -68,7 +69,7 @@ class NeuralAssistant(transformer.Transformer):
         kb_train_weight = self._hparams.kb_train_weight
         cur_lm_loss_weight = 1.0 - cur_kb_loss_weight
         # Finalize loss
-        if (self._hparams.mode != tf.estimator.ModeKeys.PREDICT and
+        if (self._hparams.mode != tf_estimator.ModeKeys.PREDICT and
             self._hparams.mode != "attack"):
           lm_loss_num, lm_loss_denom = self.loss(logits, features)
           total_loss = (kb_train_weight) * cur_knowledge_training_loss + (
@@ -254,7 +255,7 @@ class NeuralAssistant(transformer.Transformer):
         margin + positive_loss - negative_loss,
         clip_value_min=0,
         clip_value_max=100)
-    if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode != tf_estimator.ModeKeys.PREDICT:
       triple_losses = tf.nn.weighted_cross_entropy_with_logits(
           labels=triple_labels,
           logits=triple_logits,

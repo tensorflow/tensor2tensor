@@ -23,6 +23,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -44,7 +45,7 @@ class Distillation(t2t_model.T2TModel):
 
   def __init__(self,
                hparams,
-               mode=tf.estimator.ModeKeys.TRAIN,
+               mode=tf_estimator.ModeKeys.TRAIN,
                problem_hparams=None,
                data_parallelism=None,
                decode_hparams=None,

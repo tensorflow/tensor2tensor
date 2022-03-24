@@ -33,6 +33,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import mtf_model
 from tensor2tensor.utils import registry
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -243,8 +244,8 @@ class MtfImageTransformer(mtf_model.MtfModel):
 def layer_prepostprocess_dropout(x, hparams):
   batch_dim = x.shape.dims[0]
   model_dim = x.shape.dims[-1]
-  mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
-  is_training = mode == tf.estimator.ModeKeys.TRAIN
+  mode = getattr(hparams, "mode", tf_estimator.ModeKeys.TRAIN)
+  is_training = mode == tf_estimator.ModeKeys.TRAIN
   return mtf.dropout(
       x, is_training,
       keep_prob=1.0 - hparams.layer_prepostprocess_dropout,
@@ -261,8 +262,8 @@ def local_attention1d_spatial_decoder(x, kv_dim, heads_dim,
   x = mtf.reshape(
       x, mtf.Shape([batch_dim, num_w_blocks_dim, blocks_w_dim, model_dim]))
   # [ self attention - ffn - residual + dropout] x n
-  mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
-  is_training = mode == tf.estimator.ModeKeys.TRAIN
+  mode = getattr(hparams, "mode", tf_estimator.ModeKeys.TRAIN)
+  is_training = mode == tf_estimator.ModeKeys.TRAIN
   for layer in range(hparams.num_decoder_layers):
     layer_name = "decoder_layer_%d" % layer
     with tf.variable_scope(layer_name):
@@ -311,8 +312,8 @@ def local_attention2d_spatial_decoder(x, kv_dim, heads_dim,
           batch_dim, num_h_blocks_dim, num_w_blocks_dim,
           blocks_h_dim, blocks_w_dim, model_dim
       ]))
-  mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
-  is_training = mode == tf.estimator.ModeKeys.TRAIN
+  mode = getattr(hparams, "mode", tf_estimator.ModeKeys.TRAIN)
+  is_training = mode == tf_estimator.ModeKeys.TRAIN
   # Image Transformer Decoder
   # [ self attention - ffn - residual + dropout] x n
   for layer in range(hparams.num_decoder_layers):
@@ -345,8 +346,8 @@ def local_attention1d_masked_decoder(x, kv_dim, heads_dim,
   """Image Transformer decoder with local1D masked layers."""
   print(x)
   _, length_dim, model_dim = x.shape.dims
-  mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
-  is_training = mode == tf.estimator.ModeKeys.TRAIN
+  mode = getattr(hparams, "mode", tf_estimator.ModeKeys.TRAIN)
+  is_training = mode == tf_estimator.ModeKeys.TRAIN
   for layer in range(hparams.num_decoder_layers):
     layer_name = "decoder_layer_%d" % layer
     with tf.variable_scope(layer_name):

@@ -17,6 +17,7 @@
 
 from tensor2tensor.models import revnet
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class RevnetTest(tf.test.TestCase):
@@ -99,7 +100,7 @@ class RevnetTest(tf.test.TestCase):
   def testEndToEnd(self):
     images = tf.random_uniform([1, 299, 299, 3])
     hparams = revnet.revnet_base()
-    hparams.mode = tf.estimator.ModeKeys.TRAIN
+    hparams.mode = tf_estimator.ModeKeys.TRAIN
     logits = revnet.revnet(images, hparams)
     self.assertEqual(logits.shape, [1, 1, 1, 3328])
 
@@ -107,7 +108,7 @@ class RevnetTest(tf.test.TestCase):
     images = tf.random_uniform([1, 299, 299, 299, 3])
     hparams = revnet.revnet_base()
     hparams.dim = '3d'
-    hparams.mode = tf.estimator.ModeKeys.TRAIN
+    hparams.mode = tf_estimator.ModeKeys.TRAIN
     logits = revnet.revnet(images, hparams)
     self.assertEqual(logits.shape, [1, 1, 1, 1, 3328])
 

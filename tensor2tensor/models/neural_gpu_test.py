@@ -25,6 +25,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.models import neural_gpu
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class NeuralGPUTest(tf.test.TestCase):
@@ -48,7 +49,7 @@ class NeuralGPUTest(tf.test.TestCase):
           "inputs": tf.constant(inputs, dtype=tf.int32),
           "targets": tf.constant(targets, dtype=tf.int32)
       }
-      model = neural_gpu.NeuralGPU(hparams, tf.estimator.ModeKeys.TRAIN,
+      model = neural_gpu.NeuralGPU(hparams, tf_estimator.ModeKeys.TRAIN,
                                    p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())

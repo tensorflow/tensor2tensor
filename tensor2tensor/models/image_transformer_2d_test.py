@@ -26,6 +26,7 @@ from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.utils import registry
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class Img2imgTransformerTest(tf.test.TestCase):
@@ -43,7 +44,7 @@ class Img2imgTransformerTest(tf.test.TestCase):
           "targets": tf.constant(targets, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = net(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+      model = net(hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -73,7 +74,7 @@ class Imagetransformer2dTest(tf.test.TestCase):
           "targets": tf.constant(targets, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = net(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+      model = net(hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

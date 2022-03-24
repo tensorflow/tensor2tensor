@@ -26,6 +26,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import mtf_transformer
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 # Constants shared between all functions.
 BATCH_SIZE = 2
@@ -34,7 +35,7 @@ TARGET_LENGTH = 6
 VOCAB_SIZE = 128
 
 
-def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
+def get_model(hparams=None, mode=tf_estimator.ModeKeys.TRAIN,
               has_input=True, model_cls=mtf_transformer.MtfTransformer):
   if hparams is None:
     hparams = mtf_transformer.mtf_transformer_single()

@@ -26,6 +26,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.models import xception
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class XceptionTest(tf.test.TestCase):
@@ -48,7 +49,7 @@ class XceptionTest(tf.test.TestCase):
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = xception.Xception(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+      model = xception.Xception(hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

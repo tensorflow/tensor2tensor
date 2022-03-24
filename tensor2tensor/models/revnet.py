@@ -41,6 +41,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def wrapped_partial(fn, *args, **kwargs):
@@ -312,7 +313,7 @@ def revnet(inputs, hparams, reuse=None):
   Returns:
     [batch_size, hidden_dim] pre-logits tensor from the bottleneck RevNet.
   """
-  training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+  training = hparams.mode == tf_estimator.ModeKeys.TRAIN
   with tf.variable_scope('RevNet', reuse=reuse):
     x1, x2 = init(inputs,
                   num_channels=hparams.num_channels_init_block,

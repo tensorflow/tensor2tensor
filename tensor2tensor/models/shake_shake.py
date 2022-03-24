@@ -25,6 +25,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def shake_shake_skip_connection(x, output_filters, stride, is_training):
@@ -55,7 +56,7 @@ def shake_shake_skip_connection(x, output_filters, stride, is_training):
 def shake_shake_branch(x, output_filters, stride, rand_forward, rand_backward,
                        hparams):
   """Building a 2 branching convnet."""
-  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+  is_training = hparams.mode == tf_estimator.ModeKeys.TRAIN
   x = tf.nn.relu(x)
   x = tf.layers.conv2d(
       x,
@@ -77,7 +78,7 @@ def shake_shake_branch(x, output_filters, stride, rand_forward, rand_backward,
 
 def shake_shake_block(x, output_filters, stride, hparams):
   """Builds a full shake-shake sub layer."""
-  is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+  is_training = hparams.mode == tf_estimator.ModeKeys.TRAIN
   batch_size = common_layers.shape_list(x)[0]
 
   # Generate random numbers for scaling the branches.
@@ -139,7 +140,7 @@ class ShakeShake(t2t_model.T2TModel):
 
   def body(self, features):
     hparams = self._hparams
-    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+    is_training = hparams.mode == tf_estimator.ModeKeys.TRAIN
     inputs = features["inputs"]
     assert (hparams.num_hidden_layers - 2) % 6 == 0
     assert hparams.hidden_size % 16 == 0

@@ -27,6 +27,7 @@ from tensor2tensor.models import slicenet
 from tensor2tensor.utils import registry
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class SliceNetTest(tf.test.TestCase):
@@ -45,7 +46,7 @@ class SliceNetTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = slicenet.SliceNet(hparams, tf.estimator.ModeKeys.TRAIN,
+      model = slicenet.SliceNet(hparams, tf_estimator.ModeKeys.TRAIN,
                                 p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
@@ -66,7 +67,7 @@ class SliceNetTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = slicenet.SliceNet(hparams, tf.estimator.ModeKeys.TRAIN,
+      model = slicenet.SliceNet(hparams, tf_estimator.ModeKeys.TRAIN,
                                 p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())

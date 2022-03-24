@@ -25,6 +25,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import transformer
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 BATCH_SIZE = 3
@@ -33,7 +34,7 @@ TARGET_LENGTH = 7
 VOCAB_SIZE = 10
 
 
-def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
+def get_model(hparams=None, mode=tf_estimator.ModeKeys.TRAIN,
               has_input=True, model_cls=transformer.Transformer):
   if hparams is None:
     hparams = transformer.transformer_tiny()
@@ -150,7 +151,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       greedy_result = model._slow_greedy_infer(
@@ -185,7 +186,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       slow_result = model._slow_greedy_infer(
@@ -204,7 +205,7 @@ class TransformerTest(tf.test.TestCase):
   def testBeamDecodeWithRelativeAttention(self):
     decode_length = 2
     model, features = get_model(transformer.transformer_relative_tiny())
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     beam_result = model._beam_decode(
         features, decode_length, beam_size=4, top_beams=1,
@@ -237,7 +238,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       beam_result = model._beam_decode_slow(
@@ -315,7 +316,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     return model, features
 
@@ -387,7 +388,7 @@ class TransformerScorerTest(tf.test.TestCase):
 
   def testReturnsScores(self):
     model, features = get_model(
-        mode=tf.estimator.ModeKeys.PREDICT,
+        mode=tf_estimator.ModeKeys.PREDICT,
         model_cls=transformer.TransformerScorer)
     infer_out = model.infer(features)
     self.assertTrue("outputs" in infer_out)
@@ -402,21 +403,21 @@ class TransformerScorerTest(tf.test.TestCase):
   def testVarNames(self):
     with tf.Graph().as_default():
       model, features = get_model(
-          mode=tf.estimator.ModeKeys.PREDICT,
+          mode=tf_estimator.ModeKeys.PREDICT,
           model_cls=transformer.TransformerScorer)
       _ = model.infer(features)
       scorer_vars = [v.name for v in tf.global_variables()]
 
     with tf.Graph().as_default():
       model, features = get_model(
-          mode=tf.estimator.ModeKeys.EVAL,
+          mode=tf_estimator.ModeKeys.EVAL,
           model_cls=transformer.TransformerScorer)
       _ = model(features)
       scorer_eval_vars = [v.name for v in tf.global_variables()]
 
     with tf.Graph().as_default():
       model, features = get_model(
-          mode=tf.estimator.ModeKeys.EVAL,
+          mode=tf_estimator.ModeKeys.EVAL,
           model_cls=transformer.Transformer)
       _ = model(features)
       transformer_vars = [v.name for v in tf.global_variables()]

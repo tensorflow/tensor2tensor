@@ -27,6 +27,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 BATCH_NORM_DECAY = 0.9
@@ -542,7 +543,7 @@ class Resnet(t2t_model.T2TModel):
         "bottleneck": bottleneck_block,
     }
     assert hp.block_fn in block_fns
-    is_training = hp.mode == tf.estimator.ModeKeys.TRAIN
+    is_training = hp.mode == tf_estimator.ModeKeys.TRAIN
     if is_training:
       targets = features["targets_raw"]
 

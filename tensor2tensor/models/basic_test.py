@@ -25,6 +25,7 @@ from tensor2tensor.models import basic
 from tensor2tensor.utils import trainer_lib
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class BasicTest(tf.test.TestCase):
@@ -39,7 +40,7 @@ class BasicTest(tf.test.TestCase):
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = basic.BasicFcRelu(hparams, tf.estimator.ModeKeys.TRAIN)
+      model = basic.BasicFcRelu(hparams, tf_estimator.ModeKeys.TRAIN)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

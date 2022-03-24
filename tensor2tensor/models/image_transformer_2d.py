@@ -34,6 +34,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -46,7 +47,7 @@ class Imagetransformer2d(t2t_model.T2TModel):
     targets = features["targets"]
     targets_shape = common_layers.shape_list(targets)
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.estimator.ModeKeys.PREDICT):
+            hparams.mode == tf_estimator.ModeKeys.PREDICT):
       tf.summary.image("targets", targets, max_outputs=1)
 
     decoder_input, rows, cols = cia.prepare_decoder(
@@ -76,7 +77,7 @@ class Img2imgTransformer(t2t_model.T2TModel):
     targets = features["targets"]
     inputs = features["inputs"]
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.estimator.ModeKeys.PREDICT):
+            hparams.mode == tf_estimator.ModeKeys.PREDICT):
       tf.summary.image("inputs", inputs, max_outputs=1)
       tf.summary.image("targets", targets, max_outputs=1)
 
@@ -112,7 +113,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
     targets = features["targets"]
     inputs = features["inputs"]
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.estimator.ModeKeys.PREDICT):
+            hparams.mode == tf_estimator.ModeKeys.PREDICT):
       tf.summary.image("inputs", inputs, max_outputs=1)
       tf.summary.image("targets", targets, max_outputs=1)
 
@@ -174,11 +175,11 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
     assert self._hparams.block_size > 0
 
     train_or_eval = (
-        self._hparams.mode == tf.estimator.ModeKeys.TRAIN or
-        self._hparams.mode == tf.estimator.ModeKeys.EVAL)
+        self._hparams.mode == tf_estimator.ModeKeys.TRAIN or
+        self._hparams.mode == tf_estimator.ModeKeys.EVAL)
 
     if train_or_eval:
-      if self._hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      if self._hparams.mode == tf_estimator.ModeKeys.TRAIN:
         features["block_index"] = tf.random_uniform(
             shape=[], minval=0, maxval=self._hparams.block_size, dtype=tf.int64)
       else:
@@ -203,7 +204,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
   def loss(self, logits, features):
     assert self._hparams.block_size > 0
 
-    if self._hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    if self._hparams.mode == tf_estimator.ModeKeys.PREDICT:
       return 0.0
 
     def shift_left_2d(x, k):
@@ -222,8 +223,8 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
         for i in range(self._hparams.block_size)
     ], axis=4)
 
-    if (self._hparams.mode == tf.estimator.ModeKeys.TRAIN or
-        self._hparams.mode == tf.estimator.ModeKeys.EVAL):
+    if (self._hparams.mode == tf_estimator.ModeKeys.TRAIN or
+        self._hparams.mode == tf_estimator.ModeKeys.EVAL):
       assert "block_index" in features
       targets = targets[:, :, :, :, features["block_index"]]
 
@@ -231,7 +232,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
 
     loss = super(Img2imgTransformerBlockParallel, self).loss(logits, features)
 
-    if self._hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if self._hparams.mode == tf_estimator.ModeKeys.TRAIN:
       k = features["block_index"]
       loss_num, loss_den = loss
       loss_val = loss_num / loss_den

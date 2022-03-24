@@ -29,6 +29,7 @@ from tensor2tensor.utils import mtf_model
 from tensor2tensor.utils import registry
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -37,7 +38,7 @@ class MtfTransformer(mtf_model.MtfModel):
 
   def __init__(self,
                hparams,
-               mode=tf.estimator.ModeKeys.TRAIN,
+               mode=tf_estimator.ModeKeys.TRAIN,
                problem_hparams=None,
                data_parallelism=None,
                decode_hparams=None,
@@ -194,7 +195,7 @@ class MtfTransformer(mtf_model.MtfModel):
       # Train a small transformer to fill in masked out values, then
       # sample from it.
       hparams = self._hparams
-      if hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      if hparams.mode != tf_estimator.ModeKeys.TRAIN:
         raise NotImplementedError("Not implemented")
       noiser_hparams = copy.copy(self._hparams)
       noiser_hparams.del_hparam("mode")
@@ -222,7 +223,7 @@ class MtfTransformer(mtf_model.MtfModel):
       a Tensor the same dtype and shape as Targets
     """
     hparams = self._hparams
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
       nt_train = self._noisy_targets_from_spec(
           targets, hparams.noising_spec_train, losses=losses)
       if hparams.noising_use_eval_during_train > 0:
@@ -242,8 +243,8 @@ class MtfTransformer(mtf_model.MtfModel):
     hparams = self._hparams
     extra_losses = []
     targets = tf.to_int32(features["targets"])
-    mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    mode = getattr(hparams, "mode", tf_estimator.ModeKeys.TRAIN)
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
     if len(targets.get_shape()) > 2:
       tf.logging.info("targets = %s" % targets)
       targets = tf.squeeze(targets, [2, 3])
@@ -359,7 +360,7 @@ class MtfTransformer(mtf_model.MtfModel):
             encdec_attention_mask=encoder_decoder_attention_mask,
             losses=extra_losses)
     if (hparams.reshape_logits_hack and
-        hparams.mode == tf.estimator.ModeKeys.TRAIN):
+        hparams.mode == tf_estimator.ModeKeys.TRAIN):
       # For some reason, the logits computation is extremely slow on TPU
       # in some cases where the batch size per core is 1.  Reshape the logits
       # and the targets to double the batch size and halve the length.
@@ -373,7 +374,7 @@ class MtfTransformer(mtf_model.MtfModel):
       targets = mtf.reshape(targets, new_dims)
 
     logits = mtf.matmul(x, softmax_var)
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
       logits = mtf.layers.multiplicative_jitter(logits, epsilon=1e-2)
     off_value = hparams.label_smoothing / self._targets_vocab_size
     on_value = 1.0 - hparams.label_smoothing + off_value
@@ -387,7 +388,7 @@ class MtfTransformer(mtf_model.MtfModel):
     for l in extra_losses:
       loss += l
     if (hparams.reshape_logits_hack and
-        hparams.mode == tf.estimator.ModeKeys.TRAIN):
+        hparams.mode == tf_estimator.ModeKeys.TRAIN):
       logits = mtf.reshape(logits, old_dims + [self.targets_vocab_dim])
     logits = mtf.to_float(logits)
     return logits, loss
@@ -428,8 +429,8 @@ class MtfTransformer(mtf_model.MtfModel):
       ValueError: if hparams make no sense
     """
     hparams = self._hparams
-    mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    mode = getattr(hparams, "mode", tf_estimator.ModeKeys.TRAIN)
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
     if layer_type == "drd":
       return mtf.layers.dense_relu_dense(
           x, self.feedforward_dim, is_training, dropout=hparams.relu_dropout,
@@ -443,7 +444,7 @@ class MtfTransformer(mtf_model.MtfModel):
           x,
           self.model_dim,
           hparams,
-          hparams.mode == tf.estimator.ModeKeys.TRAIN,
+          hparams.mode == tf_estimator.ModeKeys.TRAIN,
           master_dtype=self.master_dtype,
           slice_dtype=self.slice_dtype)
       if losses is not None:
@@ -454,7 +455,7 @@ class MtfTransformer(mtf_model.MtfModel):
           x,
           self.model_dim,
           hparams,
-          hparams.mode == tf.estimator.ModeKeys.TRAIN,
+          hparams.mode == tf_estimator.ModeKeys.TRAIN,
           master_dtype=self.master_dtype,
           slice_dtype=self.slice_dtype)
       if losses is not None:
@@ -496,8 +497,8 @@ class MtfTransformer(mtf_model.MtfModel):
     """
     hparams = self._hparams
     is_incremental = (step_num is not None)
-    mode = getattr(hparams, "mode", tf.estimator.ModeKeys.TRAIN)
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    mode = getattr(hparams, "mode", tf_estimator.ModeKeys.TRAIN)
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
     def layer_prepostprocess_dropout(x):
       if is_incremental:
         return x

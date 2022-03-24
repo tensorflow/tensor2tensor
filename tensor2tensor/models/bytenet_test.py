@@ -24,6 +24,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import bytenet
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class ByteNetTest(tf.test.TestCase):
@@ -42,7 +43,7 @@ class ByteNetTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = bytenet.ByteNet(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+          hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

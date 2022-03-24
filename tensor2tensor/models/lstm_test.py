@@ -24,6 +24,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import lstm
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class LSTMTest(tf.test.TestCase):
@@ -41,7 +42,7 @@ class LSTMTest(tf.test.TestCase):
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = lstm.LSTMSeq2seq(hparams, tf.estimator.ModeKeys.TRAIN,
+      model = lstm.LSTMSeq2seq(hparams, tf_estimator.ModeKeys.TRAIN,
                                p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
@@ -66,7 +67,7 @@ class LSTMTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = lstm.LSTMSeq2seqAttention(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+          hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -86,7 +87,7 @@ class LSTMTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = lstm.LSTMSeq2seqBidirectionalEncoder(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+          hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -108,7 +109,7 @@ class LSTMTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = lstm.LSTMSeq2seqAttentionBidirectionalEncoder(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+          hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

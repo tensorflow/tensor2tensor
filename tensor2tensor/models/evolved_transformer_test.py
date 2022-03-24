@@ -24,6 +24,7 @@ from tensor2tensor.models import evolved_transformer
 from tensor2tensor.models import transformer
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 BATCH_SIZE = 3
 INPUT_LENGTH = 5
@@ -88,7 +89,7 @@ def get_model(hparams, has_input=True, num_decoder_layers=1):
     features["inputs"] = tf.constant(inputs, dtype=tf.int32, name="inputs")
 
   return (evolved_transformer.EvolvedTransformer(hparams,
-                                                 tf.estimator.ModeKeys.TRAIN,
+                                                 tf_estimator.ModeKeys.TRAIN,
                                                  p_hparams), features)
 
 
@@ -121,7 +122,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
       for _ in range(10):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       greedy_result = model._slow_greedy_infer(features,
@@ -155,7 +156,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
       for _ in range(10):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       slow_result = model._slow_greedy_infer(features, decode_length)["outputs"]
@@ -188,7 +189,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
       for _ in range(10):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       beam_result = model._beam_decode_slow(
@@ -227,7 +228,7 @@ class EvolvedTransformerTest(tf.test.TestCase):
       for _ in range(10):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     return model, features
 

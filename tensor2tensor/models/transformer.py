@@ -42,6 +42,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.ops import inplace_ops
@@ -172,7 +173,7 @@ def transformer_decode(decoder_function,
       **kwargs)
 
   if (common_layers.is_xla_compiled() and
-      hparams.mode == tf.estimator.ModeKeys.TRAIN):
+      hparams.mode == tf_estimator.ModeKeys.TRAIN):
     # TPU does not react kindly to extra dimensions.
     # TODO(noam): remove this once TPU is more forgiving of extra dims.
     return decoder_output
@@ -1530,7 +1531,7 @@ def transformer_self_attention_layer(decoder_input,
           area_value_mode=hparams.get("area_value_mode", "none"),
           training=(hparams.get(
               "mode",
-              tf.estimator.ModeKeys.TRAIN) == tf.estimator.ModeKeys.TRAIN))
+              tf_estimator.ModeKeys.TRAIN) == tf_estimator.ModeKeys.TRAIN))
       x = common_layers.layer_postprocess(x, y, hparams)
     if encoder_output is not None:
       if not isinstance(encoder_output, (list,)):
@@ -1569,7 +1570,7 @@ def transformer_self_attention_layer(decoder_input,
               area_value_mode=hparams.get("area_value_mode", "none"),
               training=(hparams.get(
                   "mode",
-                  tf.estimator.ModeKeys.TRAIN) == tf.estimator.ModeKeys.TRAIN))
+                  tf_estimator.ModeKeys.TRAIN) == tf_estimator.ModeKeys.TRAIN))
           x = common_layers.layer_postprocess(x, y, hparams)
     return x, layer_cache
 

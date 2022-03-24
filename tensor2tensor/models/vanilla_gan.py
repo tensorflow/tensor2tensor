@@ -28,6 +28,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def lrelu(input_, leak=0.2, name="lrelu"):
@@ -135,7 +136,7 @@ class AbstractGAN(t2t_model.T2TModel):
       and losses is a dictionary of losses (that get added for the final loss).
     """
     features["targets"] = features["inputs"]
-    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    is_training = self.hparams.mode == tf_estimator.ModeKeys.TRAIN
 
     # Input images.
     inputs = tf.to_float(features["targets_raw"])
@@ -170,7 +171,7 @@ class SlicedGan(AbstractGAN):
 
   def losses(self, inputs, generated):
     """Losses in the sliced case."""
-    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    is_training = self.hparams.mode == tf_estimator.ModeKeys.TRAIN
     def discriminate(x):
       return self.discriminator(x, is_training=is_training, reuse=False)
     generator_loss = common_layers.sliced_gan_loss(

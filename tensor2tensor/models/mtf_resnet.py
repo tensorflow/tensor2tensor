@@ -29,6 +29,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import mtf_model
 from tensor2tensor.utils import registry
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 BATCH_NORM_DECAY = 0.9
@@ -214,7 +215,7 @@ class MtfResNet(mtf_model.MtfModel):
     tf.logging.info("features = %s" % features)
     hparams = self._hparams
     activation_dtype = self.set_activation_type()
-    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+    is_training = hparams.mode == tf_estimator.ModeKeys.TRAIN
 
     # Declare all the dimensions
     batch_dim = mtf.Dimension("batch", hparams.batch_size)

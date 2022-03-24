@@ -28,6 +28,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def _dropout_lstm_cell(hparams, train):
@@ -114,7 +115,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
       keys = area_attention.compute_area_key(
           keys, max_area_width=hparams.get("max_area_width", 1),
           mode=hparams.get("area_key_mode", "none"), name="decoder_encoder",
-          training=(hparams.mode == tf.estimator.ModeKeys.TRAIN))
+          training=(hparams.mode == tf_estimator.ModeKeys.TRAIN))
       if hparams.get("area_value_mode", "none") == "sum":
         _, _, values, _, _ = area_attention.compute_area_features(
             values, max_area_width=hparams.get("max_area_width", 1))
@@ -333,7 +334,7 @@ class LSTMEncoder(t2t_model.T2TModel):
   def body(self, features):
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
-    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+    train = self._hparams.mode == tf_estimator.ModeKeys.TRAIN
     inputs = features.get("inputs")
     inputs_length = common_layers.length_from_embedding(inputs)
     # Flatten inputs.
@@ -352,7 +353,7 @@ class LSTMSeq2seq(t2t_model.T2TModel):
     # TODO(lukaszkaiser): investigate this issue and repair.
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
-    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+    train = self._hparams.mode == tf_estimator.ModeKeys.TRAIN
     return lstm_seq2seq_internal(features.get("inputs"), features["targets"],
                                  self._hparams, train)
 
@@ -365,7 +366,7 @@ class LSTMSeq2seqAttention(t2t_model.T2TModel):
     # TODO(lukaszkaiser): investigate this issue and repair.
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
-    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+    train = self._hparams.mode == tf_estimator.ModeKeys.TRAIN
     # This is a temporary fix for varying-length sequences within in a batch.
     # A more complete fix should pass a length tensor from outside so that
     # all the lstm variants can use it.
@@ -390,7 +391,7 @@ class LSTMSeq2seqBidirectionalEncoder(t2t_model.T2TModel):
     # TODO(lukaszkaiser): investigate this issue and repair.
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
-    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+    train = self._hparams.mode == tf_estimator.ModeKeys.TRAIN
     return lstm_seq2seq_internal_bid_encoder(
         features.get("inputs"), features["targets"], self._hparams, train)
 
@@ -402,7 +403,7 @@ class LSTMSeq2seqAttentionBidirectionalEncoder(t2t_model.T2TModel):
     # TODO(lukaszkaiser): investigate this issue and repair.
     if self._hparams.initializer == "orthogonal":
       raise ValueError("LSTM models fail with orthogonal initializer.")
-    train = self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+    train = self._hparams.mode == tf_estimator.ModeKeys.TRAIN
     return lstm_seq2seq_internal_attention_bid_encoder(
         features.get("inputs"), features["targets"], self._hparams, train)
 
