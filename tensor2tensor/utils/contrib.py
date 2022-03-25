@@ -24,6 +24,7 @@ from __future__ import print_function  # Not necessary in a Python 3-only module
 
 from absl import logging
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 # Check if we have contrib available
 try:
@@ -180,11 +181,11 @@ def replace_monitors_with_hooks(monitors_or_hooks, estimator):
   del estimator
   monitors_or_hooks = monitors_or_hooks or []
   hooks = [
-      m for m in monitors_or_hooks if isinstance(m, tf.estimator.SessionRunHook)
+      m for m in monitors_or_hooks if isinstance(m, tf_estimator.SessionRunHook)
   ]
   deprecated_monitors = [
       m for m in monitors_or_hooks
-      if not isinstance(m, tf.estimator.SessionRunHook)
+      if not isinstance(m, tf_estimator.SessionRunHook)
   ]
   assert not deprecated_monitors
   return hooks
@@ -196,7 +197,7 @@ def learn():
     from tensorflow.contrib import learn as contrib_learn  # pylint: disable=g-direct-tensorflow-import,g-import-not-at-top
     return contrib_learn
   return DummyModule(
-      RunConfig=tf.estimator.RunConfig,
+      RunConfig=tf_estimator.RunConfig,
       monitors=DummyModule(
           replace_monitors_with_hooks=replace_monitors_with_hooks),
   )

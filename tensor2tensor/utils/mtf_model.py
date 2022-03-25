@@ -29,6 +29,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 from tensorflow.contrib.tpu.python.tpu import tpu_estimator
 
@@ -49,7 +50,7 @@ class MtfModel(t2t_model.T2TModel):
     hparams = hparams_lib.copy_hparams(hparams)
     hparams.use_tpu = use_tpu
     # merge decode_hparams into hparams if present
-    if mode == tf.estimator.ModeKeys.PREDICT and decode_hparams is not None:
+    if mode == tf_estimator.ModeKeys.PREDICT and decode_hparams is not None:
       for k, v in six.iteritems(decode_hparams.values()):
         if hasattr(hparams, k) and getattr(hparams, k) != v:
           tf.logging.warning("Overriding hparams.%s with %s from decode_hparams"
@@ -98,7 +99,7 @@ class MtfModel(t2t_model.T2TModel):
     graph = mtf.Graph()
     mesh = mtf.Mesh(graph, "my_mesh", var_placer)
     # PREDICT mode
-    if mode == tf.estimator.ModeKeys.PREDICT:
+    if mode == tf_estimator.ModeKeys.PREDICT:
       return model.estimator_spec_predict(features, mesh, mesh_impl, use_tpu)
 
     logits, loss = model.mtf_model_fn(features, mesh)
@@ -106,7 +107,7 @@ class MtfModel(t2t_model.T2TModel):
       logits = mtf.anonymize(logits)
 
     # TRAIN mode
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       var_grads = mtf.gradients(
           [loss], [v.outputs[0] for v in graph.trainable_variables])
       lr = learning_rate.learning_rate_schedule(hparams)
@@ -120,10 +121,10 @@ class MtfModel(t2t_model.T2TModel):
 
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.to_float(tf_loss)
-    if logits and mode != tf.estimator.ModeKeys.TRAIN:
+    if logits and mode != tf_estimator.ModeKeys.TRAIN:
       tf_logits = lowering.export_to_tf_tensor(logits)
 
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
       tf_update_ops.append(tf.assign_add(global_step, 1))
       # tf.logging.info("tf_update_ops: {}".format(tf_update_ops))
@@ -148,7 +149,7 @@ class MtfModel(t2t_model.T2TModel):
           listeners=[saver_listener])
 
     # EVAL mode
-    if mode == tf.estimator.ModeKeys.EVAL:
+    if mode == tf_estimator.ModeKeys.EVAL:
       tf_logits = lowering.export_to_tf_tensor(logits)
       return model.estimator_spec_eval(features, tf_logits, labels, tf_loss,
                                        restore_hook, use_tpu)
@@ -171,7 +172,7 @@ class MtfModel(t2t_model.T2TModel):
 
       t2t_model.remove_summaries()
       return tpu_estimator.TPUEstimatorSpec(
-          mode=tf.estimator.ModeKeys.TRAIN,
+          mode=tf_estimator.ModeKeys.TRAIN,
           loss=tf_loss,
           train_op=train_op,
           host_call=host_call,
@@ -181,8 +182,8 @@ class MtfModel(t2t_model.T2TModel):
       if hparams.warm_start_from:
         t2t_model.initialize_from_ckpt(
             ckpt_dir=hparams.warm_start_from, hparams=hparams)
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.TRAIN, loss=tf_loss, train_op=train_op,
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.TRAIN, loss=tf_loss, train_op=train_op,
           training_chief_hooks=[restore_hook, saver_hook])
 
   def estimator_spec_eval(
@@ -210,7 +211,7 @@ class MtfModel(t2t_model.T2TModel):
                   tf_logits, None, tf.identity(labels))
           return eval_metrics
       return tpu_estimator.TPUEstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
+          tf_estimator.ModeKeys.EVAL,
           evaluation_hooks=[restore_hook],
           loss=loss,
           eval_metrics=(metric_fn, [logits, labels]))
@@ -221,8 +222,8 @@ class MtfModel(t2t_model.T2TModel):
         eval_metrics[metric_name] = metric_fn(logits, features,
                                               features["targets"])
 
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.EVAL,
           predictions=predictions,
           eval_metric_ops=eval_metrics,
           evaluation_hooks=[restore_hook],
@@ -249,12 +250,12 @@ class MtfModel(t2t_model.T2TModel):
     if use_tpu:
       t2t_model.remove_summaries()
       return tpu_estimator.TPUEstimatorSpec(
-          mode=tf.estimator.ModeKeys.PREDICT,
+          mode=tf_estimator.ModeKeys.PREDICT,
           predictions=predictions,
           prediction_hooks=[mtf.MtfRestoreHook(lowering)])
     else:
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.PREDICT,
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.PREDICT,
           predictions=predictions,
           prediction_hooks=[mtf.MtfRestoreHook(lowering)])
 

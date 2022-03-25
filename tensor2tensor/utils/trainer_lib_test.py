@@ -26,6 +26,7 @@ from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class TrainerLibTest(tf.test.TestCase):
@@ -78,14 +79,14 @@ class TrainerLibTest(tf.test.TestCase):
 
     # Dataset
     problem = hparams.problem
-    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN,
+    dataset = problem.dataset(tf_estimator.ModeKeys.TRAIN,
                               algorithmic.TinyAlgo.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
     features = data_reader.standardize_shapes(features)
 
     # Model
-    model = registry.model("transformer")(hparams, tf.estimator.ModeKeys.TRAIN)
+    model = registry.model("transformer")(hparams, tf_estimator.ModeKeys.TRAIN)
     logits, losses = model(features)
 
     self.assertTrue("training" in losses)
@@ -120,7 +121,7 @@ class TrainerLibTest(tf.test.TestCase):
 
     # Dataset
     problem = hparams.problem
-    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN,
+    dataset = problem.dataset(tf_estimator.ModeKeys.TRAIN,
                               algorithmic.TinyAlgo.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
     features = dataset.make_one_shot_iterator().get_next()
@@ -128,7 +129,7 @@ class TrainerLibTest(tf.test.TestCase):
     features["targets_A"] = features["targets_B"] = features["targets"]
 
     # Model
-    model = registry.model("transformer")(hparams, tf.estimator.ModeKeys.TRAIN)
+    model = registry.model("transformer")(hparams, tf_estimator.ModeKeys.TRAIN)
 
     def body(args, mb=model.body):
       out = mb(args)

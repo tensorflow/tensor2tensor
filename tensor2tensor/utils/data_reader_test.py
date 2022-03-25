@@ -31,6 +31,7 @@ from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import registry
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_problem
@@ -72,7 +73,7 @@ class TestProblem(problem_mod.Problem):
 
 def generate_test_data(problem, tmp_dir):
   problem.generate_data(tmp_dir, tmp_dir)
-  return [problem.filepattern(tmp_dir, tf.estimator.ModeKeys.TRAIN)]
+  return [problem.filepattern(tmp_dir, tf_estimator.ModeKeys.TRAIN)]
 
 
 class DataReaderTest(tf.test.TestCase):
@@ -94,7 +95,7 @@ class DataReaderTest(tf.test.TestCase):
 
   def testBasicExampleReading(self):
     dataset = self.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN,
+        tf_estimator.ModeKeys.TRAIN,
         data_dir=self.data_dir,
         shuffle_files=False)
     examples = dataset.make_one_shot_iterator().get_next()
@@ -113,7 +114,7 @@ class DataReaderTest(tf.test.TestCase):
 
   def testPreprocess(self):
     dataset = self.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN,
+        tf_estimator.ModeKeys.TRAIN,
         data_dir=self.data_dir,
         shuffle_files=False)
     examples = dataset.make_one_shot_iterator().get_next()
@@ -125,7 +126,7 @@ class DataReaderTest(tf.test.TestCase):
   def testLengthFilter(self):
     max_len = 15
     dataset = self.problem.dataset(
-        tf.estimator.ModeKeys.TRAIN,
+        tf_estimator.ModeKeys.TRAIN,
         data_dir=self.data_dir,
         shuffle_files=False)
     dataset = dataset.filter(

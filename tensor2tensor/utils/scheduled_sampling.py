@@ -37,6 +37,7 @@ import copy
 
 from tensor2tensor.layers import common_layers
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 from tensorflow.python.ops import inplace_ops  # pylint: disable=g-direct-tensorflow-import
 
@@ -210,7 +211,7 @@ class ScheduledSamplingAdapter(object):
     self._features = features
 
     hparams = self._t2tmodel.hparams
-    assert hparams.mode == tf.estimator.ModeKeys.TRAIN, hparams.mode
+    assert hparams.mode == tf_estimator.ModeKeys.TRAIN, hparams.mode
 
   def infer_fn(self, partial_targets):
     """Computes logits for all timesteps.

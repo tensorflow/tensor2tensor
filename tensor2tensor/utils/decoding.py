@@ -38,6 +38,7 @@ from tensor2tensor.utils import hparam
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 FLAGS = tf.flags.FLAGS
 
@@ -204,7 +205,7 @@ def decode_from_dataset(estimator,
   # Build the inference input function
   problem = hparams.problem
   infer_input_fn = problem.make_estimator_input_fn(
-      tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
+      tf_estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
 
   predictions, output_dirs = [], []
   for decode_id in range(decode_hp.num_decodes):

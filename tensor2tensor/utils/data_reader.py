@@ -29,6 +29,7 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import mlperf_log
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def cast_ints_to_int32(features):
@@ -345,7 +346,7 @@ def input_fn(dataset,
   Returns:
     (features_dict<str name, Tensor feature>, Tensor targets)
   """
-  is_training = mode == tf.estimator.ModeKeys.TRAIN
+  is_training = mode == tf_estimator.ModeKeys.TRAIN
   if config and config.use_tpu:
     num_threads = 64
   else:
@@ -555,7 +556,7 @@ def input_fn(dataset,
   def prepare_for_output(example):
     if not config or not config.use_tpu:
       _summarize_features(example, num_shards)
-    if mode == tf.estimator.ModeKeys.PREDICT:
+    if mode == tf_estimator.ModeKeys.PREDICT:
       example["infer_targets"] = example.pop("targets")
       return example
     else:
@@ -565,7 +566,7 @@ def input_fn(dataset,
   dataset = dataset.map(prepare_for_output, num_parallel_calls=num_threads)
   dataset = dataset.prefetch(2)
 
-  if mode == tf.estimator.ModeKeys.PREDICT:
+  if mode == tf_estimator.ModeKeys.PREDICT:
     # This is because of a bug in the Estimator that short-circuits prediction
     # if it doesn't see a QueueRunner. DummyQueueRunner implements the
     # minimal expected interface but does nothing.

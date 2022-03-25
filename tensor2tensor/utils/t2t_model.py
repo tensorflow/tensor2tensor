@@ -47,6 +47,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import scheduled_sampling
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 from tensorflow.python.layers import base
 from tensorflow.python.ops import inplace_ops
@@ -150,7 +151,7 @@ class T2TModel(base.Layer):
 
   def __init__(self,
                hparams,
-               mode=tf.estimator.ModeKeys.TRAIN,
+               mode=tf_estimator.ModeKeys.TRAIN,
                problem_hparams=None,
                data_parallelism=None,
                decode_hparams=None,
@@ -174,7 +175,7 @@ class T2TModel(base.Layer):
     default_name = registry.default_name(type(self))
     name = self.REGISTERED_NAME or default_name
     super(T2TModel, self).__init__(
-        trainable=mode == tf.estimator.ModeKeys.TRAIN, name=name, **kwargs)
+        trainable=mode == tf_estimator.ModeKeys.TRAIN, name=name, **kwargs)
 
     if not problem_hparams and hasattr(hparams, "problem_hparams"):
       problem_hparams = hparams.problem_hparams
@@ -217,7 +218,7 @@ class T2TModel(base.Layer):
                          modalities.ModalityType.SYMBOL_ONE_HOT)):
           if (hparams.prepend_mode == "prepend_inputs_full_attention" or
               (hparams.prepend_mode == "prepend_inputs_masked_attention" and
-               mode != tf.estimator.ModeKeys.TRAIN)):
+               mode != tf_estimator.ModeKeys.TRAIN)):
             weights_fn = common_layers.weights_prepend_inputs_to_targets
             hparams.weights_fn[feature_name] = weights_fn
 
@@ -269,11 +270,11 @@ class T2TModel(base.Layer):
 
   @property
   def is_training(self):
-    return self._hparams.mode == tf.estimator.ModeKeys.TRAIN
+    return self._hparams.mode == tf_estimator.ModeKeys.TRAIN
 
   @property
   def is_predicting(self):
-    return self._hparams.mode == tf.estimator.ModeKeys.PREDICT
+    return self._hparams.mode == tf_estimator.ModeKeys.PREDICT
 
   @property
   def has_input(self):
@@ -436,7 +437,7 @@ class T2TModel(base.Layer):
       else:
         logits = self.top(output, features)
         losses["training"] = 0.0
-        if (self._hparams.mode != tf.estimator.ModeKeys.PREDICT and
+        if (self._hparams.mode != tf_estimator.ModeKeys.PREDICT and
             self._hparams.mode != "attack"):
           losses["training"] = self.loss(logits, features)
 
@@ -555,7 +556,7 @@ class T2TModel(base.Layer):
       top = self._hparams.top.get(feature_name, modalities.get_top(modality))
       top_is_pointwise = getattr(top, "pointwise", False)
       last_only = (top_is_pointwise and
-                   self.hparams.mode == tf.estimator.ModeKeys.PREDICT and
+                   self.hparams.mode == tf_estimator.ModeKeys.PREDICT and
                    not self.hparams.force_full_predict)
       if not last_only:
         logits = top(body_output, features.get("targets"),
@@ -726,7 +727,7 @@ class T2TModel(base.Layer):
     hparams = hparams_lib.copy_hparams(self._original_hparams)
     hparams.add_hparam("mode", mode)
     # When not in training mode, set all forms of dropout to zero.
-    if mode != tf.estimator.ModeKeys.TRAIN:
+    if mode != tf_estimator.ModeKeys.TRAIN:
       for key in hparams.values():
         if key.endswith("dropout") or key == "label_smoothing":
           log_info("Setting hparams.%s to 0.0", key)
@@ -1447,7 +1448,7 @@ class T2TModel(base.Layer):
     Returns:
       TPUEstimatorSpec if use tpu else EstimatorSpec
     """
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       create_dummy_vars()
     hparams = hparams_lib.copy_hparams(hparams)
 
@@ -1464,7 +1465,7 @@ class T2TModel(base.Layer):
         _reuse=reuse)
 
     # PREDICT mode
-    if mode == tf.estimator.ModeKeys.PREDICT:
+    if mode == tf_estimator.ModeKeys.PREDICT:
       if use_tpu:
         inputs = features.get("inputs")
         if inputs is None:
@@ -1480,7 +1481,7 @@ class T2TModel(base.Layer):
       return model.estimator_spec_predict(features, use_tpu=use_tpu)
 
     # TRAIN and EVAL modes
-    if hparams.eval_run_autoregressive and mode == tf.estimator.ModeKeys.EVAL:
+    if hparams.eval_run_autoregressive and mode == tf_estimator.ModeKeys.EVAL:
       logits, losses_dict = model.eval_autoregressive(features)
     else:
       logits, losses_dict = model(features)  # pylint: disable=not-callable
@@ -1535,12 +1536,12 @@ class T2TModel(base.Layer):
     loss = sum(losses_dict[key] for key in sorted(losses_dict.keys()))
 
     # EVAL mode
-    if mode == tf.estimator.ModeKeys.EVAL:
+    if mode == tf_estimator.ModeKeys.EVAL:
       return model.estimator_spec_eval(features, logits, labels, loss,
                                        losses_dict)
 
     # TRAIN mode
-    assert mode == tf.estimator.ModeKeys.TRAIN
+    assert mode == tf_estimator.ModeKeys.TRAIN
     num_async_replicas = 1
     if config and not use_tpu:
       num_async_replicas = config.t2t_device_info["num_async_replicas"]
@@ -1581,7 +1582,7 @@ class T2TModel(base.Layer):
       remove_summaries()
 
       return contrib.tpu().TPUEstimatorSpec(
-          tf.estimator.ModeKeys.TRAIN,
+          tf_estimator.ModeKeys.TRAIN,
           loss=loss,
           train_op=train_op,
           host_call=host_call,
@@ -1595,8 +1596,8 @@ class T2TModel(base.Layer):
       if self._hparams.warm_start_from_second:
         self.initialize_from_ckpt(self._hparams.warm_start_from_second)
 
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.TRAIN, loss=loss, train_op=train_op)
 
   def estimator_spec_eval(self, features, logits, labels, loss, losses_dict):
     """Constructs `tf.estimator.EstimatorSpec` for EVAL (evaluation) mode."""
@@ -1638,7 +1639,7 @@ class T2TModel(base.Layer):
 
       eval_metrics_fn_flat_args = _flatten_dict(eval_metrics_fn_args)
       return contrib.tpu().TPUEstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
+          tf_estimator.ModeKeys.EVAL,
           eval_metrics=(eval_metrics_fn, eval_metrics_fn_flat_args),
           host_call=host_call,
           loss=loss)
@@ -1684,8 +1685,8 @@ class T2TModel(base.Layer):
 
       evaluation_hooks += problem.eval_hooks(features, logits, hparams)
 
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.EVAL,
           predictions=predictions,
           eval_metric_ops=eval_metrics,
           evaluation_hooks=evaluation_hooks,
@@ -1755,7 +1756,7 @@ class T2TModel(base.Layer):
 
     export_outputs = {
         tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-            tf.estimator.export.PredictOutput(export_out)
+            tf_estimator.export.PredictOutput(export_out)
     }
     if use_tpu:
       # Note: important to call this before remove_summaries()
@@ -1767,13 +1768,13 @@ class T2TModel(base.Layer):
       remove_summaries()
 
       return contrib.tpu().TPUEstimatorSpec(
-          tf.estimator.ModeKeys.PREDICT,
+          tf_estimator.ModeKeys.PREDICT,
           predictions=predictions,
           host_call=host_call,
           export_outputs=export_outputs)
     else:
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.PREDICT,
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.PREDICT,
           predictions=predictions,
           export_outputs=export_outputs)
 
@@ -1846,7 +1847,7 @@ class T2TModel(base.Layer):
       return (logits, losses)
 
     # Only do scheduled sampling when training.
-    is_training = (hparams.mode == tf.estimator.ModeKeys.TRAIN)
+    is_training = (hparams.mode == tf_estimator.ModeKeys.TRAIN)
     if not is_training:
       tf.logging.info("Running in %s mode. Not using scheduled sampling.",
                       hparams.mode)
@@ -1929,7 +1930,7 @@ class T2TModel(base.Layer):
         new_logits = self.top(new_body_outputs, new_features)
 
         # Compute loss. Use original features (== labels).
-        if (hparams.mode != tf.estimator.ModeKeys.PREDICT and
+        if (hparams.mode != tf_estimator.ModeKeys.PREDICT and
             hparams.mode != "attack"):
           new_losses["training"] = self.loss(new_logits, features)
         else:

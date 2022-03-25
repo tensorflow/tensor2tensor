@@ -36,6 +36,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
@@ -235,7 +236,7 @@ def create_run_config(model_name,
       del run_config_args["master"]
       del run_config_args["evaluation_master"]
   elif is_cloud_async_distributed():
-    run_config_cls = tf.estimator.RunConfig
+    run_config_cls = tf_estimator.RunConfig
     del run_config_args["master"]
     del run_config_args["evaluation_master"]
 
@@ -355,7 +356,7 @@ def create_estimator(model_name,
 
       def tpu_model_fn(features, labels, mode, params):
         """Wrapper model_fn with tpu.rewrite / TPUPartitionedCall."""
-        if mode == tf.estimator.ModeKeys.PREDICT and params["use_tpu"]:
+        if mode == tf_estimator.ModeKeys.PREDICT and params["use_tpu"]:
           batch_config = tpu_estimator.BatchConfig(
               num_batch_threads=2,
               max_batch_size=predict_batch_size,
@@ -384,7 +385,7 @@ def create_estimator(model_name,
         predict_batch_size=predict_batch_size,
         export_saved_model_api_version=api_version_enum_name)
   else:
-    estimator = tf.estimator.Estimator(
+    estimator = tf_estimator.Estimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
@@ -464,7 +465,7 @@ class T2TExperiment(object):
 
   def continuous_train_and_eval(self, continuous_eval_predicate_fn=None):
     del continuous_eval_predicate_fn
-    tf.estimator.train_and_evaluate(self._estimator, self._train_spec,
+    tf_estimator.train_and_evaluate(self._estimator, self._train_spec,
                                     self._eval_spec)
     return self.evaluate()
 
@@ -515,7 +516,7 @@ class T2TExperiment(object):
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
       if self._hparams.mlperf_mode:
         self._decode_hparams.mlperf_decode_step = i + eval_steps
-      self.decode(dataset_split=tf.estimator.ModeKeys.EVAL)
+      self.decode(dataset_split=tf_estimator.ModeKeys.EVAL)
       d_hparams = self._decode_hparams
       if self._hparams.mlperf_mode and d_hparams.mlperf_success:
         mlperf_log.transformer_print(
@@ -594,7 +595,7 @@ class T2TExperiment(object):
       ValueError: if not enough information is available in the estimator's
         config to create a server.
     """
-    config = tf.estimator.RunConfig()
+    config = tf_estimator.RunConfig()
     server = tf.train.Server(
         config.cluster_spec,
         job_name=config.task_type,
@@ -632,7 +633,7 @@ class T2TExperiment(object):
     """Decode from dataset on new checkpoint."""
     for _ in next_checkpoint(self._hparams.model_dir,
                              self._decode_hparams.decode_timeout_mins):
-      self.decode(dataset_split=tf.estimator.ModeKeys.TRAIN)
+      self.decode(dataset_split=tf_estimator.ModeKeys.TRAIN)
 
   def continuous_decode_on_eval_data(self):
     """Decode from dataset on new checkpoint."""
@@ -657,7 +658,7 @@ class T2TExperiment(object):
 
       mlperf_log.transformer_print(key=mlperf_log.EVAL_START)
       self.decode(
-          dataset_split=tf.estimator.ModeKeys.EVAL,
+          dataset_split=tf_estimator.ModeKeys.EVAL,
           checkpoint_path=checkpoint_path)
       d_hparams = self._decode_hparams
       if self._hparams.mlperf_mode and d_hparams.mlperf_success:
@@ -744,12 +745,12 @@ def create_experiment(
 
   # Input fns from Problem
   problem = hparams.problem
-  train_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.TRAIN,
+  train_input_fn = problem.make_estimator_input_fn(tf_estimator.ModeKeys.TRAIN,
                                                    hparams)
 
   dataset_split = "test" if eval_use_test_set else None
   dataset_kwargs = {"dataset_split": dataset_split}
-  eval_input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.EVAL,
+  eval_input_fn = problem.make_estimator_input_fn(tf_estimator.ModeKeys.EVAL,
                                                   hparams,
                                                   dataset_kwargs=dataset_kwargs)
 
@@ -763,7 +764,7 @@ def create_experiment(
     def serving_input_receiver_fn(hparams, decode_hparams, use_tpu):
       return problem.serving_input_fn(hparams, decode_hparams, use_tpu)
 
-    exporter = tf.estimator.BestExporter(
+    exporter = tf_estimator.BestExporter(
         name="best",
         serving_input_receiver_fn=serving_input_receiver_fn,
         compare_fn=compare_fn,
@@ -824,9 +825,9 @@ def create_experiment(
   eval_hooks = contrib.learn().monitors.replace_monitors_with_hooks(
       eval_hooks, estimator)
 
-  train_spec = tf.estimator.TrainSpec(
+  train_spec = tf_estimator.TrainSpec(
       train_input_fn, max_steps=train_steps, hooks=train_hooks)
-  eval_spec = tf.estimator.EvalSpec(
+  eval_spec = tf_estimator.EvalSpec(
       eval_input_fn,
       steps=eval_steps,
       hooks=eval_hooks,
