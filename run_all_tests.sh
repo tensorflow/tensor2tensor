@@ -4,6 +4,9 @@
 # TODO: converge w/ _local.sh unit test script.
 
 #!/usr/bin/env bash
+
+set -euxo pipefail
+
 T2T=tensor2tensor
 DT=diseaseTools
 DTC=diseaseTools-config

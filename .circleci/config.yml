@@ -1,32 +1,33 @@
 version: 2
 jobs:
   build-test-tensor2tensor:
-    machine: true
-    workDir: ~/tensor2tensor
+    machine:
+      image: ubuntu-2004:202201-02
+    working_directory: ~/tensor2tensor
     steps:
-      - type: checkout
+      - checkout
 
-      - type: shell
-        name: Checkout diseaseTools & gdm repos
-        command: |
-          DT_BRANCH='develop';
-          GDM_BRANCH='develop';
-          git clone -b ${DT_BRANCH} git@github.com:medicode/diseaseTools.git ~/diseaseTools;
-          git clone -b master git@github.com:medicode/diseaseTools-config.git ~/diseaseTools-config;
-          git clone -b ${GDM_BRANCH} git@github.com:medicode/gdm.git ~/gdm;
+      - run:
+          name: Checkout diseaseTools & gdm repos
+          command: |
+            DT_BRANCH='develop';
+            GDM_BRANCH='develop';
+            git clone -b ${DT_BRANCH} --depth 1 git@github.com:medicode/diseaseTools.git ~/diseaseTools;
+            git clone -b master --depth 1 git@github.com:medicode/diseaseTools-config.git ~/diseaseTools-config;
+            git clone -b ${GDM_BRANCH} --depth 1 git@github.com:medicode/gdm.git ~/gdm;
 
-      - type: shell
-        name: Setup Google Cloud Credentials
-        workDir: ~/
-        command: &GCP_LOGIN mkdir -p ~/diseaseTools/gcloud/keys && echo $CIRCLECI_GCP_SA_KEY | base64 --decode --ignore-garbage > ~/diseaseTools/gcloud/keys/google-auth.json
+      - run:
+          name: Setup Google Cloud Credentials
+          working_directory: ~/
+          command: &GCP_LOGIN mkdir -p ~/diseaseTools/gcloud/keys && echo $CIRCLECI_GCP_SA_KEY | base64 --decode --ignore-garbage > ~/diseaseTools/gcloud/keys/google-auth.json
 
-      - type: shell
-        name: Docker login
-        command: &DOCKER_LOGIN docker login -u _json_key -p "$(cat ~/diseaseTools/gcloud/keys/google-auth.json)" https://us.gcr.io
+      - run:
+          name: Docker login
+          command: &DOCKER_LOGIN docker login -u _json_key -p "$(cat ~/diseaseTools/gcloud/keys/google-auth.json)" https://us.gcr.io
 
-      - type: shell
-        name: Running tests
-        command: ./run_all_tests.sh
+      - run:
+          name: Running tests
+          command: ./run_all_tests.sh
 
       - store_test_results:
           path: ~/tensor2tensor/test_results
@@ -37,41 +38,42 @@ jobs:
       # TODO: build sphinx docs? or will we always use the upstream sphinx docs???
 
   smoke-testinfra:
-    machine: true
-    workDir: ~
+    machine:
+      image: ubuntu-2004:202201-02
+    working_directory: ~
     environment:
       PYTHONPATH: ~/diseaseTools:.
     steps:
-      - type: checkout
-      - type: shell
-        name: Checkout diseaseTools develop
-        command: git clone -b develop git@github.com:medicode/diseaseTools.git ~/diseaseTools;
+      - checkout
+      - run:
+          name: Checkout diseaseTools develop
+          command: git clone -b develop git@github.com:medicode/diseaseTools.git ~/diseaseTools;
       - run: *DOCKER_LOGIN
-      - type: shell
-        name: Use Python 2
-        command: pyenv global 2.7.12
-      - type: shell
-        name: Install Fire
-        command: pip install git+git://github.com/google/python-fire.git@v0.1.1
-      - type: shell
-        name: Setup Google Cloud Credentials
-        workDir: ~/
-        command: *GCP_LOGIN
-      - type: shell
-        name: Activate and get GCloud credentials
-        command: python ./gcloud/get_credentials.py run
-        workDir: ~/diseaseTools
-      - type: shell
-        name: Install kubectl
-        command: |
-          curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
-          chmod +x ./kubectl
-          sudo mv ./kubectl /usr/local/bin/kubectl
-      - type: shell
-        name: Trigger smoke tests
-        # CI sets up the root directory to project, which is here the tensor2tensor repo
-        command: docker run -it -e 'GOOGLE_APPLICATION_CREDENTIALS=/usr/src/app/gcloud/keys/google-auth.json' -v ~/gdm:/usr/src/app/gcloud/gdm -v ~/diseaseTools:/usr/src/app -v ~/project:/usr/src/project -w /usr/src/project us.gcr.io/fathom-containers/ci python /usr/src/app/fathomairflow/integration_tests/trigger_tests_on_testinfra.py queue_smoke_tests /usr/src/project
-        workDir: ~/diseaseTools
+      - run:
+          name: Use Python 2
+          command: pyenv global 2.7.12
+      - run:
+          name: Install Fire
+          command: pip install git+git://github.com/google/python-fire.git@v0.1.1
+      - run:
+          name: Setup Google Cloud Credentials
+          working_directory: ~/
+          command: *GCP_LOGIN
+      - run:
+          name: Activate and get GCloud credentials
+          command: python ./gcloud/get_credentials.py run
+          working_directory: ~/diseaseTools
+      - run:
+          name: Install kubectl
+          command: |
+            curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+            chmod +x ./kubectl
+            sudo mv ./kubectl /usr/local/bin/kubectl
+      - run:
+          name: Trigger smoke tests
+          # CI sets up the root directory to project, which is here the tensor2tensor repo
+          command: docker run -it -e 'GOOGLE_APPLICATION_CREDENTIALS=/usr/src/app/gcloud/keys/google-auth.json' -v ~/gdm:/usr/src/app/gcloud/gdm -v ~/diseaseTools:/usr/src/app -v ~/project:/usr/src/project -w /usr/src/project us.gcr.io/fathom-containers/ci python /usr/src/app/fathomairflow/integration_tests/trigger_tests_on_testinfra.py queue_smoke_tests /usr/src/project
+          working_directory: ~/diseaseTools
 workflows:
   version: 2
   build-test-deploy-tensor2tensor:
