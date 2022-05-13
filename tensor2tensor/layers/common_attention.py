@@ -1,4 +1,4 @@
-# coding=utf-8
+#, coding=utf-8
 # Copyright 2018 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -1433,7 +1433,8 @@ def dot_product_attention(q,
                           name=None,
                           make_image_summary=True,
                           save_weights_to=None,
-                          dropout_broadcast_dims=None):
+                          dropout_broadcast_dims=None,
+                          probability_fn=tf.nn.softmax):
   """Dot-product attention.
 
   Args:
@@ -1453,6 +1454,8 @@ def dot_product_attention(q,
       a string key created from the variable scope (including name).
     dropout_broadcast_dims: an optional list of integers less than rank of q.
       Specifies in which dimensions to broadcast the dropout decisions.
+    probability_fn: function used to transform the logits into a probability
+        distribution i.e. the attention weights.
 
   Returns:
     Tensor with shape [..., length_q, depth_v].
@@ -1463,7 +1466,7 @@ def dot_product_attention(q,
     if bias is not None:
       bias = common_layers.cast_like(bias, logits)
       logits += bias
-    weights = tf.nn.softmax(logits, name="attention_weights")
+    weights = probability_fn(logits, name="attention_weights")
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
       save_weights_to[scope.name + "/logits"] = logits
