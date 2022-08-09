@@ -45,6 +45,9 @@ REGISTER_OP("PackSequences2")
                   return Status::OK();
                 });
 
+// Given a collection of examples, each of which consists of two sequences
+// ('inputs' and 'targets') this op packs them into as few packed/combined
+// examples as possible, to try to minimize padding.
 class PackSequences2Op : public OpKernel {
  public:
   explicit PackSequences2Op(
@@ -56,9 +59,11 @@ class PackSequences2Op : public OpKernel {
     auto targets = ctx->input(1).matrix<int64>();
     int inputs_max_length = ctx->input(2).scalar<int32>()();
     int targets_max_length = ctx->input(3).scalar<int32>()();
-    int n = inputs.dimension(0);
+    int n = inputs.dimension(0);  // Number of examples in the input.
     std::vector<int> inputs_lengths(n);
     std::vector<int> targets_lengths(n);
+    // Calculate, in 'inputs_lengths', the actual length of each input sequence
+    // in "inputs", ignoring padding:
     int padded_inputs_length =
         std::min(static_cast<int>(inputs.dimension(1)), inputs_max_length);
     for (int i = 0; i < n; i++) {
@@ -67,6 +72,8 @@ class PackSequences2Op : public OpKernel {
             inputs_lengths[i]++;
       }
     }
+    // Calculate, in 'targets_lengths', the actual length of each target
+    // sequence in "targets", ignoring padding:
     int padded_targets_length =
         std::min(static_cast<int>(targets.dimension(1)), targets_max_length);
     for (int i = 0; i < n; i++) {
@@ -75,16 +82,24 @@ class PackSequences2Op : public OpKernel {
             targets_lengths[i]++;
       }
     }
-    int num_combined = 0;
+    int num_combined = 0;  // Number of combined examples currently generated.
     std::vector<int> combined_inputs_length;
     std::vector<int> combined_targets_length;
     std::vector<std::vector<int> > combined_sequence_ids;
     for (int seq_id = 0; seq_id < n; seq_id++) {
       int inputs_length = inputs_lengths[seq_id];
       int targets_length = targets_lengths[seq_id];
+      // Try to fit the current example, 'seq_id', into one of the existing
+      // packed examples. The code checks to see if the current example fits in
+      // any of the last 1000 packed examples already generated. If it fits in
+      // any, then the example if packed there. Otherwise, a new packed example
+      // is generated with the new example, and 'num_combined' is increased to
+      // reflect this:
       for (int combined_id = std::max(0, num_combined - 1000); true;
            combined_id++) {
         if (combined_id == num_combined) {
+          // The current example, 'seq_id', did not fit in any of the current
+          // packed examples, so, we generate a new packed example:
           combined_inputs_length.push_back(inputs_length);
           combined_targets_length.push_back(targets_length);
           combined_sequence_ids.push_back(std::vector<int>(1, seq_id));
@@ -95,6 +110,8 @@ class PackSequences2Op : public OpKernel {
              <= inputs_max_length) &&
             (combined_targets_length[combined_id] + targets_length
              <= targets_max_length)) {
+          // The current example, 'seq_id', fits in one of the current packed
+          // examples, 'combined_id', so, we just add it there,
           combined_inputs_length[combined_id] += inputs_length;
           combined_targets_length[combined_id] += targets_length;
           combined_sequence_ids[combined_id].push_back(seq_id);
@@ -148,6 +165,8 @@ class PackSequences2Op : public OpKernel {
     auto targets_position_m = targets_position->matrix<int32>();
     targets_position_m.setZero();
 
+    // Copy the actual sequences from 'inputs' and 'targets' into the
+    // packed/combined examples:
     for (int combined_id = 0; combined_id < num_combined; combined_id++) {
       int inputs_pos = 0;
       int targets_pos = 0;
@@ -230,6 +249,9 @@ struct PackingSpec {
   int segment_id;
 };
 
+// This op generalizes PackSequences2Op to examples that contain an arbitrary
+// number of sequences (rather than assuming there are just inputs and targets).
+// The packing logic is the same.
 class PackSequencesKOp : public OpKernel {
  public:
   explicit PackSequencesKOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
