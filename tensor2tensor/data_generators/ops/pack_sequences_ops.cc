@@ -42,7 +42,7 @@ REGISTER_OP("PackSequences2")
                     ctx->set_output(i, ctx->Matrix(ctx->UnknownDim(),
                                                    ctx->UnknownDim()));
                   }
-                  return Status::OK();
+                  return tensorflow::Status();
                 });
 
 // Given a collection of examples, each of which consists of two sequences
@@ -234,7 +234,7 @@ REGISTER_OP("PackSequencesK")
       TF_RETURN_IF_ERROR(
           ctx->set_output("outputs_segmentation", segmentation_shapes));
       TF_RETURN_IF_ERROR(ctx->set_output("outputs_position", position_shapes));
-      return Status::OK();
+      return tensorflow::Status();
     });
 
 typedef int InputIndex;

@@ -23,7 +23,7 @@ REGISTER_OP("SubwordTextEncoderEncode")
     .Attr("vocab_filename: string")
     .SetShapeFn([](InferenceContext* ctx) {
       ctx->set_output(0, ctx->Vector(ctx->UnknownDim()));
-      return Status::OK();
+      return tensorflow::Status();
     });
 
 class SubwordTextEncoderEncodeOp : public OpKernel {
