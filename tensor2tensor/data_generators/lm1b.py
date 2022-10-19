@@ -100,7 +100,26 @@ def _maybe_download_corpus(tmp_dir):
   if not os.path.exists(corpus_filepath):
     generator_utils.maybe_download(tmp_dir, corpus_filename, corpus_url)
     with tarfile.open(corpus_filepath, "r:gz") as corpus_tar:
-      corpus_tar.extractall(tmp_dir)
+      def is_within_directory(directory, target):
+          
+          abs_directory = os.path.abspath(directory)
+          abs_target = os.path.abspath(target)
+      
+          prefix = os.path.commonprefix([abs_directory, abs_target])
+          
+          return prefix == abs_directory
+      
+      def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+      
+          for member in tar.getmembers():
+              member_path = os.path.join(path, member.name)
+              if not is_within_directory(path, member_path):
+                  raise Exception("Attempted Path Traversal in Tar File")
+      
+          tar.extractall(path, members, numeric_owner=numeric_owner) 
+          
+      
+      safe_extract(corpus_tar, tmp_dir)
 
 
 @registry.register_problem
