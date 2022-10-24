@@ -1,3 +1,5 @@
+#include <memory>
+
 #include "third_party/py/tensor2tensor/data_generators/ops/subword_text_encoder.h"
 #include "third_party/tensorflow/core/framework/op_kernel.h"
 #include "third_party/tensorflow/core/framework/shape_inference.h"
@@ -32,7 +34,7 @@ class SubwordTextEncoderEncodeOp : public OpKernel {
       OpKernelConstruction* ctx) : OpKernel(ctx) {
     std::string vocab_filename;
     OP_REQUIRES_OK(ctx, ctx->GetAttr("vocab_filename", &vocab_filename));
-    encoder_ = absl::make_unique<SubwordTextEncoder>(vocab_filename);
+    encoder_ = std::make_unique<SubwordTextEncoder>(vocab_filename);
   }
 
   void Compute(OpKernelContext* ctx) override {
