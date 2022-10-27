@@ -21,7 +21,7 @@ You should have an export directory in `output_dir` now.
 ## 2. Launch a Server
 
 Install the `tensorflow-model-server`
-([instructions](https://www.tensorflow.org/serving/setup#installing_the_modelserver)).
+([instructions](https://www.tensorflow.org/tfx/serving/setup#installing_modelserver)).
 
 Start the server pointing at the export:
 
