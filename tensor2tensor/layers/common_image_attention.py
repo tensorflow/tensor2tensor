@@ -167,7 +167,7 @@ def get_dilated_1d_attention_mask(
     num_blocks, memory_size, gap_size,
     name="dilated_mask"):
   """Dilated attention with a masking strategy."""
-  mask = np.ones((num_heads, block_size, 2*block_size), np.bool)
+  mask = np.ones((num_heads, block_size, 2*block_size), bool)
 
   # now going over every row to do the right assignment of
   # memory blocks

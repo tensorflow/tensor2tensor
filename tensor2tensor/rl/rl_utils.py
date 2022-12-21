@@ -395,7 +395,7 @@ def absolute_hinge_difference(arr1, arr2, min_diff=10, dtype=np.uint8):
   Returns:
     array
   """
-  diff = np.abs(arr1.astype(np.int) - arr2, dtype=np.int)
+  diff = np.abs(arr1.astype(int) - arr2, dtype=int)
   return np.maximum(diff - min_diff, 0).astype(dtype)
 
 

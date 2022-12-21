@@ -178,7 +178,7 @@ def random_square_mask(shape, fraction):
   mask = np.ones(shape)
 
   patch_area = shape[0]*shape[1]*fraction
-  patch_dim = np.int(math.floor(math.sqrt(patch_area)))
+  patch_dim = int(math.floor(math.sqrt(patch_area)))
   if patch_area == 0 or patch_dim == 0:
     return mask
 

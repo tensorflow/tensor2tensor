@@ -96,8 +96,8 @@ def create_border(video, color="blue", border_percent=2):
   color_to_axis = {"blue": 2, "red": 0, "green": 1}
   axis = color_to_axis[color]
   _, _, height, width, _ = video.shape
-  border_height = np.ceil(border_percent * height / 100.0).astype(np.int)
-  border_width = np.ceil(border_percent * width / 100.0).astype(np.int)
+  border_height = np.ceil(border_percent * height / 100.0).astype(int)
+  border_width = np.ceil(border_percent * width / 100.0).astype(int)
   video[:, :, :border_height, :, axis] = 255
   video[:, :, -border_height:, :, axis] = 255
   video[:, :, :, :border_width, axis] = 255
