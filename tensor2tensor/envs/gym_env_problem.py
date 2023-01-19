@@ -33,6 +33,15 @@ from tensor2tensor.envs import env_problem
 from tensor2tensor.envs import trajectory
 
 
+# This is a compatibility shim introduced to support NumPy 1.24. See:
+# https://numpy.org/neps/nep-0034-infer-dtype-is-object.html
+def _stack(xs):
+  try:
+    return np.stack(xs)
+  except ValueError:
+    return np.stack(np.asarray(xs, dtype=object))
+
+
 class GymEnvProblem(env_problem.EnvProblem):
   """An EnvProblem implemented as a batch of gym envs.
 
@@ -289,7 +298,7 @@ class GymEnvProblem(env_problem.EnvProblem):
       for i in range(num_envs_to_reset):
         reset_at(i)
 
-    return np.stack(observations)
+    return _stack(observations)
 
   def _step(self, actions):
     """Takes a step in all environments, shouldn't pre-process or record.
@@ -322,4 +331,4 @@ class GymEnvProblem(env_problem.EnvProblem):
 
     # Convert each list (observations, rewards, ...) into np.array and return a
     # tuple.
-    return tuple(map(np.stack, [observations, rewards, dones, infos]))
+    return tuple(map(_stack, [observations, rewards, dones, infos]))
