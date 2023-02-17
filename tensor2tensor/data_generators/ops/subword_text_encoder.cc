@@ -47,22 +47,29 @@ SubwordTextEncoder::SubwordTextEncoder(const std::string& vocab_filename) {
 }
 
 void SubwordTextEncoder::Encode(absl::string_view text, std::vector<int>* ids) {
+  // Subsequent code can read characters beyond the bound of the string_view
+  // in "text".  For example, U8_NEXT requires that the offset should be
+  // strictly smaller than the length, but this is possible with the code
+  // below.  Ideally, this should not happen, but work around this issue by
+  // using the pointer to circumvent bounds checking until the code or tests
+  // are fixed.
+  const char* ptr = text.data();
+
   ids->clear();
   int token_start = 0;
   int token_end = 0;
   UChar32 c;
   UChar32 next_c;
-  U8_NEXT(text, token_end, text.length(), c);
+  U8_NEXT(ptr, token_end, text.length(), c);
   CHECK_GE(c, 0);
   while (token_end <= text.length()) {
     int next_end = token_end;
-    U8_NEXT(text, next_end, text.length(), next_c);
+    U8_NEXT(ptr, next_end, text.length(), next_c);
     CHECK_GE(next_c, 0);
     // Subtoken break when switching from non-alphanum to alphanum, or when
     // reaching the end of the original token.
     if (u_isalnum(next_c) != u_isalnum(c) || token_end >= text.length()) {
-      absl::string_view next_token =
-          text.substr(token_start, token_end - token_start);
+      absl::string_view next_token(ptr + token_start, token_end - token_start);
       if (next_token != " ") {
         EncodeSubtokens(next_token, ids);
       }
