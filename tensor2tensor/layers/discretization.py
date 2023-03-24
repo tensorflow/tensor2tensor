@@ -903,7 +903,10 @@ def get_vq_codebook(codebook_size, hidden_size):
     with tf.colocate_with(means):
       ema_means = tf.get_variable(
           name="ema_means",
-          initializer=means.initialized_value(),
+          initializer=tf.cond(
+              tf.is_variable_initialized(means),
+              means.read_value,
+              lambda: means.initial_value),
           trainable=False)
 
   return means, ema_means, ema_count
