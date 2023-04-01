@@ -115,7 +115,7 @@ def f(x, depth1, depth2, dim='2d', first_batch_norm=True, stride=1,
     else:
       net = conv(net, depth2, 3, strides=stride,
                  padding=padding, activation=None)
-      net = tf.layers.batch_normalization(x, training=training)
+      net = tf.layers.batch_normalization(net, training=training)
       net = tf.nn.relu(net)
       net = conv(net, depth2, 3, strides=stride,
                  padding=padding, activation=None)
