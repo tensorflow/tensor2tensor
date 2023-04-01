@@ -72,8 +72,6 @@ def file_page_generator(my_file, max_page_size=2**28):
   Yields:
     strings
   """
-  page_start = "  <page>\n"
-  page_end = "  </page>\n"
   chunk_size = max_page_size
   page_start = "  <page>\n"
   page_end = "  </page>\n"
