@@ -36,6 +36,7 @@ except:  # pylint: disable=bare-except
   # these as needed.
   import tensorflow_addons as tfa  # pylint: disable=g-import-not-at-top
   import tf_slim  # pylint: disable=g-import-not-at-top
+  import tensorflow as tf2
   is_tf2 = True
 
 
@@ -54,6 +55,12 @@ class DummyModule(object):
   def __init__(self, **kw):
     for k, v in kw.items():
       setattr(self, k, v)
+
+  def load_checkpoint(self, ckpt_dir):
+      return tf2.train.load_checkpoint(ckpt_dir)
+
+  def get_trainable_variables(self):
+      return tf.trainable_variables()
 
 
 def slim():
