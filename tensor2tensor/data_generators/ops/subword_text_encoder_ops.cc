@@ -46,10 +46,10 @@ class SubwordTextEncoderEncodeOp : public OpKernel {
     encoder_->Encode(s, &encoded_ids);
     Tensor* encoded;
     OP_REQUIRES_OK(
-        ctx,
-        ctx->allocate_output(0, TensorShape(
-            {static_cast<int64>(encoded_ids.size())}), &encoded));
-    auto encoded_vec = encoded->vec<int64>();
+        ctx, ctx->allocate_output(
+                 0, TensorShape({static_cast<int64_t>(encoded_ids.size())}),
+                 &encoded));
+    auto encoded_vec = encoded->vec<int64_t>();
     // TODO(noam): find someone who remembers c++ eigen and ask the proper way
     // to copy a std::Vector to an Eigen whatever-this-is
     for (int i = 0; i < encoded_ids.size(); i++) {

@@ -55,10 +55,10 @@ class PackSequences2Op : public OpKernel {
   }
 
   void Compute(OpKernelContext* ctx) override {
-    auto inputs = ctx->input(0).matrix<int64>();
-    auto targets = ctx->input(1).matrix<int64>();
-    int inputs_max_length = ctx->input(2).scalar<int32>()();
-    int targets_max_length = ctx->input(3).scalar<int32>()();
+    auto inputs = ctx->input(0).matrix<int64_t>();
+    auto targets = ctx->input(1).matrix<int64_t>();
+    int inputs_max_length = ctx->input(2).scalar<int32_t>()();
+    int targets_max_length = ctx->input(3).scalar<int32_t>()();
     int n = inputs.dimension(0);  // Number of examples in the input.
     std::vector<int> inputs_lengths(n);
     std::vector<int> targets_lengths(n);
@@ -120,49 +120,49 @@ class PackSequences2Op : public OpKernel {
       }
     }
 
-    auto output_shape_inputs = TensorShape(
-        {static_cast<int64>(num_combined),
-         static_cast<int64>(inputs_max_length)});
-    auto output_shape_targets = TensorShape(
-        {static_cast<int64>(num_combined),
-         static_cast<int64>(targets_max_length)});
+    auto output_shape_inputs =
+        TensorShape({static_cast<int64_t>(num_combined),
+                     static_cast<int64_t>(inputs_max_length)});
+    auto output_shape_targets =
+        TensorShape({static_cast<int64_t>(num_combined),
+                     static_cast<int64_t>(targets_max_length)});
 
     Tensor* inputs_packed;
     OP_REQUIRES_OK(ctx, ctx->allocate_output(
         0, output_shape_inputs, &inputs_packed));
-    auto inputs_packed_m = inputs_packed->matrix<int64>();
+    auto inputs_packed_m = inputs_packed->matrix<int64_t>();
     inputs_packed_m.setZero();
 
     Tensor* inputs_segmentation;
     OP_REQUIRES_OK(
         ctx, ctx->allocate_output(
             1, output_shape_inputs, &inputs_segmentation));
-    auto inputs_segmentation_m = inputs_segmentation->matrix<int32>();
+    auto inputs_segmentation_m = inputs_segmentation->matrix<int32_t>();
     inputs_segmentation_m.setZero();
 
     Tensor* inputs_position;
     OP_REQUIRES_OK(
         ctx, ctx->allocate_output(2, output_shape_inputs, &inputs_position));
-    auto inputs_position_m = inputs_position->matrix<int32>();
+    auto inputs_position_m = inputs_position->matrix<int32_t>();
     inputs_position_m.setZero();
 
     Tensor* targets_packed;
     OP_REQUIRES_OK(ctx, ctx->allocate_output(
         3, output_shape_targets, &targets_packed));
-    auto targets_packed_m = targets_packed->matrix<int64>();
+    auto targets_packed_m = targets_packed->matrix<int64_t>();
     targets_packed_m.setZero();
 
     Tensor* targets_segmentation;
     OP_REQUIRES_OK(
         ctx, ctx->allocate_output(
             4, output_shape_targets, &targets_segmentation));
-    auto targets_segmentation_m = targets_segmentation->matrix<int32>();
+    auto targets_segmentation_m = targets_segmentation->matrix<int32_t>();
     targets_segmentation_m.setZero();
 
     Tensor* targets_position;
     OP_REQUIRES_OK(
         ctx, ctx->allocate_output(5, output_shape_targets, &targets_position));
-    auto targets_position_m = targets_position->matrix<int32>();
+    auto targets_position_m = targets_position->matrix<int32_t>();
     targets_position_m.setZero();
 
     // Copy the actual sequences from 'inputs' and 'targets' into the
@@ -276,7 +276,7 @@ class PackSequencesKOp : public OpKernel {
 
     std::map<InputIndex, int> max_lengths;
     for (InputIndex i = 0; i < max_lengths_list.size(); i++) {
-      max_lengths[i] = max_lengths_list[i].scalar<int32>()();
+      max_lengths[i] = max_lengths_list[i].scalar<int32_t>()();
     }
 
     int n = inputs.begin()->dim_size(0);
@@ -348,9 +348,8 @@ class PackSequencesKOp : public OpKernel {
         ctx, ctx->output_list("outputs_position", &outputs_position));
 
     for (InputIndex i = 0; i < inputs.size(); i++) {
-      TensorShape output_shape_2d = {
-        static_cast<int64>(num_combined),
-        static_cast<int64>(max_lengths[i])};
+      TensorShape output_shape_2d = {static_cast<int64_t>(num_combined),
+                                     static_cast<int64_t>(max_lengths[i])};
 
       TensorShape output_shape = output_shape_2d;
       if (inputs[i].dims() == 3) {
@@ -369,8 +368,8 @@ class PackSequencesKOp : public OpKernel {
       OP_REQUIRES_OK(ctx,
                      outputs_position.allocate(i, output_shape_2d, &position));
 
-      auto segmentation_eigen = segmentation->matrix<int32>();
-      auto position_eigen = position->matrix<int32>();
+      auto segmentation_eigen = segmentation->matrix<int32_t>();
+      auto position_eigen = position->matrix<int32_t>();
 
       SetZero(ctx, packed);
       segmentation_eigen.setZero();
@@ -394,9 +393,9 @@ class PackSequencesKOp : public OpKernel {
       case tensorflow::DT_FLOAT:
         return GetInputLengths<float>(ctx, input, padded_input_length);
       case tensorflow::DT_INT32:
-        return GetInputLengths<int32>(ctx, input, padded_input_length);
+        return GetInputLengths<int32_t>(ctx, input, padded_input_length);
       case tensorflow::DT_INT64:
-        return GetInputLengths<int64>(ctx, input, padded_input_length);
+        return GetInputLengths<int64_t>(ctx, input, padded_input_length);
       default:
         ctx->CtxFailure(
             tensorflow::errors::InvalidArgument("unsupported input dtype"));
@@ -468,10 +467,10 @@ class PackSequencesKOp : public OpKernel {
         SetZero<float>(ctx, inputs);
         break;
       case tensorflow::DT_INT32:
-        SetZero<int32>(ctx, inputs);
+        SetZero<int32_t>(ctx, inputs);
         break;
       case tensorflow::DT_INT64:
-        SetZero<int64>(ctx, inputs);
+        SetZero<int64_t>(ctx, inputs);
         break;
       default:
         ctx->CtxFailure(
@@ -495,8 +494,8 @@ class PackSequencesKOp : public OpKernel {
   }
 
   void PackSequence(OpKernelContext* ctx, const Tensor& inputs, Tensor* packed,
-                    TTypes<int32, 2>::Tensor segmentation,
-                    TTypes<int32, 2>::Tensor position,
+                    TTypes<int32_t, 2>::Tensor segmentation,
+                    TTypes<int32_t, 2>::Tensor position,
                     const PackingSpec& spec) {
     switch (inputs.dtype()) {
       case tensorflow::DT_FLOAT:
@@ -508,12 +507,12 @@ class PackSequencesKOp : public OpKernel {
             ctx, inputs, packed, segmentation, position, spec);
         break;
       case tensorflow::DT_INT32:
-        PackSequence<int32>(
-            ctx, inputs, packed, segmentation, position, spec);
+        PackSequence<int32_t>(ctx, inputs, packed, segmentation, position,
+                              spec);
         break;
       case tensorflow::DT_INT64:
-        PackSequence<int64>(
-            ctx, inputs, packed, segmentation, position, spec);
+        PackSequence<int64_t>(ctx, inputs, packed, segmentation, position,
+                              spec);
         break;
       default:
         ctx->CtxFailure(
@@ -523,8 +522,8 @@ class PackSequencesKOp : public OpKernel {
 
   template <typename T>
   void PackSequence(OpKernelContext* ctx, const Tensor& inputs, Tensor* packed,
-                    TTypes<int32, 2>::Tensor segmentation,
-                    TTypes<int32, 2>::Tensor position,
+                    TTypes<int32_t, 2>::Tensor segmentation,
+                    TTypes<int32_t, 2>::Tensor position,
                     const PackingSpec& spec) {
     switch (inputs.dims()) {
       case 2:
@@ -555,8 +554,8 @@ class PackSequencesKOp : public OpKernel {
   void PackSequence(OpKernelContext* ctx,
                     const typename TTypes<const T, 2>::Tensor& inputs,
                     typename TTypes<T, 2>::Tensor packed,
-                    TTypes<int32, 2>::Tensor segmentation,
-                    TTypes<int32, 2>::Tensor position,
+                    TTypes<int32_t, 2>::Tensor segmentation,
+                    TTypes<int32_t, 2>::Tensor position,
                     const PackingSpec& spec) {
     for (int i = 0; i < spec.seq_length; i++) {
       packed(spec.batch_pos, spec.offset + i) = inputs(spec.seq_id, i);
@@ -569,8 +568,8 @@ class PackSequencesKOp : public OpKernel {
   void PackSequence(OpKernelContext* ctx,
                     const typename TTypes<const T, 3>::Tensor& inputs,
                     typename TTypes<T, 3>::Tensor packed,
-                    TTypes<int32, 2>::Tensor segmentation,
-                    TTypes<int32, 2>::Tensor position,
+                    TTypes<int32_t, 2>::Tensor segmentation,
+                    TTypes<int32_t, 2>::Tensor position,
                     const PackingSpec& spec) {
     for (int i = 0; i < spec.seq_length; i++) {
       for (int k = 0; k < inputs.dimension(2); k++) {

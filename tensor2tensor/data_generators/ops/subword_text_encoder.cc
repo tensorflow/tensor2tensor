@@ -14,7 +14,7 @@ namespace {
 using ::tensorflow::Env;
 
 // End of Sequence token ID to insert at end of encoded text.
-constexpr int64 kEosTokenId = 1;
+constexpr int64_t kEosTokenId = 1;
 
 }  // namespace
 
