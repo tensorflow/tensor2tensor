@@ -49,7 +49,26 @@ def _get_vqa_v2_annotations(directory,
   annotation_file = generator_utils.maybe_download_from_drive(
       directory, annotation_filename, annotation_url)
   with tarfile.open(annotation_file, "r:gz") as annotation_tar:
-    annotation_tar.extractall(directory)
+    def is_within_directory(directory, target):
+        
+        abs_directory = os.path.abspath(directory)
+        abs_target = os.path.abspath(target)
+    
+        prefix = os.path.commonprefix([abs_directory, abs_target])
+        
+        return prefix == abs_directory
+    
+    def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+    
+        for member in tar.getmembers():
+            member_path = os.path.join(path, member.name)
+            if not is_within_directory(path, member_path):
+                raise Exception("Attempted Path Traversal in Tar File")
+    
+        tar.extractall(path, members, numeric_owner=numeric_owner) 
+        
+    
+    safe_extract(annotation_tar, directory)
 
 
 def _get_vqa_v2_image_raw_dataset(directory, image_root_url, image_urls):
@@ -69,7 +88,26 @@ def _get_vqa_v2_image_feature_dataset(
   feature_file = generator_utils.maybe_download_from_drive(
       directory, feature_filename, feature_url)
   with tarfile.open(feature_file, "r:gz") as feature_tar:
-    feature_tar.extractall(directory)
+    def is_within_directory(directory, target):
+        
+        abs_directory = os.path.abspath(directory)
+        abs_target = os.path.abspath(target)
+    
+        prefix = os.path.commonprefix([abs_directory, abs_target])
+        
+        return prefix == abs_directory
+    
+    def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+    
+        for member in tar.getmembers():
+            member_path = os.path.join(path, member.name)
+            if not is_within_directory(path, member_path):
+                raise Exception("Attempted Path Traversal in Tar File")
+    
+        tar.extractall(path, members, numeric_owner=numeric_owner) 
+        
+    
+    safe_extract(feature_tar, directory)
 
 
 class ImageQuestion2MultilabelProblem(image_utils.ImageProblem):

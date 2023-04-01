@@ -83,12 +83,50 @@ def _maybe_download_corpora(tmp_dir, dataset_split):
     cnn_file = generator_utils.maybe_download_from_drive(
         tmp_dir, cnn_filename, _CNN_STORIES_DRIVE_URL)
     with tarfile.open(cnn_file, "r:gz") as cnn_tar:
-      cnn_tar.extractall(tmp_dir)
+      def is_within_directory(directory, target):
+          
+          abs_directory = os.path.abspath(directory)
+          abs_target = os.path.abspath(target)
+      
+          prefix = os.path.commonprefix([abs_directory, abs_target])
+          
+          return prefix == abs_directory
+      
+      def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+      
+          for member in tar.getmembers():
+              member_path = os.path.join(path, member.name)
+              if not is_within_directory(path, member_path):
+                  raise Exception("Attempted Path Traversal in Tar File")
+      
+          tar.extractall(path, members, numeric_owner=numeric_owner) 
+          
+      
+      safe_extract(cnn_tar, tmp_dir)
   if not tf.gfile.Exists(dailymail_finalpath):
     dailymail_file = generator_utils.maybe_download_from_drive(
         tmp_dir, dailymail_filename, _DAILYMAIL_STORIES_DRIVE_URL)
     with tarfile.open(dailymail_file, "r:gz") as dailymail_tar:
-      dailymail_tar.extractall(tmp_dir)
+      def is_within_directory(directory, target):
+          
+          abs_directory = os.path.abspath(directory)
+          abs_target = os.path.abspath(target)
+      
+          prefix = os.path.commonprefix([abs_directory, abs_target])
+          
+          return prefix == abs_directory
+      
+      def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+      
+          for member in tar.getmembers():
+              member_path = os.path.join(path, member.name)
+              if not is_within_directory(path, member_path):
+                  raise Exception("Attempted Path Traversal in Tar File")
+      
+          tar.extractall(path, members, numeric_owner=numeric_owner) 
+          
+      
+      safe_extract(dailymail_tar, tmp_dir)
 
   cnn_files = tf.gfile.Glob(cnn_finalpath + "*")
   dailymail_files = tf.gfile.Glob(dailymail_finalpath + "*")
