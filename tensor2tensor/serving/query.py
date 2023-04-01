@@ -48,6 +48,8 @@ flags.DEFINE_string(
     "cloud_mlengine_model_version", None,
     "Version of the model to use. If None, requests will be "
     "sent to the default version.")
+flags.DEFINE_string("version", None, "Version of the model to use.")
+flags.DEFINE_string("version_label", None, "Label of the model to use.")
 
 
 def validate_flags():
@@ -72,7 +74,9 @@ def make_request_fn():
     request_fn = serving_utils.make_grpc_request_fn(
         servable_name=FLAGS.servable_name,
         server=FLAGS.server,
-        timeout_secs=FLAGS.timeout_secs)
+        timeout_secs=FLAGS.timeout_secs,
+        version_label=FLAGS.version_label,
+        version=FLAGS.version)
   return request_fn
 
 
