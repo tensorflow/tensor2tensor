@@ -22,7 +22,7 @@ import re
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class Modality(object):

@@ -33,7 +33,7 @@ from tensor2tensor.rl import trainer_model_based
 from tensor2tensor.rl import trainer_model_based_params
 
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 flags = tf.flags

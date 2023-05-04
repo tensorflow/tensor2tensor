@@ -22,7 +22,7 @@ from __future__ import print_function
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 # pylint: disable=unused-variable
 

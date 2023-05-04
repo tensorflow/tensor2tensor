@@ -26,7 +26,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.layers import common_image_attention
 from tensor2tensor.models import image_transformer
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class ImagetransformerTest(parameterized.TestCase, tf.test.TestCase):

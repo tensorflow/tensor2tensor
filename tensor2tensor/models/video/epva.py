@@ -35,7 +35,7 @@ from tensor2tensor.models.video import epva_params  # pylint: disable=unused-imp
 from tensor2tensor.models.video import sv2p
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 from tensorflow.contrib.framework.python.ops import arg_scope
 from tensorflow.contrib.slim.python.slim.nets import vgg

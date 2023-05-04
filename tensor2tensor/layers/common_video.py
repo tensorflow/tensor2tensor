@@ -22,7 +22,7 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.layers import common_layers
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 from tensorflow.python.ops import summary_op_util
 

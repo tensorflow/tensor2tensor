@@ -21,7 +21,7 @@ from __future__ import print_function
 from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 @registry.register_hparams("basic_1")

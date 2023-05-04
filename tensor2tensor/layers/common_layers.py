@@ -28,7 +28,7 @@ import math
 import numpy as np
 from six.moves import range  # pylint: disable=redefined-builtin
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops

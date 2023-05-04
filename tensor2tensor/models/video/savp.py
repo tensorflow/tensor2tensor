@@ -31,7 +31,7 @@ from tensor2tensor.models.video import sv2p
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import update_ops_hook
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 gan_losses = tf.contrib.gan.losses.wargs
 

@@ -34,7 +34,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 DATA_URL = (
     "http://rail.eecs.berkeley.edu/datasets/bair_robot_pushing_dataset_v0.tar")

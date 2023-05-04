@@ -37,7 +37,7 @@ from tensor2tensor.data_generators import vqa_utils
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 def _get_vqa_v2_annotations(directory,

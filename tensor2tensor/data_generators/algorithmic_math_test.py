@@ -23,7 +23,7 @@ import six
 import sympy
 from tensor2tensor.data_generators import algorithmic_math
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class AlgorithmicMathTest(tf.test.TestCase):

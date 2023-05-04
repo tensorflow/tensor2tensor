@@ -23,7 +23,7 @@ from absl.testing import parameterized
 import numpy as np
 
 from tensor2tensor.layers import common_video
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):

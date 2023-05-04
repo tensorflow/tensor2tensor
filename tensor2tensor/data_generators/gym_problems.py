@@ -36,7 +36,7 @@ from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

@@ -28,7 +28,7 @@ import mesh_tensorflow as mtf
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.utils import mtf_model
 from tensor2tensor.utils import registry
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 BATCH_NORM_DECAY = 0.9

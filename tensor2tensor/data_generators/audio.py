@@ -24,7 +24,7 @@ import tarfile
 import wave
 # from tensor2tensor.data_generators import generator_utils
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

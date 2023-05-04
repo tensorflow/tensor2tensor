@@ -45,7 +45,7 @@ from tensor2tensor.data_generators import tokenizer
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 _DIR_NAME = 'tasks_1-20_v1-2'

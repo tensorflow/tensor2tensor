@@ -28,7 +28,7 @@ from tensor2tensor.models.research import autoencoders
 from tensor2tensor.rl.envs.in_graph_batch_env import InGraphBatchEnv
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class WrapperBase(InGraphBatchEnv):

@@ -25,7 +25,7 @@ from tensor2tensor.models.research import autoencoders  # pylint: disable=unused
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class AutoencoderTest(tf.test.TestCase):

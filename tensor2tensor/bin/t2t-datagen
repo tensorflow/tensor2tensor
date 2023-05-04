@@ -18,7 +18,7 @@ from __future__ import print_function
 from tensor2tensor.bin import t2t_datagen
 import fathomt2t
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 def main(argv):
   t2t_datagen.main(argv)

@@ -27,7 +27,7 @@ from tensor2tensor import problems as problems_lib  # pylint: disable=unused-imp
 from tensor2tensor.serving import serving_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

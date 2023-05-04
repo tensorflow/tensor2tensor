@@ -22,7 +22,7 @@ from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import algorithmic
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class AlgorithmicTest(tf.test.TestCase):

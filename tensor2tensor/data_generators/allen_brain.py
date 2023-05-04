@@ -42,7 +42,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 _BASE_EXAMPLE_IMAGE_SIZE = 64
 

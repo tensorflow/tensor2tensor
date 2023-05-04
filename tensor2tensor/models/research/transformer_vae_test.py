@@ -20,7 +20,7 @@ from __future__ import print_function
 import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models.research import transformer_vae
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class TransformerVaeTest(tf.test.TestCase):

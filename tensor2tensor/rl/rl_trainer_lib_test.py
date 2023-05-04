@@ -21,7 +21,7 @@ from __future__ import print_function
 from tensor2tensor.rl import rl_trainer_lib
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 # FATHOM

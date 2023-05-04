@@ -39,7 +39,7 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 _FILE_NAME = 'agr_50_mostcommon_10K'
 _TAR = _FILE_NAME + '.tsv.gz'

@@ -20,7 +20,7 @@ from __future__ import print_function
 
 from tensor2tensor.rl import trainer_model_based_new
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 FLAGS = tf.flags.FLAGS
 

@@ -29,7 +29,7 @@ from tensor2tensor.models.research import moe
 from tensor2tensor.utils import mtf_model
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 @registry.register_model

@@ -35,7 +35,7 @@ import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 # Reserved tokens for things like padding and EOS symbols.
 PAD = "<pad>"

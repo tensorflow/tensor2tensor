@@ -24,7 +24,7 @@ import numpy as np
 import scipy
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope

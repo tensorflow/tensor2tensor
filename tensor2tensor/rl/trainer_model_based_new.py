@@ -44,7 +44,7 @@ from tensor2tensor.rl import trainer_model_based_params
 from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 flags = tf.flags

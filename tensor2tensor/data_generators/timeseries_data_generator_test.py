@@ -23,7 +23,7 @@ import numpy as np
 
 from tensor2tensor.data_generators import timeseries_data_generator
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class TimeseriesDataGeneratorTest(tf.test.TestCase):

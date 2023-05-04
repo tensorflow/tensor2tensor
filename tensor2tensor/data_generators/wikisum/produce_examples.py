@@ -23,7 +23,7 @@ import os
 from tensor2tensor.data_generators.wikisum import utils
 from tensor2tensor.data_generators.wikisum import wikisum
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

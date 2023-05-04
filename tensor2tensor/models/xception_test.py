@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.layers import modalities
 from tensor2tensor.models import xception
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class XceptionTest(tf.test.TestCase):

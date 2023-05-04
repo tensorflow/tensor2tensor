@@ -24,7 +24,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import modalities
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 # TODO(trandustin): This test problem is required in order for MultiProblem

@@ -24,7 +24,7 @@ import numpy as np
 from tensor2tensor.data_generators import allen_brain
 from tensor2tensor.models import image_transformer_2d
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 tfe = tf.contrib.eager
 tfe.enable_eager_execution()

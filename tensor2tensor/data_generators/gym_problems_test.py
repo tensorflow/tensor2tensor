@@ -24,7 +24,7 @@ import shutil
 
 from tensor2tensor.data_generators import gym_problems_specs
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class GymProblemsTest(tf.test.TestCase):

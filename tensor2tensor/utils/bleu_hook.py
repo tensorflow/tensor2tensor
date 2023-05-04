@@ -34,7 +34,7 @@ from six.moves import zip
 
 from tensor2tensor.data_generators import text_encoder
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 def _get_ngrams(segment, max_order):

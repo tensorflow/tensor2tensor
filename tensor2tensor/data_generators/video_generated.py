@@ -26,7 +26,7 @@ import numpy as np
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 try:
   import matplotlib  # pylint: disable=g-import-not-at-top

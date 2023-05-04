@@ -23,7 +23,7 @@ from tensor2tensor.layers import common_video
 from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 tfl = tf.layers

@@ -24,7 +24,7 @@ import os
 import shutil
 from tensor2tensor.utils import metrics_hook
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class DummyHook(metrics_hook.MetricsBasedHook):

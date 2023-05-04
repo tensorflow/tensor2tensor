@@ -22,7 +22,7 @@ from __future__ import print_function
 import os
 import numpy as np
 import six
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 def load_image_map_function(filename, frame_shape):

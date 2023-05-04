@@ -22,7 +22,7 @@ import numpy as np
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.utils import decoding
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class ImageTest(tf.test.TestCase):

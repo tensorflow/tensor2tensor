@@ -26,7 +26,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import bleu_hook
 from tensor2tensor.utils import rouge
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 from tensorflow.contrib.eager.python import tfe
 

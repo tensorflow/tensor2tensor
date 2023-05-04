@@ -25,7 +25,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class ModalityTest(tf.test.TestCase):

@@ -24,7 +24,7 @@ from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class VideoUtilsTest(tf.test.TestCase):

@@ -34,7 +34,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 BASE_URL = "https://storage.googleapis.com/brain-robotics-data/push/"
 DATA_TRAIN = (264, "push_train/push_train.tfrecord-{:05d}-of-00264")

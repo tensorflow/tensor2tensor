@@ -32,7 +32,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import translate_ende
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 # URLs and filenames for MSCOCO data.
 _MSCOCO_ROOT_URL = "http://msvocds.blob.core.windows.net/"

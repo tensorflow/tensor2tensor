@@ -21,7 +21,7 @@ from __future__ import print_function
 import numpy as np
 from tensor2tensor.utils import metrics
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class MetricsTest(tf.test.TestCase):

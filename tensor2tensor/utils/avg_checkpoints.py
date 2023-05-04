@@ -22,7 +22,7 @@ import os
 import numpy as np
 import six
 from six.moves import zip  # pylint: disable=redefined-builtin
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

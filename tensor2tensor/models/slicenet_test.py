@@ -25,7 +25,7 @@ from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.models import slicenet
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class SliceNetTest(tf.test.TestCase):

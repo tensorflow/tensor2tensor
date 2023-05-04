@@ -21,7 +21,7 @@ from __future__ import print_function
 
 from tensor2tensor.data_generators import desc2code
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 CODE_CPP_IN = """
   #include <iostream>

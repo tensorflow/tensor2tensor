@@ -27,7 +27,7 @@ from tensor2tensor.layers import discretization
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 class SymbolModality(modality.Modality):
   """Modality for sets of discrete symbols.

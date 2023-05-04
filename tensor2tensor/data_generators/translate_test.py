@@ -25,7 +25,7 @@ import tarfile
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class TranslateTest(tf.test.TestCase):

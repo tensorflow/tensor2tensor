@@ -32,7 +32,7 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import video_metrics
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

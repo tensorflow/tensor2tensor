@@ -22,7 +22,7 @@ from __future__ import print_function
 from tensor2tensor.models.video import basic_recurrent
 from tensor2tensor.models.video import tests_utils
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class NextFrameTest(tests_utils.BaseNextFrameTest):

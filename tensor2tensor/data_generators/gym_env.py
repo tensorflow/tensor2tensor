@@ -31,7 +31,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import metrics
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 Frame = collections.namedtuple(

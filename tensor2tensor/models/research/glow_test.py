@@ -26,7 +26,7 @@ from tensor2tensor import problems
 from tensor2tensor.data_generators import cifar  # pylint: disable=unused-import
 from tensor2tensor.models.research import glow
 from tensor2tensor.utils import registry  # pylint: disable=unused-import
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 MODES = tf.estimator.ModeKeys
 

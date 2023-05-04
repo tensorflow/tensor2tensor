@@ -20,7 +20,7 @@ from __future__ import division
 from __future__ import print_function
 from tensor2tensor.utils import diet
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class DietVarTest(tf.test.TestCase):

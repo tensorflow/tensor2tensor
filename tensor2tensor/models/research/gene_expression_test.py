@@ -23,7 +23,7 @@ from tensor2tensor.data_generators import gene_expression as gene_data
 from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.models.research import gene_expression
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 def gene_expression_conv_test():

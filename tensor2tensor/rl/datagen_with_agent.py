@@ -25,7 +25,7 @@ from __future__ import print_function
 from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

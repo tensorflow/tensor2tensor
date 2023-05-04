@@ -32,7 +32,7 @@ from tensor2tensor.models.video import base
 from tensor2tensor.models.video import base_vae
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 tfl = tf.layers
 tfcl = tf.contrib.layers

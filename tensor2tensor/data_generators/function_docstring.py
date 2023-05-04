@@ -20,7 +20,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 @registry.register_problem

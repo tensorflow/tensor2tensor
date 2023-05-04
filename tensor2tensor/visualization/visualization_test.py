@@ -33,7 +33,7 @@ import os
 
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.visualization import visualization
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 def get_data_dir():

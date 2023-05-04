@@ -22,7 +22,7 @@ from __future__ import print_function
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 from tensorflow.contrib import slim
 from tensorflow.contrib.slim.python.slim.nets.resnet_v1 import resnet_v1_152

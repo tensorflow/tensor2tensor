@@ -24,7 +24,7 @@ from tensor2tensor.utils import adafactor
 from tensor2tensor.utils import multistep_optimizer
 from tensor2tensor.utils import yellowfin
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 from tensorflow.python.framework import dtypes
 

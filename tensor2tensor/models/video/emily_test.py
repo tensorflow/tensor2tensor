@@ -23,7 +23,7 @@ from tensor2tensor.models.video import emily
 from tensor2tensor.models.video import tests_utils
 
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 class NextFrameTest(tests_utils.BaseNextFrameTest):

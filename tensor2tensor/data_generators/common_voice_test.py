@@ -22,7 +22,7 @@ from __future__ import print_function
 import os
 from tensor2tensor.data_generators import common_voice
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 pkg_dir, _ = os.path.split(__file__)
 _TESTDATA = os.path.join(pkg_dir, "test_data")

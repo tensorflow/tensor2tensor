@@ -30,7 +30,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 _COMMONVOICE_URL = "https://common-voice-data-download.s3.amazonaws.com/cv_corpus_v1.tar.gz"  # pylint: disable=line-too-long
 

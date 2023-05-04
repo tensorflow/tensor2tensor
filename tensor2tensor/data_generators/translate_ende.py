@@ -28,7 +28,7 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
 from tensor2tensor.utils import registry
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 _ENDE_TRAIN_DATASETS = [
     [

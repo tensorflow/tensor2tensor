@@ -26,7 +26,7 @@ import os
 import re
 import urllib
 
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 # pylint: disable=g-import-not-at-top
 # To maintain compatibility with Python 2 and 3
