@@ -59,7 +59,7 @@ from __future__ import print_function
 import os
 import time
 from tensor2tensor.utils import bleu_hook
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags

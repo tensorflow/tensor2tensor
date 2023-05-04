@@ -22,7 +22,7 @@ from __future__ import print_function
 from absl.testing import parameterized
 from tensor2tensor.data_generators import imagenet
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class ImagenetTest(parameterized.TestCase, tf.test.TestCase):

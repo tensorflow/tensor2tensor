@@ -27,7 +27,7 @@ from builtins import bytes  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import generator_utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class GeneratorUtilsTest(tf.test.TestCase):

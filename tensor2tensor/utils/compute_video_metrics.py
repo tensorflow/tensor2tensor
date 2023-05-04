@@ -23,7 +23,7 @@ import os
 
 from tensor2tensor.bin import t2t_decoder
 from tensor2tensor.utils import video_metrics
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 FLAGS = tf.flags.FLAGS

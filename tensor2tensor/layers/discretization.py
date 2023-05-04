@@ -24,7 +24,7 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from tensorflow.python.training import moving_averages
 

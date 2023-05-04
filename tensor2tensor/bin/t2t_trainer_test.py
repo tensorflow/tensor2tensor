@@ -21,7 +21,7 @@ from __future__ import print_function
 from tensor2tensor.bin import t2t_trainer
 from tensor2tensor.utils import trainer_lib_test
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 FLAGS = tf.flags.FLAGS
 

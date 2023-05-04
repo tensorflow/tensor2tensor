@@ -42,7 +42,7 @@ from tensor2tensor.rl.trainer_model_based import temporary_flags
 
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 _font = None

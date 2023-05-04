@@ -24,7 +24,7 @@ from tensor2tensor.data_generators import mnist  # pylint: disable=unused-import
 from tensor2tensor.models import basic
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class BasicTest(tf.test.TestCase):

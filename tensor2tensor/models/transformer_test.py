@@ -23,7 +23,7 @@ import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import transformer
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 BATCH_SIZE = 3

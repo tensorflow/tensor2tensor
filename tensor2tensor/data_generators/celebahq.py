@@ -24,7 +24,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 @registry.register_problem

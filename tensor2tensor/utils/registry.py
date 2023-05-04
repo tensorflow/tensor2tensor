@@ -46,7 +46,7 @@ from __future__ import print_function
 
 import inspect
 import re
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _ATTACKS = {}
 _ATTACK_PARAMS = {}

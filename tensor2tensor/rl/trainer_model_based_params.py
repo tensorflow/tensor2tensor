@@ -24,7 +24,7 @@ import six
 from tensor2tensor.data_generators import gym_problems_specs
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags

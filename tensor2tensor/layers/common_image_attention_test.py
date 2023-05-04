@@ -22,7 +22,7 @@ from __future__ import print_function
 from absl.testing import parameterized
 from tensor2tensor.layers import common_image_attention
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):

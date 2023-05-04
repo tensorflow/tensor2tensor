@@ -23,7 +23,7 @@ from tensor2tensor.models.research import transformer_vae
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def discriminator(x, compress, hparams, name, reuse=None):

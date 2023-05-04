@@ -22,7 +22,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _LIBRISPEECH_TRAIN_DATASETS = [
     [

@@ -37,7 +37,7 @@ from tensor2tensor import problems  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def get_data_dir():

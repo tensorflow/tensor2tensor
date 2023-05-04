@@ -26,7 +26,7 @@ from tensor2tensor.layers import discretization
 from tensor2tensor.rl.envs import tf_atari_wrappers
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 @registry.register_hparams

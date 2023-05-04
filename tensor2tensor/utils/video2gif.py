@@ -41,7 +41,7 @@ from tensor2tensor.data_generators import problem  # pylint: disable=unused-impo
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

@@ -24,7 +24,7 @@ import tempfile
 import numpy as np
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import glow_ops
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 arg_scope = tf.contrib.framework.arg_scope
 add_arg_scope = tf.contrib.framework.add_arg_scope

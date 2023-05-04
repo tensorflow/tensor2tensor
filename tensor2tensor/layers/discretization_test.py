@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import numpy as np
 from tensor2tensor.layers import discretization
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class DiscretizationTest(tf.test.TestCase):

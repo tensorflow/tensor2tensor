@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import video_generated  # pylint: disable=unu
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def fill_hparams(hparams, in_frames, out_frames):

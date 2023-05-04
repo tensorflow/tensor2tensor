@@ -26,7 +26,7 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):

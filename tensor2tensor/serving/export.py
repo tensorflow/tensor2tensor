@@ -25,7 +25,7 @@ from tensor2tensor.utils import t2t_model
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 import tensorflow_hub as hub
 
 FLAGS = tf.flags.FLAGS

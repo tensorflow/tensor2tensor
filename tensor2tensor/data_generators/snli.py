@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _EOS = 1
 _SEP = 2

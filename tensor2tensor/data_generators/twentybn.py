@@ -23,7 +23,7 @@ import os
 from tensor2tensor.data_generators import video_utils
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 _FILE_VIDEO_PATTERN = '20bn-something-something-v1'

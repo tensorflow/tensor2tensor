@@ -25,7 +25,7 @@ from tensor2tensor.rl.envs.batch_env_factory import batch_env_factory
 from tensor2tensor.rl.envs.tf_atari_wrappers import WrapperBase
 from tensor2tensor.rl.envs.utils import get_policy
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def _rollout_metadata(batch_env):

@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import problem as problem_lib
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class Test1(text_problems.Text2textTmpdir):

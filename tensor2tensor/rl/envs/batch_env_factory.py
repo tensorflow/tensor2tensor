@@ -27,7 +27,7 @@ from tensor2tensor.data_generators import gym_env
 from tensor2tensor.rl.envs import py_func_batch_env
 from tensor2tensor.rl.envs import simulated_batch_env
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def batch_env_factory(environment_spec, num_agents, initial_frame_chooser=None):

@@ -30,7 +30,7 @@ from tensor2tensor.data_generators.problem import default_model_hparams
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def assert_tensors_equal(sess, t1, t2, n):

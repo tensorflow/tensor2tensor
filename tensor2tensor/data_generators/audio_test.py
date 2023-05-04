@@ -23,7 +23,7 @@ import io
 import os
 from tensor2tensor.data_generators import audio
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class AudioTest(tf.test.TestCase):

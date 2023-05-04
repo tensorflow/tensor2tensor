@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import gym
 import six
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class EvalVideoWrapper(gym.Wrapper):

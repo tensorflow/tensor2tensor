@@ -30,7 +30,7 @@ import numpy as np
 from tensor2tensor.data_generators import gym_env
 from tensor2tensor.data_generators import problem
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class TestEnv(gym.Env):

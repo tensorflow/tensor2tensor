@@ -22,7 +22,7 @@ from __future__ import print_function
 from absl.testing import parameterized
 from tensor2tensor.data_generators import celeba
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class CelebaTest(parameterized.TestCase, tf.test.TestCase):

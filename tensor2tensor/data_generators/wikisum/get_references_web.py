@@ -44,7 +44,7 @@ import subprocess as sp
 from tensor2tensor.data_generators.wikisum import get_references_web_single_group as fetch
 from tensor2tensor.data_generators.wikisum import utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags

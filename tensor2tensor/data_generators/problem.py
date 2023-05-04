@@ -35,7 +35,7 @@ from tensor2tensor.layers import modalities
 from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities

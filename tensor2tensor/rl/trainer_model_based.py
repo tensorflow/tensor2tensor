@@ -50,7 +50,7 @@ from tensor2tensor.rl.envs.utils import InitialFrameChooser
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags

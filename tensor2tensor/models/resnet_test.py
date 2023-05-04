@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.layers import modalities
 from tensor2tensor.models import resnet
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def resnet_tiny_cpu():

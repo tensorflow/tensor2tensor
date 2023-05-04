@@ -25,7 +25,7 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # URLs and filenames for IMAGENET 32x32 data from
 # https://arxiv.org/abs/1601.06759.

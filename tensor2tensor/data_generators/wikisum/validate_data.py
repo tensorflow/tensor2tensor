@@ -25,7 +25,7 @@ import numpy as np
 
 from tensor2tensor.data_generators.wikisum import wikisum
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS

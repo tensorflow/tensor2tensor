@@ -21,7 +21,7 @@ from __future__ import print_function
 import importlib
 import os
 import sys
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 INTERNAL_USR_DIR_PACKAGE = "t2t_usr_dir_internal"
 

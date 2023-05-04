@@ -24,7 +24,7 @@ from __future__ import print_function
 
 from tensor2tensor.rl.envs import utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class InGraphBatchEnv(object):

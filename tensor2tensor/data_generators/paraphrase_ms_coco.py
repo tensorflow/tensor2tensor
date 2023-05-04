@@ -30,7 +30,7 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _MS_COCO_DOWNLOAD_URL = "http://msvocds.blob.core.windows.net/annotations-1-0-3"
 _MS_COCO_ZIPPED_FILE = "captions_train-val2014.zip"

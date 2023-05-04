@@ -26,7 +26,7 @@ from tensor2tensor.rl import collect
 from tensor2tensor.rl import ppo
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def define_train(hparams):

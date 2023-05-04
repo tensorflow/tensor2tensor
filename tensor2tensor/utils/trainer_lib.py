@@ -31,7 +31,7 @@ from tensor2tensor.utils import metrics_hook
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.python.training.session_run_hook import SessionRunHook, SessionRunArgs
 
 from tensorflow.core.protobuf import rewriter_config_pb2

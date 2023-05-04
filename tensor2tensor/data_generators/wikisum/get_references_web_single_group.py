@@ -31,7 +31,7 @@ import random
 
 import asyncio
 import aiohttp
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from tensor2tensor.data_generators.wikisum import html
 from tensor2tensor.data_generators.wikisum import utils

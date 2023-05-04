@@ -6,7 +6,7 @@ from __future__ import print_function
 
 from tensor2tensor.insights import server
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 def main(argv):
   server.main(argv)
