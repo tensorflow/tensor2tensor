@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,9 +33,10 @@ from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
-ModeKeys = tf.estimator.ModeKeys  # pylint: disable=invalid-name
+ModeKeys = tf_estimator.ModeKeys  # pylint: disable=invalid-name
 
 
 def _should_preprocess(layer_type):
@@ -224,6 +225,23 @@ class Aligned(t2t_model.T2TModel):
     decoder_output = dp(tf.expand_dims, x, 2)
     return decoder_output, extra_loss
 
+  def infer(self,
+            features=None,
+            decode_length=1,
+            beam_size=1,
+            top_beams=1,
+            alpha=0.0,
+            use_tpu=False):
+    """Predict."""
+    features["targets"] = tf.identity(features["inputs"])
+    logits, _ = self(features)
+    log_probs = common_layers.log_prob_from_logits(logits)
+    predictions, scores = common_layers.argmax_with_score(log_probs)
+    return {
+        "outputs": predictions,
+        "scores": scores,
+    }
+
 
 def get_batch_coordinate(x):
   """Return a flat int32 tensor of shape [1, batch_size*length, 1]."""
@@ -247,6 +265,7 @@ def aligned_base():
     a hparams object
   """
   hparams = common_hparams.basic_params1()
+  hparams.force_full_predict = True
   hparams.hidden_size = 512
   hparams.batch_size = 5000
   hparams.max_length = 0

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,7 +32,7 @@ import six
 from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.data_generators import text_encoder
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class NativeToUnicodeTest(tf.test.TestCase):
@@ -259,7 +259,7 @@ class SubwordTextEncoderTest(tf.test.TestCase):
     original = "This has UPPER CASE letters that are out of alphabet"
 
     # Previously there was a bug which produced an infinite loop in this case.
-    with self.assertRaises(AssertionError):
+    with self.assertRaises(ValueError):
       encoder.encode(original)
 
   def test_load_from_file(self):

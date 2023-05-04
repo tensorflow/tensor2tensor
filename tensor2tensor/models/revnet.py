@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 
 """Creates a RevNet with the bottleneck residual function.
 
@@ -37,10 +36,12 @@ https://arxiv.org/pdf/1707.04585.pdf
 
 import functools
 from tensor2tensor.layers import common_hparams
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def wrapped_partial(fn, *args, **kwargs):
@@ -49,8 +50,8 @@ def wrapped_partial(fn, *args, **kwargs):
   return wrapped
 
 
-conv_initializer = tf.contrib.layers.variance_scaling_initializer(
-    factor=2.0, mode='FAN_OUT')
+conv_initializer = tf.initializers.variance_scaling(
+    scale=2.0, mode='fan_out')
 
 CONFIG = {'2d': {'conv': wrapped_partial(
     tf.layers.conv2d, kernel_initializer=conv_initializer),
@@ -91,7 +92,7 @@ def f(x, depth1, depth2, dim='2d', first_batch_norm=True, stride=1,
     Output tensor after applying residual function for RevNet.
   """
   conv = CONFIG[dim]['conv']
-  with tf.variable_scope('f'):
+  with tf.variable_scope('f', reuse=tf.AUTO_REUSE):
     if first_batch_norm:
       net = tf.layers.batch_normalization(x, training=training)
       net = tf.nn.relu(net)
@@ -251,10 +252,8 @@ def unit(x1, x2, block_num, depth, num_layers, dim='2d',
 
     # Full block using memory-efficient rev_block implementation.
     with tf.variable_scope('full_block'):
-      x1, x2 = tf.contrib.layers.rev_block(x1, x2,
-                                           residual,
-                                           residual,
-                                           num_layers=num_layers)
+      x1, x2 = contrib.layers().rev_block(
+          x1, x2, residual, residual, num_layers=num_layers)
       return x1, x2
 
 
@@ -314,7 +313,7 @@ def revnet(inputs, hparams, reuse=None):
   Returns:
     [batch_size, hidden_dim] pre-logits tensor from the bottleneck RevNet.
   """
-  training = hparams.mode == tf.estimator.ModeKeys.TRAIN
+  training = hparams.mode == tf_estimator.ModeKeys.TRAIN
   with tf.variable_scope('RevNet', reuse=reuse):
     x1, x2 = init(inputs,
                   num_channels=hparams.num_channels_init_block,

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,10 +24,12 @@ from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import discretization
 from tensor2tensor.layers import latent_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def reverse_gradient(x, lr=1.0):
@@ -96,7 +98,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
     with tf.variable_scope("bottleneck"):
       hparams = self.hparams
       x = tf.layers.dense(x, hparams.bottleneck_bits, name="bottleneck")
-      if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      if hparams.mode == tf_estimator.ModeKeys.TRAIN:
         noise = 2.0 * tf.random_uniform(common_layers.shape_list(x)) - 1.0
         return tf.tanh(x) + noise * hparams.bottleneck_noise, 0.0
       return tf.tanh(x), 0.0
@@ -157,12 +159,10 @@ class AutoencoderBasic(t2t_model.T2TModel):
 
   def gumbel_sample(self, reconstr_gan):
     hparams = self.hparams
-    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    if isinstance(self._problem_hparams.target_modality, dict):
-      vocab_size = self._problem_hparams.target_modality[
-          "targets"].top_dimensionality
-    else:
-      vocab_size = self._problem_hparams.target_modality.top_dimensionality
+    is_training = hparams.mode == tf_estimator.ModeKeys.TRAIN
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
     reconstr_gan = tf.nn.log_softmax(reconstr_gan)
     if is_training and hparams.gumbel_temperature > 0.0:
       gumbel_samples = discretization.gumbel_sample(
@@ -182,15 +182,13 @@ class AutoencoderBasic(t2t_model.T2TModel):
 
   def body(self, features):
     hparams = self.hparams
-    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    if isinstance(self._problem_hparams.target_modality, dict):
-      vocab_size = self._problem_hparams.target_modality[
-          "targets"].top_dimensionality
-    else:
-      vocab_size = self._problem_hparams.target_modality.top_dimensionality
+    is_training = hparams.mode == tf_estimator.ModeKeys.TRAIN
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
     encoder_layers = None
     self.is1d = hparams.sample_width == 1
-    if (hparams.mode != tf.estimator.ModeKeys.PREDICT
+    if (hparams.mode != tf_estimator.ModeKeys.PREDICT
         or self._encode_on_predict):
       labels = features["targets_raw"]
       labels_shape = common_layers.shape_list(labels)
@@ -226,7 +224,8 @@ class AutoencoderBasic(t2t_model.T2TModel):
         # minimized by just setting x=0 and b=0 -- so we don't want too much
         # of the influence of this, and we stop-gradient to not zero-out x.
         x_stop = tf.stop_gradient(x)
-        xb_loss = tf.reduce_mean(tf.reduce_sum(tf.square(x_stop - b), axis=-1))
+        xb_loss = tf.reduce_mean(tf.reduce_sum(
+            tf.squared_difference(x_stop, b), axis=-1))
         # To prevent this loss from exploding we clip at 1, but anneal clipping.
         clip_max = 1.0 / common_layers.inverse_exp_decay(
             warm_step, min_value=0.001)
@@ -254,7 +253,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
 
     # Cut to the right size and mix before returning.
     res = x
-    if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode != tf_estimator.ModeKeys.PREDICT:
       res = x[:, :shape[1], :shape[2], :]
 
     # Final dense layer.
@@ -266,7 +265,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
     ]
     res = tf.reshape(res, output_shape)
 
-    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode == tf_estimator.ModeKeys.PREDICT:
       if hparams.use_vq_loss:
         (reconstr, _, _, _, _) = discretization.vq_loss(res, labels, vocab_size)
       else:
@@ -286,7 +285,7 @@ class AutoencoderBasic(t2t_model.T2TModel):
       vq_temperature = hparams.vq_temperature / common_layers.inverse_exp_decay(
           hparams.gan_codes_warmup_steps * 1.2,
           min_value=hparams.vq_temperature * 2)
-      if hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      if hparams.mode != tf_estimator.ModeKeys.TRAIN:
         vq_temperature = None
       with tf.variable_scope("vq_loss"):
         (reconstr, _, target_codes, code_loss,
@@ -466,12 +465,14 @@ class AutoencoderAutoregressive(AutoencoderBasic):
       plain_training_loss = losses.pop("training")
       losses["plain"] = plain_training_loss
     res_shape = common_layers.shape_list(basic_result)
-    vocab_size = self._problem_hparams.target_modality.top_dimensionality
+    vocab_size = self._problem_hparams.vocab_size["targets"]
+    if hasattr(self._hparams, "vocab_divisor"):
+      vocab_size += (-vocab_size) % self._hparams.vocab_divisor
     targets = tf.one_hot(features["targets_raw"], vocab_size)
     # Prepare inputs for autoregressive modes.
     if common_layers.shape_list(features["targets"])[1] == 1:
       # This happens on the first step of predicitions.
-      assert hparams.mode == tf.estimator.ModeKeys.PREDICT
+      assert hparams.mode == tf_estimator.ModeKeys.PREDICT
       targets = tf.zeros_like(basic_result)
     targets = self.embed(targets)
     if hparams.autoregressive_gumbel_sample:
@@ -483,14 +484,14 @@ class AutoencoderAutoregressive(AutoencoderBasic):
     basic1d = tf.reshape(basic_result, [shape[0], -1, shape[-1]])
     targets = tf.reshape(targets, common_layers.shape_list(basic_result))
     # During autoregressive inference, don't resample.
-    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode == tf_estimator.ModeKeys.PREDICT:
       if hasattr(hparams, "sampled_basic1d_tensor"):
         basic1d = hparams.sampled_basic1d_tensor
       else:
         hparams.sampled_basic1d_tensor = basic1d
     # Sometimes it's useful to look at non-autoregressive evals.
     targets_dropout = targets
-    if (hparams.mode == tf.estimator.ModeKeys.EVAL and
+    if (hparams.mode == tf_estimator.ModeKeys.EVAL and
         hparams.autoregressive_eval_pure_autoencoder):
       targets_dropout = tf.zeros_like(basic_result)
     # Now combine the basic reconstruction with shifted targets.
@@ -590,7 +591,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
   """Residual autoencoder."""
 
   def dropout(self, x):
-    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    is_training = self.hparams.mode == tf_estimator.ModeKeys.TRAIN
     hparams = self.hparams
     if hparams.dropout <= 0.0 or not is_training:
       return x
@@ -649,7 +650,7 @@ class AutoencoderResidual(AutoencoderAutoregressive):
   def decoder(self, x, encoder_layers=None):
     with tf.variable_scope("decoder"):
       hparams = self.hparams
-      is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+      is_training = self.hparams.mode == tf_estimator.ModeKeys.TRAIN
       kernel, strides = self._get_kernel_and_strides()
       residual_kernel = (hparams.residual_kernel_height,
                          hparams.residual_kernel_width)
@@ -719,13 +720,13 @@ class AutoencoderResidualVAE(AutoencoderResidual):
     x_shape = common_layers.shape_list(x)
     with tf.variable_scope("vae"):
       mu = tf.layers.dense(x, z_size, name="mu")
-      if hparams.mode != tf.estimator.ModeKeys.TRAIN:
+      if hparams.mode != tf_estimator.ModeKeys.TRAIN:
         return mu, 0.0  # No sampling or kl loss on eval.
       log_sigma = tf.layers.dense(x, z_size, name="log_sigma")
       epsilon = tf.random_normal(x_shape[:-1] + [z_size])
       z = mu + tf.exp(log_sigma / 2) * epsilon
       kl = 0.5 * tf.reduce_mean(
-          tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
+          tf.expm1(log_sigma) + tf.square(mu) - log_sigma, axis=-1)
       free_bits = z_size // 4
       kl_loss = tf.reduce_mean(tf.maximum(kl - free_bits, 0.0))
     return z, kl_loss * hparams.kl_beta
@@ -751,12 +752,12 @@ class AutoencoderBasicDiscrete(AutoencoderAutoregressive):
     hparams = self.hparams
     x = tf.tanh(tf.layers.dense(x, hparams.bottleneck_bits, name="bottleneck"))
     d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
       noise = tf.random_uniform(common_layers.shape_list(x))
       noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
       d *= noise
     x = common_layers.mix(d, x, hparams.discretize_warmup_steps,
-                          hparams.mode == tf.estimator.ModeKeys.TRAIN)
+                          hparams.mode == tf_estimator.ModeKeys.TRAIN)
     return x, 0.0
 
   def sample(self, features=None, shape=None):
@@ -828,10 +829,10 @@ class AutoencoderOrderedDiscrete(AutoencoderResidualDiscrete):
     hparams.bottleneck_noise = 0.0  # We'll add noise below.
     x, loss = discretization.parametrized_bottleneck(x, hparams)
     hparams.bottleneck_noise = noise
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
       # We want a number p such that p^bottleneck_bits = 1 - noise.
       # So log(p) * bottleneck_bits = log(noise)
-      log_p = tf.log(1 - float(noise) / 2) / float(hparams.bottleneck_bits)
+      log_p = tf.log1p(-float(noise) / 2) / float(hparams.bottleneck_bits)
       # Probabilities of flipping are p, p^2, p^3, ..., p^bottleneck_bits.
       noise_mask = 1.0 - tf.exp(tf.cumsum(tf.zeros_like(x) + log_p, axis=-1))
       # Having the no-noise mask, we can make noise just uniformly at random.
@@ -848,14 +849,14 @@ class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
   """Dual discrete autoencoder."""
 
   def body(self, features):
-    if self.hparams.mode != tf.estimator.ModeKeys.EVAL:
+    if self.hparams.mode != tf_estimator.ModeKeys.EVAL:
       t, i = features["targets_raw"], features["inputs_raw"]
       t, i = common_layers.pad_to_same_length(t, i)
       features["targets_raw"] = tf.concat([t, i], axis=0)
     return super(AutoencoderDualDiscrete, self).body(features)
 
   def embed(self, x, name="embedding"):
-    if self.hparams.mode == tf.estimator.ModeKeys.EVAL:
+    if self.hparams.mode == tf_estimator.ModeKeys.EVAL:
       return super(AutoencoderDualDiscrete, self).embed(x, name=name + "_t")
     xt, xi = tf.split(x, 2, axis=0)
     xte = super(AutoencoderDualDiscrete, self).embed(xt, name=name + "_t")
@@ -865,10 +866,10 @@ class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
   def bottleneck(self, x):
     hparams = self.hparams
     b, _ = super(AutoencoderDualDiscrete, self).bottleneck(x)
-    if hparams.mode == tf.estimator.ModeKeys.EVAL:
+    if hparams.mode == tf_estimator.ModeKeys.EVAL:
       return b, 0.0
     bt, bi = tf.split(b, 2, axis=0)
-    if self.hparams.mode != tf.estimator.ModeKeys.TRAIN:
+    if self.hparams.mode != tf_estimator.ModeKeys.TRAIN:
       return tf.concat([bi, bi], axis=0), 0.0
     # Share the first hparams.bottleneck_shared_bits.
     shared = (bt + bi) / 2  # -1 if both -1, 1 if both were 1, 0 if disagree.
@@ -894,7 +895,7 @@ class AutoencoderDualDiscrete(AutoencoderResidualDiscrete):
   def unbottleneck(self, b, res_size, reuse=None):
     x = super(AutoencoderDualDiscrete, self).unbottleneck(
         b, res_size, reuse=reuse)
-    if self.hparams.mode == tf.estimator.ModeKeys.EVAL:
+    if self.hparams.mode == tf_estimator.ModeKeys.EVAL:
       return tf.layers.dense(x, res_size, name="dual_unbottleneck_t")
     xt, xi = tf.split(x, 2, axis=0)
     xt = tf.layers.dense(xt, res_size, name="dual_unbottleneck_t")
@@ -984,8 +985,8 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
     hparams = self.hparams
     num_stacks = hparams.num_hidden_layers
     hparams.num_hidden_layers = 1
-    is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-    if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    is_training = hparams.mode == tf_estimator.ModeKeys.TRAIN
+    if hparams.mode != tf_estimator.ModeKeys.PREDICT:
       x = features["targets"]
       shape = common_layers.shape_list(x)
       is1d = shape[2] == 1
@@ -1013,7 +1014,7 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
       x = self.unbottleneck(b, res_size)
     # Run decoder.
     x = self.decoder(x)
-    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode == tf_estimator.ModeKeys.PREDICT:
       return x
     # Cut to the right size and mix before returning.
     res = x[:, :shape[1], :shape[2], :]
@@ -1027,7 +1028,7 @@ class AutoencoderStacked(AutoencoderResidualDiscrete):
 def autoencoder_basic():
   """Basic autoencoder model."""
   hparams = common_hparams.basic_params1()
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"
@@ -1112,8 +1113,13 @@ def autoencoder_residual_text():
   hparams.hidden_size = 64
   hparams.max_hidden_size = 512
   hparams.bottleneck_noise = 0.0
-  hparams.target_modality = "symbol:identity"
-  hparams.input_modalities = "symbol:identity"
+  hparams.bottom = {
+      "inputs": modalities.identity_bottom,
+      "targets": modalities.identity_bottom,
+  }
+  hparams.top = {
+      "targets": modalities.identity_top,
+  }
   hparams.autoregressive_mode = "none"
   hparams.sample_width = 1
   return hparams
@@ -1217,8 +1223,13 @@ def autoencoder_ordered_text():
   hparams.batch_size = 1024
   hparams.autoregressive_mode = "conv5"
   hparams.max_hidden_size = 1024
-  hparams.target_modality = "symbol:identity"
-  hparams.input_modalities = "symbol:identity"
+  hparams.bottom = {
+      "inputs": modalities.identity_bottom,
+      "targets": modalities.identity_bottom,
+  }
+  hparams.top = {
+      "targets": modalities.identity_top,
+  }
   hparams.sample_height = 128
   hparams.sample_width = 1
   return hparams

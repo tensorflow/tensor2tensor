@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,10 +29,12 @@ import numpy as np
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -45,7 +47,7 @@ class Imagetransformer2d(t2t_model.T2TModel):
     targets = features["targets"]
     targets_shape = common_layers.shape_list(targets)
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.contrib.learn.ModeKeys.INFER):
+            hparams.mode == tf_estimator.ModeKeys.PREDICT):
       tf.summary.image("targets", targets, max_outputs=1)
 
     decoder_input, rows, cols = cia.prepare_decoder(
@@ -75,7 +77,7 @@ class Img2imgTransformer(t2t_model.T2TModel):
     targets = features["targets"]
     inputs = features["inputs"]
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.contrib.learn.ModeKeys.INFER):
+            hparams.mode == tf_estimator.ModeKeys.PREDICT):
       tf.summary.image("inputs", inputs, max_outputs=1)
       tf.summary.image("targets", targets, max_outputs=1)
 
@@ -111,7 +113,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
     targets = features["targets"]
     inputs = features["inputs"]
     if not (tf.get_variable_scope().reuse or
-            hparams.mode == tf.contrib.learn.ModeKeys.INFER):
+            hparams.mode == tf_estimator.ModeKeys.PREDICT):
       tf.summary.image("inputs", inputs, max_outputs=1)
       tf.summary.image("targets", targets, max_outputs=1)
 
@@ -173,11 +175,11 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
     assert self._hparams.block_size > 0
 
     train_or_eval = (
-        self._hparams.mode == tf.estimator.ModeKeys.TRAIN or
-        self._hparams.mode == tf.estimator.ModeKeys.EVAL)
+        self._hparams.mode == tf_estimator.ModeKeys.TRAIN or
+        self._hparams.mode == tf_estimator.ModeKeys.EVAL)
 
     if train_or_eval:
-      if self._hparams.mode == tf.estimator.ModeKeys.TRAIN:
+      if self._hparams.mode == tf_estimator.ModeKeys.TRAIN:
         features["block_index"] = tf.random_uniform(
             shape=[], minval=0, maxval=self._hparams.block_size, dtype=tf.int64)
       else:
@@ -202,7 +204,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
   def loss(self, logits, features):
     assert self._hparams.block_size > 0
 
-    if self._hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    if self._hparams.mode == tf_estimator.ModeKeys.PREDICT:
       return 0.0
 
     def shift_left_2d(x, k):
@@ -221,8 +223,8 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
         for i in range(self._hparams.block_size)
     ], axis=4)
 
-    if (self._hparams.mode == tf.estimator.ModeKeys.TRAIN or
-        self._hparams.mode == tf.estimator.ModeKeys.EVAL):
+    if (self._hparams.mode == tf_estimator.ModeKeys.TRAIN or
+        self._hparams.mode == tf_estimator.ModeKeys.EVAL):
       assert "block_index" in features
       targets = targets[:, :, :, :, features["block_index"]]
 
@@ -230,7 +232,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
 
     loss = super(Img2imgTransformerBlockParallel, self).loss(logits, features)
 
-    if self._hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if self._hparams.mode == tf_estimator.ModeKeys.TRAIN:
       k = features["block_index"]
       loss_num, loss_den = loss
       loss_val = loss_num / loss_den
@@ -381,7 +383,9 @@ def image_transformer2d_base():
   hparams.optimizer_adam_beta1 = 0.9
   hparams.optimizer_adam_beta2 = 0.98
   hparams.label_smoothing = 0.0
-  hparams.target_modality = "image:identity"
+  hparams.bottom["targets"] = modalities.make_targets_bottom(
+      modalities.image_channel_embeddings_bottom)
+  hparams.top["targets"] = modalities.identity_top
   hparams.norm_type = "layer"
   hparams.layer_prepostprocess_dropout = 0.0
   hparams.add_hparam("filter_size", 512)  # Add new ones like this.
@@ -592,6 +596,7 @@ def img2img_transformer2d_base():
   hparams.filter_size = 2048
   hparams.num_encoder_layers = 4
   hparams.num_decoder_layers = 8
+  hparams.bottom["inputs"] = modalities.image_channel_embeddings_bottom
   hparams.dec_attention_type = cia.AttentionType.LOCAL_2D
   hparams.block_raster_scan = True
   return hparams
@@ -782,7 +787,7 @@ def imagetransformer2d_tiny():
 
 def update_hparams_for_tpu(hparams):
   hparams.use_pad_remover = False  # where op not supported
-  hparams.optimizer = "TrueAdam"
+  hparams.optimizer = "true_adam"
   hparams.batch_size = 4
 
 

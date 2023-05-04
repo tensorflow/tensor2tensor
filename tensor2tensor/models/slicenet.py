@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,12 +23,14 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
+# pylint: disable=unused-argument
 def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
   """Complete attention layer with preprocessing."""
   separabilities = [hparams.separability, hparams.separability]
@@ -45,8 +47,11 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
     targets_timed = tf.squeeze(targets_timed, 2)
     target_shape = tf.shape(targets_timed)
     targets_segment = tf.zeros([target_shape[0], target_shape[1]])
-    target_attention_bias = common_attention.attention_bias(
-        targets_segment, targets_segment, lower_triangular=True)
+    target_attention_bias = common_attention.attention_bias_lower_triangle(
+        target_shape[1])
+    inputs_encoded = common_layers.flatten4d3d(inputs_encoded)
+    # TODO(jbaccash): use input bias parameter. This code seems to assume fixed
+    # size inputs.
     inputs_attention_bias = tf.zeros([
         tf.shape(inputs_encoded)[0], hparams.num_heads,
         tf.shape(targets_segment)[1],
@@ -74,10 +79,8 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
         hparams.attention_dropout,
         name="encdec_attention")
     return tf.expand_dims(qv, 2)
-  elif hparams.attention_type == "simple":
-    targets_with_attention = common_layers.simple_attention(
-        targets_timed, inputs_encoded, bias=bias)
-    return norm_fn(targets_shifted + targets_with_attention, name="attn_norm")
+  else:
+    raise ValueError("Unsupported attention_type: %s" % hparams.attention_type)
 
 
 def multi_conv_res(x, padding, name, layers, hparams, mask=None, source=None):
@@ -264,10 +267,9 @@ def slicenet_internal(inputs, targets, target_space, hparams, run_decoder=True):
 class SliceNet(t2t_model.T2TModel):
 
   def body(self, features):
-    target_modality_name = (
-        self._problem_hparams.target_modality.name)
+    target_modality = self._problem_hparams.modality["targets"]
     # If we're just predicting a class, there is no use for a decoder.
-    run_decoder = "class_label_modality" not in target_modality_name
+    run_decoder = target_modality != modalities.ModalityType.CLASS_LABEL
     return slicenet_internal(
         features["inputs"],
         features["targets"],
@@ -324,7 +326,7 @@ def slicenet_params1():
   hparams.add_hparam("kernel_scheme", "3.7.15.31")
   hparams.add_hparam("audio_compression", 8)
   # attention-related flags
-  hparams.add_hparam("attention_type", "simple")
+  hparams.add_hparam("attention_type", "transformer")
   hparams.add_hparam("num_heads", 8)
   hparams.add_hparam("attention_key_channels", 0)
   hparams.add_hparam("attention_value_channels", 0)
@@ -352,7 +354,6 @@ def slicenet_params1_noam():
 def slicenet_params1_tiny():
   """Version for fast local runs."""
   hparams = slicenet_params1()
-  hparams.attention_type = "simple"
   hparams.separability = 0
   hparams.hidden_size = 128
   hparams.num_hidden_layers = 2

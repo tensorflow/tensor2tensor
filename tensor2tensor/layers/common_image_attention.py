@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,12 +19,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import numpy as np
+
 from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import expert_utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class AttentionType(object):
@@ -157,6 +160,32 @@ def local_attention_1d(x,
     if is_4d:
       y = tf.reshape(y, x_shape)
     return y
+
+
+def get_dilated_1d_attention_mask(
+    num_heads, block_size,
+    num_blocks, memory_size, gap_size,
+    name="dilated_mask"):
+  """Dilated attention with a masking strategy."""
+  mask = np.ones((num_heads, block_size, 2*block_size), bool)
+
+  # now going over every row to do the right assignment of
+  # memory blocks
+  for i in range(block_size):
+    visible = 2*block_size  - (block_size-i)
+    # You always attend to yourself, set the mask for that
+    mask[:, i, -(block_size - i)] = 0
+    # Maybe num_blocks can be automatically calculated?
+    for j in range(num_blocks):
+      for k in range(memory_size):
+        index = ((gap_size + memory_size)*j) + k
+        if index >= visible:
+          break
+        mask[:, i, -(index + block_size - i + 1)] = 0  # Verify
+
+  # adding a num blocks dimension
+  mask = np.expand_dims(mask, axis=1)
+  return tf.constant(mask, dtype=tf.int32, name=name)
 
 
 def dilated_attention_1d(x,
@@ -323,10 +352,12 @@ def transformer_decoder_layers(inputs,
                                attention_type="local_mask_right",
                                q_padding="LEFT", kv_padding="LEFT")
       elif attention_type == AttentionType.RELATIVE_LOCAL_1D:
-        y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
-                               hparams,
-                               attention_type="rel_local_mask_right",
-                               q_padding="LEFT", kv_padding="LEFT")
+        y = local_attention_1d(
+            common_layers.layer_preprocess(x, hparams),
+            hparams,
+            attention_type="local_relative_mask_right",
+            q_padding="LEFT",
+            kv_padding="LEFT")
       elif attention_type == AttentionType.NON_CAUSAL_1D:
         y = local_attention_1d(common_layers.layer_preprocess(x, hparams),
                                hparams,
@@ -430,7 +461,7 @@ def ffn_layer(x, hparams, losses=None):
       y = tf.reshape(y, x_shape)
     elif hparams.ffn_layer == "local_moe_tpu":
       overhead = (hparams.moe_overhead_train
-                  if hparams.mode == tf.estimator.ModeKeys.TRAIN
+                  if hparams.mode == tf_estimator.ModeKeys.TRAIN
                   else hparams.moe_overhead_eval)
       x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
       y, loss = expert_utils.local_moe_tpu(
@@ -475,7 +506,7 @@ def postprocess_image(x, rows, cols, hparams):
       number of elements in x is batch * rows * cols * hparams.hidden_size.
     rows: Integer representing number of rows in a 2-D data point.
     cols: Integer representing number of columns in a 2-D data point.
-    hparams: tf.contrib.training.HParams set.
+    hparams: HParams set.
 
   Returns:
     Tensor of shape [batch, rows, cols, depth], where depth is
@@ -501,7 +532,7 @@ def postprocess_image(x, rows, cols, hparams):
                               use_bias=True,
                               activation=None,
                               name="output_conv")
-  if (hparams.mode == tf.contrib.learn.ModeKeys.INFER and
+  if (hparams.mode == tf_estimator.ModeKeys.PREDICT and
       hparams.block_raster_scan):
     y = targets
     yshape = common_layers.shape_list(y)
@@ -547,7 +578,7 @@ def prepare_decoder(targets, hparams):
 
   # during training, images are [batch, IMG_LEN, IMG_LEN, 3].
   # At inference, they are [batch, curr_infer_length, 1, 1]
-  if hparams.mode == tf.contrib.learn.ModeKeys.INFER:
+  if hparams.mode == tf_estimator.ModeKeys.PREDICT:
     curr_infer_length = targets_shape[1]
     if hparams.block_raster_scan:
       assert hparams.img_len*channels % hparams.query_shape[1] == 0
@@ -601,22 +632,9 @@ def prepare_decoder(targets, hparams):
 
 def prepare_image(inputs, hparams, name=None):
   """Prepare image."""
-  inputs_shape = common_layers.shape_list(inputs)
-  batch = inputs_shape[0]
-  orig_rows = inputs_shape[1]
-  orig_cols = inputs_shape[2]
-  channels = hparams.num_channels
-
-  hidden_size = hparams.hidden_size
-  # Only do lookup if the modality is identity
-  if hparams.target_modality == "image:identity":
-    inputs = tf.to_int32(inputs)
-    x = get_channel_embeddings(channels, inputs, hidden_size, name=name)
-  else:
-    x = inputs
-  x = tf.reshape(x, [batch, orig_rows, orig_cols * channels, hidden_size])
-
-  return x
+  # TODO(trandustin): This is a legacy function. Remove its usage.
+  del hparams, name  # unused arg
+  return inputs
 
 
 def create_output(decoder_output, rows, cols, targets, hparams):
@@ -629,7 +647,7 @@ def create_output(decoder_output, rows, cols, targets, hparams):
     cols: Integer representing number of columns in a 2-D data point.
     targets: Tensor of shape [batch, hparams.img_len, hparams.img_len,
       hparams.num_channels].
-    hparams: tf.contrib.training.HParams set.
+    hparams: HParams set.
 
   Returns:
     Tensor of shape [batch, hparams.img_len, hparams.img_len,
@@ -637,17 +655,19 @@ def create_output(decoder_output, rows, cols, targets, hparams):
     [batch, hparams.img_len, hparams.img_len, hparams.num_channels, 256].
     In the special case of predict mode, it is a Tensor of rank 5.
   """
+  del targets  # unused arg
   decoded_image = postprocess_image(decoder_output, rows, cols, hparams)
+  batch = common_layers.shape_list(decoded_image)[0]
   depth = common_layers.shape_list(decoded_image)[-1]
-  batch, height, width, channels = common_layers.shape_list(targets)
   likelihood = getattr(hparams, "likelihood", DistributionType.CAT)
-  if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+  if hparams.mode == tf_estimator.ModeKeys.PREDICT:
     y = tf.reshape(decoded_image, [batch, -1, 1, 1, depth])
-    output = y[:, :height, :, :, :]
+    output = y[:, :rows, :, :, :]
   elif likelihood == DistributionType.CAT:
     # Unpack the cols dimension of the Categorical.
+    channels = hparams.num_channels
     output = tf.reshape(decoded_image,
-                        [batch, height, width, channels, depth])
+                        [batch, rows, cols // channels, channels, depth])
   else:
     output = decoded_image
   return output

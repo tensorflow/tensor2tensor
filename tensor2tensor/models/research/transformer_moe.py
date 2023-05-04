@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,8 @@ from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 # The transformer architecture can be defined using the layer_types hparams.
@@ -93,8 +94,8 @@ class TransformerMoe(t2t_model.T2TModel):
       """Apply processing and capture the extra loss."""
       @expert_utils.add_var_scope()
       def decorated(x, *args, **kwargs):
-        x = dp_preprocess(x)
-        y, loss = fct(x, *args, **kwargs)
+        x_preprocessed = dp_preprocess(x)
+        y, loss = fct(x_preprocessed, *args, **kwargs)
         cache["extra_loss"] += loss
         return dp_postprocess(x, y)
       return decorated
@@ -106,10 +107,9 @@ class TransformerMoe(t2t_model.T2TModel):
     layers = common_attention.get_standardized_layers(
         hparams=hparams,
         dp=dp,
-        ps_devices=self._ps_devices,
     )
 
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
 
       # Display the encoder-decoder architecture
       def print_layer(name, layers):

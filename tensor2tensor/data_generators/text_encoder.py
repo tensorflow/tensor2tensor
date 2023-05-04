@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ import six
 from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import tokenizer
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # Reserved tokens for things like padding and EOS symbols.
 PAD = "<pad>"
@@ -60,7 +60,14 @@ _ESCAPE_CHARS = set(u"\\_u;0123456789")
 
 # Unicode utility functions that work with Python 2 and 3
 def native_to_unicode(s):
-  return s if is_unicode(s) else to_unicode(s)
+  if is_unicode(s):
+    return s
+  try:
+    return to_unicode(s)
+  except UnicodeDecodeError:
+    res = to_unicode(s, ignore_errors=True)
+    tf.logging.info("Ignoring Unicode error, outputting: %s" % res)
+    return res
 
 
 def unicode_to_native(s):
@@ -71,13 +78,7 @@ def unicode_to_native(s):
 
 
 def is_unicode(s):
-  if six.PY2:
-    if isinstance(s, unicode):
-      return True
-  else:
-    if isinstance(s, str):
-      return True
-  return False
+  return isinstance(s, six.text_type)
 
 
 def to_unicode(s, ignore_errors=False):
@@ -89,6 +90,10 @@ def to_unicode(s, ignore_errors=False):
 
 def to_unicode_ignore_errors(s):
   return to_unicode(s, ignore_errors=True)
+
+
+def to_unicode_utf8(s):
+  return unicode(s, "utf-8") if six.PY2 else s.decode("utf-8")
 
 
 def strip_ids(ids, ids_to_strip):
@@ -619,7 +624,9 @@ class SubwordTextEncoder(TextEncoder):
         # If there is no possible encoding of the escaped token then one of the
         # characters in the token is not in the alphabet. This should be
         # impossible and would be indicative of a bug.
-        assert False, "Token substring not found in subtoken vocabulary."
+        raise ValueError(
+            "Token substring '%s' not found in subtoken vocabulary." %
+            escaped_token)
 
     return ret
 
@@ -919,7 +926,7 @@ class SubwordTextEncoder(TextEncoder):
     """
     subtoken_strings = []
     for line in f:
-      s = line.strip()
+      s = line.rstrip()
       # Some vocab files wrap words in single quotes, but others don't
       if ((s.startswith("'") and s.endswith("'")) or
           (s.startswith("\"") and s.endswith("\""))):
@@ -1057,4 +1064,3 @@ class RealEncoder(object):
     """
     del strip_extraneous
     return " ".join([str(i) for i in ids])
-

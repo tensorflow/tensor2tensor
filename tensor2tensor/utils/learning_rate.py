@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,8 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 
-import tensorflow as tf
+from tensor2tensor.utils import mlperf_log
+import tensorflow.compat.v1 as tf
 
 from fathomt2t_dependencies.hparam_utils import get_global_step_offset_for_lr
 
@@ -53,6 +54,33 @@ def learning_rate_factor(name, step_num, hparams):
   elif name == "linear_decay":
     ret = (hparams.train_steps - step_num) / hparams.learning_rate_decay_steps
     return tf.minimum(1.0, tf.maximum(0.0, ret))
+  elif name == "cosdecay":  # openai gpt
+    in_warmup = tf.cast(step_num <= hparams.learning_rate_warmup_steps,
+                        dtype=tf.float32)
+    ret = 0.5 * (1 + tf.cos(
+        np.pi * step_num / hparams.learning_rate_decay_steps))
+    # if in warmup stage return 1 else return the decayed value
+    return in_warmup * 1 + (1 - in_warmup) * ret
+  elif name == "single_cycle_cos_decay":
+    # Cosine decay to zero with a single cycle. This is different from
+    # "cosdecay" because it starts at 1 when the warmup steps end.
+    x = tf.maximum(step_num, hparams.learning_rate_warmup_steps)
+    step = x - hparams.learning_rate_warmup_steps
+    if hparams.train_steps <= hparams.learning_rate_warmup_steps:
+      raise ValueError("single_cycle_cos_decay cannot be used unless "
+                       "hparams.train_steps > "
+                       "hparams.learning_rate_warmup_steps")
+    return tf.math.cos(
+        step * np.pi /
+        (hparams.train_steps - hparams.learning_rate_warmup_steps)) / 2.0 + 0.5
+  elif name == "multi_cycle_cos_decay":
+    # Cosine decay with a variable number of cycles. This is different from
+    # "cosdecay" because it starts at 1 when the warmup steps end. Use
+    # hparams.learning_rate_decay_steps to determine the number of cycles.
+    x = tf.maximum(step_num, hparams.learning_rate_warmup_steps)
+    step = x - hparams.learning_rate_warmup_steps
+    return tf.math.cos(
+        step * np.pi / hparams.learning_rate_decay_steps) / 2.0 + 0.5
   elif name == "rsqrt_decay":
     return tf.rsqrt(tf.maximum(step_num, hparams.learning_rate_warmup_steps))
   elif name == "rsqrt_normalized_decay":
@@ -77,6 +105,10 @@ def learning_rate_factor(name, step_num, hparams):
 
 def learning_rate_schedule(hparams):
   """Learning rate schedule based on hparams."""
+  mlperf_log.transformer_print(key=mlperf_log.OPT_LR, deferred=True)
+  mlperf_log.transformer_print(
+      key=mlperf_log.OPT_LR_WARMUP_STEPS,
+      value=hparams.learning_rate_warmup_steps)
   step_num = _global_step(hparams)
   schedule_string = hparams.learning_rate_schedule
   names = schedule_string.split("*")
@@ -99,7 +131,7 @@ def legacy_learning_rate_schedule(hparams):
     warmup = _learning_rate_warmup(warmup_steps, hparams=hparams)
     decay = _learning_rate_decay(hparams, warmup_steps)
     ret = tf.where(step_num < warmup_steps, warmup, decay)
-  optimizer_correction = 0.002 if "Adam" in hparams.optimizer else 1.0
+  optimizer_correction = 0.002 if "adam" in hparams.optimizer else 1.0
   tf.logging.info("Base learning rate: %f", hparams.learning_rate)
   return ret * optimizer_correction * hparams.learning_rate
 

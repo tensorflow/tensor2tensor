@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ from __future__ import print_function
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import tokenizer
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 tf.flags.DEFINE_string('output_filename', '/tmp/my.subword_text_encoder',
                        'where to store the SubwordTextEncoder')

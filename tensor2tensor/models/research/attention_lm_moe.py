@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,10 +35,11 @@ from tensor2tensor.utils import expert_utils
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
-ModeKeys = tf.estimator.ModeKeys  # pylint: disable=invalid-name
+ModeKeys = tf_estimator.ModeKeys  # pylint: disable=invalid-name
 
 
 class AttentionType(object):
@@ -308,7 +309,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
                 x,
                 hparams.filter_size)
           else:
-            additional_conv_params = dict()
+            additional_conv_params = {}
             if hparams.use_sepconv:
               additional_conv_params = dict(
                   padding="LEFT",

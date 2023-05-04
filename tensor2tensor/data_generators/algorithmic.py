@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,9 +25,10 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.data_generators import generator_utils as utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class AlgorithmicProblem(problem.Problem):
@@ -83,8 +84,10 @@ class AlgorithmicProblem(problem.Problem):
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     vocab_size = self.num_symbols + text_encoder.NUM_RESERVED_TOKENS
-    p.input_modality = {"inputs": (registry.Modalities.SYMBOL, vocab_size)}
-    p.target_modality = (registry.Modalities.SYMBOL, vocab_size)
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.SYMBOL}
+    p.vocab_size = {"inputs": vocab_size,
+                    "targets": vocab_size}
     p.input_space_id = problem.SpaceID.DIGIT_0
     p.target_space_id = problem.SpaceID.DIGIT_1
 
@@ -126,6 +129,27 @@ class AlgorithmicIdentityDecimal40(AlgorithmicIdentityBinary40):
   @property
   def num_symbols(self):
     return 10
+
+
+@registry.register_problem
+class AlgorithmicIdentityVocab95Train20Eval30(AlgorithmicIdentityBinary40):
+  """Problem spec for algorithmic decimal identity task."""
+
+  @property
+  def num_symbols(self):
+    return 95
+
+  @property
+  def train_length(self):
+    return 20
+
+  @property
+  def dev_length(self):
+    return 30
+
+  @property
+  def train_size(self):
+    return 1000000
 
 
 @registry.register_problem

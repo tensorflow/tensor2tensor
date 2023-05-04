@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,10 +39,12 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import image_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 _BASE_EXAMPLE_IMAGE_SIZE = 64
 
@@ -176,7 +178,7 @@ def random_square_mask(shape, fraction):
   mask = np.ones(shape)
 
   patch_area = shape[0]*shape[1]*fraction
-  patch_dim = np.int(math.floor(math.sqrt(patch_area)))
+  patch_dim = int(math.floor(math.sqrt(patch_area)))
   if patch_area == 0 or patch_dim == 0:
     return mask
 
@@ -349,7 +351,7 @@ class Img2imgAllenBrain(problem.Problem):
 
     data_items_to_decoders = {
         "targets":
-            tf.contrib.slim.tfexample_decoder.Image(
+            contrib.slim().tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),
@@ -374,8 +376,10 @@ class Img2imgAllenBrain(problem.Problem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": ("image:identity", 256)}
-    p.target_modality = ("image:identity", 256)
+    p.modality = {"inputs": modalities.ModalityType.IDENTITY,
+                  "targets": modalities.ModalityType.IDENTITY}
+    p.vocab_size = {"inputs": 256,
+                    "targets": 256}
     p.batch_size_multiplier = 256
     p.input_space_id = problem.SpaceID.IMAGE
     p.target_space_id = problem.SpaceID.IMAGE
@@ -439,4 +443,3 @@ class Img2imgAllenBrainDim16to16Paint1(Img2imgAllenBrain):
   @property
   def inpaint_fraction(self):
     return 0.01
-

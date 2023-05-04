@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,16 +20,16 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
-import copy
 import mesh_tensorflow as mtf
 
 import six
+from tensor2tensor.utils import hparams_lib
 from tensor2tensor.utils import learning_rate
 from tensor2tensor.utils import metrics
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 from tensorflow.contrib.tpu.python.tpu import tpu_estimator
 
@@ -45,12 +45,12 @@ class MtfModel(t2t_model.T2TModel):
                          mode,
                          config=None,
                          params=None,
-                         decode_hparams=None):
-    hparams = copy.deepcopy(hparams)
-    use_tpu = params and params.get("use_tpu", False)
+                         decode_hparams=None,
+                         use_tpu=False):
+    hparams = hparams_lib.copy_hparams(hparams)
     hparams.use_tpu = use_tpu
     # merge decode_hparams into hparams if present
-    if mode == tf.estimator.ModeKeys.PREDICT and decode_hparams is not None:
+    if mode == tf_estimator.ModeKeys.PREDICT and decode_hparams is not None:
       for k, v in six.iteritems(decode_hparams.values()):
         if hasattr(hparams, k) and getattr(hparams, k) != v:
           tf.logging.warning("Overriding hparams.%s with %s from decode_hparams"
@@ -88,7 +88,7 @@ class MtfModel(t2t_model.T2TModel):
           mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
     else:
       var_placer = None
-      if len(data_parallelism.ps_devices) == 1:
+      if data_parallelism is None or len(data_parallelism.ps_devices) == 1:
         mesh_devices = [""] * mesh_shape.size
       else:
         assert len(data_parallelism.ps_devices) == mesh_shape.size
@@ -99,7 +99,7 @@ class MtfModel(t2t_model.T2TModel):
     graph = mtf.Graph()
     mesh = mtf.Mesh(graph, "my_mesh", var_placer)
     # PREDICT mode
-    if mode == tf.estimator.ModeKeys.PREDICT:
+    if mode == tf_estimator.ModeKeys.PREDICT:
       return model.estimator_spec_predict(features, mesh, mesh_impl, use_tpu)
 
     logits, loss = model.mtf_model_fn(features, mesh)
@@ -107,25 +107,24 @@ class MtfModel(t2t_model.T2TModel):
       logits = mtf.anonymize(logits)
 
     # TRAIN mode
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       var_grads = mtf.gradients(
           [loss], [v.outputs[0] for v in graph.trainable_variables])
       lr = learning_rate.learning_rate_schedule(hparams)
+      tf.summary.scalar("learning_rate", lr)
       mtf_lr = mtf.import_tf_tensor(
           mesh, tf.convert_to_tensor(lr, dtype=tf.float32), mtf.Shape([]))
       optimizer = mtf.optimize.make_optimizer(hparams, mtf_lr)
-      update_ops = []
-      for grad, var in zip(var_grads, graph.trainable_variables):
-        update_ops.extend(optimizer.apply_grad(grad, var))
+      update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.to_float(tf_loss)
-    if logits and mode != tf.estimator.ModeKeys.TRAIN:
+    if logits and mode != tf_estimator.ModeKeys.TRAIN:
       tf_logits = lowering.export_to_tf_tensor(logits)
 
-    if mode == tf.estimator.ModeKeys.TRAIN:
+    if mode == tf_estimator.ModeKeys.TRAIN:
       tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
       tf_update_ops.append(tf.assign_add(global_step, 1))
       # tf.logging.info("tf_update_ops: {}".format(tf_update_ops))
@@ -150,21 +149,41 @@ class MtfModel(t2t_model.T2TModel):
           listeners=[saver_listener])
 
     # EVAL mode
-    if mode == tf.estimator.ModeKeys.EVAL:
+    if mode == tf_estimator.ModeKeys.EVAL:
       tf_logits = lowering.export_to_tf_tensor(logits)
       return model.estimator_spec_eval(features, tf_logits, labels, tf_loss,
                                        restore_hook, use_tpu)
 
     if use_tpu:
-      _remove_summaries()
+      # TPU host call. Important: need to be called before remove_summaries()
+      if hparams.tpu_enable_host_call:
+        host_call = t2t_model.create_host_call(hparams.model_dir)
+      else:
+        host_call = None
+
+      if hparams.warm_start_from:
+
+        def scaffold_fn():
+          t2t_model.initialize_from_ckpt(
+              ckpt_dir=hparams.warm_start_from, hparams=hparams)
+          return tf.train.Scaffold()
+      else:
+        scaffold_fn = None
+
+      t2t_model.remove_summaries()
       return tpu_estimator.TPUEstimatorSpec(
-          mode=tf.estimator.ModeKeys.TRAIN,
+          mode=tf_estimator.ModeKeys.TRAIN,
           loss=tf_loss,
           train_op=train_op,
-          training_hooks=[restore_hook, saver_hook])
+          host_call=host_call,
+          training_hooks=[restore_hook, saver_hook],
+          scaffold_fn=scaffold_fn)
     else:
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.TRAIN, loss=tf_loss, train_op=train_op,
+      if hparams.warm_start_from:
+        t2t_model.initialize_from_ckpt(
+            ckpt_dir=hparams.warm_start_from, hparams=hparams)
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.TRAIN, loss=tf_loss, train_op=train_op,
           training_chief_hooks=[restore_hook, saver_hook])
 
   def estimator_spec_eval(
@@ -174,7 +193,13 @@ class MtfModel(t2t_model.T2TModel):
     problem = hparams.problem
     if logits.get_shape().ndims == 3:
       logits = tf.expand_dims(tf.expand_dims(logits, 2), 3)
-    eval_metrics_fns = metrics.create_evaluation_metrics([problem], hparams)
+
+    # Support for multiproblem
+    task_list = [problem]
+    if hasattr(problem, "task_list"):
+      task_list = problem.task_list
+
+    eval_metrics_fns = metrics.create_evaluation_metrics(task_list, hparams)
 
     if use_tpu:
       def metric_fn(tf_logits, labels):
@@ -186,7 +211,7 @@ class MtfModel(t2t_model.T2TModel):
                   tf_logits, None, tf.identity(labels))
           return eval_metrics
       return tpu_estimator.TPUEstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
+          tf_estimator.ModeKeys.EVAL,
           evaluation_hooks=[restore_hook],
           loss=loss,
           eval_metrics=(metric_fn, [logits, labels]))
@@ -197,15 +222,15 @@ class MtfModel(t2t_model.T2TModel):
         eval_metrics[metric_name] = metric_fn(logits, features,
                                               features["targets"])
 
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.EVAL,
           predictions=predictions,
           eval_metric_ops=eval_metrics,
           evaluation_hooks=[restore_hook],
           loss=loss)
 
   def estimator_spec_predict(self, features, mesh, mesh_impl, use_tpu):
-    mtf_samples = self.sample(features, mesh)
+    mtf_samples = mtf.anonymize(self.sample(features, mesh))
     lowering = mtf.Lowering(mesh.graph, {mesh: mesh_impl})
     outputs = lowering.export_to_tf_tensor(mtf_samples)
     if self.has_input:
@@ -214,19 +239,23 @@ class MtfModel(t2t_model.T2TModel):
       outputs = tf.slice(
           outputs, [0] * ndims, [actual_batch_size] + [-1] * (ndims - 1))
     predictions = {
-        "outputs": outputs,
-        "targets": features.get("infer_targets", features.get("inputs")),
-        "inputs": features.get("inputs"),
+        "outputs": outputs
     }
+    if features.get("infer_targets") is not None:
+      predictions["infer_targets"] = features["infer_targets"]
+
+    if features.get("inputs") is not None:
+      predictions["inputs"] = features["inputs"]
+
     if use_tpu:
-      _remove_summaries()
+      t2t_model.remove_summaries()
       return tpu_estimator.TPUEstimatorSpec(
-          mode=tf.estimator.ModeKeys.PREDICT,
+          mode=tf_estimator.ModeKeys.PREDICT,
           predictions=predictions,
           prediction_hooks=[mtf.MtfRestoreHook(lowering)])
     else:
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.PREDICT,
+      return tf_estimator.EstimatorSpec(
+          tf_estimator.ModeKeys.PREDICT,
           predictions=predictions,
           prediction_hooks=[mtf.MtfRestoreHook(lowering)])
 
@@ -236,58 +265,3 @@ class MtfModel(t2t_model.T2TModel):
 
   def mtf_model_fn(self, features, mesh):
     raise NotImplementedError("Not implemented")
-
-
-def _remove_summaries():
-  g = tf.get_default_graph()
-  key = tf.GraphKeys.SUMMARIES
-  del g.get_collection_ref(key)[:]
-  assert not g.get_collection(key)
-
-
-def _create_host_call(model_dir):
-  """Construct a host_call writing scalar summaries.
-
-  Args:
-    model_dir: String containing path to train
-
-  Returns:
-    (fn, args) Pair to be called by TPUEstimator as the host_call.
-  """
-  graph = tf.get_default_graph()
-  summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
-
-  gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
-  summary_kwargs = collections.OrderedDict()
-  for t in summaries:
-    if t.op.type != "ScalarSummary":
-      continue
-
-    name = t.op.name
-    tensor = t.op.inputs[1]
-    assert tensor.shape.is_compatible_with([])
-    if tensor.dtype == tf.int64:
-      tensor = tf.to_int32(tensor)
-    summary_kwargs[name] = tf.reshape(tensor, [1])
-  summary_kwargs["global_step"] = gs_t
-
-  def host_call_fn(**kwargs):
-    """Training host call. Creates scalar summaries for training metrics.
-
-    Args:
-      **kwargs: Dict of {str: Tensor} , with `Tensor` of shape `[batch]`. Must
-        contain key "global_step" with value of current global_step Tensor.
-
-    Returns:
-      List of summary ops to run on the CPU host.
-    """
-    gs = tf.to_int64(kwargs.pop("global_step")[0])
-    with tf.contrib.summary.create_file_writer(model_dir).as_default():
-      with tf.contrib.summary.always_record_summaries():
-        for name, value in sorted(six.iteritems(kwargs)):
-          tf.contrib.summary.scalar(
-              name, tf.reduce_mean(tf.to_float(value)), step=gs)
-
-        return tf.contrib.summary.all_summary_ops()
-
-  return (host_call_fn, summary_kwargs)

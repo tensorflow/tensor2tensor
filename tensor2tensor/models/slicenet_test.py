@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,18 +21,20 @@ from __future__ import print_function
 import numpy as np
 
 from tensor2tensor.data_generators import cifar  # pylint: disable=unused-import
+from tensor2tensor.data_generators import mscoco  # pylint: disable=unused-import
 from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.models import slicenet
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class SliceNetTest(tf.test.TestCase):
 
   def testSliceNet(self):
-    x = np.random.random_integers(0, high=255, size=(3, 5, 5, 3))
-    y = np.random.random_integers(0, high=9, size=(3, 5, 1, 1))
+    x = np.random.randint(256, size=(3, 5, 5, 3))
+    y = np.random.randint(10, size=(3, 5, 1, 1))
     hparams = slicenet.slicenet_params1_tiny()
     hparams.add_hparam("data_dir", "")
     problem = registry.problem("image_cifar10")
@@ -44,12 +46,33 @@ class SliceNetTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = slicenet.SliceNet(hparams, tf.estimator.ModeKeys.TRAIN,
+      model = slicenet.SliceNet(hparams, tf_estimator.ModeKeys.TRAIN,
                                 p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 1, 1, 1, 10))
+
+  def testSliceNetImageToText(self):
+    x = np.random.randint(256, size=(3, 5, 5, 3))
+    y = np.random.randint(10, size=(3, 5, 1, 1))
+    hparams = slicenet.slicenet_params1_tiny()
+    hparams.add_hparam("data_dir", "")
+    problem = registry.problem("image_ms_coco_characters")
+    p_hparams = problem.get_hparams(hparams)
+    hparams.problem_hparams = p_hparams
+    with self.test_session() as session:
+      features = {
+          "inputs": tf.constant(x, dtype=tf.int32),
+          "targets": tf.constant(y, dtype=tf.int32),
+          "target_space_id": tf.constant(1, dtype=tf.int32),
+      }
+      model = slicenet.SliceNet(hparams, tf_estimator.ModeKeys.TRAIN,
+                                p_hparams)
+      logits, _ = model(features)
+      session.run(tf.global_variables_initializer())
+      res = session.run(logits)
+    self.assertEqual(res.shape, (3, 5, 1, 1, 258))
 
 
 if __name__ == "__main__":

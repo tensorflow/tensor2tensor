@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,25 +17,51 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import numpy as np
 
+import numpy as np
 from tensor2tensor.layers import common_layers
-from tensor2tensor.utils import adafactor
+from tensor2tensor.utils import adafactor as adafactor_lib
+from tensor2tensor.utils import contrib
+from tensor2tensor.utils import misc_utils
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import multistep_optimizer
+from tensor2tensor.utils import registry
 from tensor2tensor.utils import yellowfin
 
-import tensorflow as tf
-
-from tensorflow.python.framework import dtypes
+import tensorflow.compat.v1 as tf
 
 
-def optimize(loss, learning_rate, hparams, use_tpu=False):
+from tensorflow.python.framework import dtypes  # pylint: disable=g-direct-tensorflow-import
+
+
+def _mixed_precision_is_enabled(hparams):
+  """Should be the same as in common_attention, avoiding import."""
+  activation_dtype = hparams.activation_dtype
+  weight_dtype = hparams.weight_dtype
+  return activation_dtype == tf.float16 and weight_dtype == tf.float32
+
+
+def optimize(loss,
+             learning_rate,
+             hparams,
+             use_tpu=False,
+             variables=None):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
-  log_variable_sizes(verbose=hparams.summarize_vars)
+  if variables is None:
+    variables = tf.trainable_variables()
+  # Print trainable variables.
+  log_variable_sizes(variables, verbose=hparams.summarize_vars)
+  # Print non-trainable variables.
+  non_trainable_variables = list(
+      set(tf.global_variables()) - set(variables))
+  log_variable_sizes(non_trainable_variables, tag="Non-trainable variables",
+                     verbose=hparams.summarize_vars)
   if hparams.summarize_vars:
-    summarize_variables()
+    summarize_variables(variables)
+    # Summarize non-trainable variables as well
+    summarize_variables(non_trainable_variables, tag="Non-trainable variables")
   diet_vars = [
       v for v in tf.global_variables() if v.dtype == dtypes.float16_ref
   ]
@@ -43,7 +69,17 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
       diet_vars, "Diet Variables", verbose=hparams.summarize_vars)
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
-    opt = tf.contrib.tpu.CrossShardOptimizer(opt)
+    opt = contrib.tpu().CrossShardOptimizer(opt)
+  if getattr(hparams, "gpu_automatic_mixed_precision", False):
+    if use_tpu:
+      raise RuntimeError("GPU auto mixed precision cannot be used with TPU")
+    elif _mixed_precision_is_enabled(hparams):
+      raise RuntimeError(
+          "GPU auto mixed precision cannot be used with manual mixed precision")
+    else:
+      setattr(opt, "_use_locking", "True")
+      setattr(opt, "_name", "ConditionalOptimizer")
+      opt = tf.train.experimental.enable_mixed_precision_graph_rewrite(opt)
 
   opt_summaries = []
   if common_layers.should_generate_summaries():
@@ -60,7 +96,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
     tf.logging.info("Adding noise to gradients, noise scale: %0.5f",
                     hparams.grad_noise_scale)
 
-  train_op = tf.contrib.layers.optimize_loss(
+  train_op = contrib.layers().optimize_loss(
       name="training",
       loss=loss,
       global_step=tf.train.get_or_create_global_step(),
@@ -69,8 +105,92 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
       gradient_noise_scale=hparams.grad_noise_scale or None,
       optimizer=opt,
       summaries=opt_summaries,
-      colocate_gradients_with_ops=True)
+      colocate_gradients_with_ops=True,
+      variables=variables)
   return train_op
+
+
+@registry.register_optimizer
+def adam(learning_rate, hparams):
+  """Return adam optimizer for the given params."""
+  # We change the default epsilon for Adam.
+  # Using LazyAdam as it's much faster for large vocabulary embeddings.
+  if contrib.is_tf2:
+    # in TF2 beta1 -> beta_1 :/
+    return contrib.opt().LazyAdamOptimizer(
+        learning_rate,
+        beta_1=hparams.optimizer_adam_beta1,
+        beta_2=hparams.optimizer_adam_beta2,
+        epsilon=hparams.optimizer_adam_epsilon)
+  else:
+    return contrib.opt().LazyAdamOptimizer(
+        learning_rate,
+        beta1=hparams.optimizer_adam_beta1,
+        beta2=hparams.optimizer_adam_beta2,
+        epsilon=hparams.optimizer_adam_epsilon)
+
+
+@registry.register_optimizer
+def multistep_adam(learning_rate, hparams):
+  return multistep_optimizer.MultistepAdamOptimizer(
+      learning_rate,
+      beta1=hparams.optimizer_adam_beta1,
+      beta2=hparams.optimizer_adam_beta2,
+      epsilon=hparams.optimizer_adam_epsilon,
+      n=hparams.optimizer_multistep_accumulate_steps)
+
+
+@registry.register_optimizer
+def momentum(learning_rate, hparams):
+  return tf.train.MomentumOptimizer(
+      learning_rate,
+      momentum=hparams.optimizer_momentum_momentum,
+      use_nesterov=hparams.optimizer_momentum_nesterov)
+
+
+@registry.register_optimizer
+def yellow_fin(learning_rate, hparams):
+  return yellowfin.YellowFinOptimizer(
+      learning_rate=learning_rate,
+      momentum=hparams.optimizer_momentum_momentum)
+
+
+@registry.register_optimizer
+def true_adam(learning_rate, hparams):
+  return tf.train.AdamOptimizer(
+      learning_rate,
+      beta1=hparams.optimizer_adam_beta1,
+      beta2=hparams.optimizer_adam_beta2,
+      epsilon=hparams.optimizer_adam_epsilon)
+
+
+@registry.register_optimizer
+def adam_w(learning_rate, hparams):
+  return contrib.opt().AdamWOptimizer(
+      weight_decay=hparams.weight_decay,
+      learning_rate=learning_rate,
+      beta1=hparams.optimizer_adam_beta1,
+      beta2=hparams.optimizer_adam_beta2,
+      epsilon=hparams.optimizer_adam_epsilon)
+
+
+@registry.register_optimizer
+def adafactor(learning_rate, hparams):
+  return adafactor_lib.adafactor_optimizer_from_hparams(hparams, learning_rate)
+
+
+
+
+def _register_base_optimizer(name, opt):
+  key = misc_utils.camelcase_to_snakecase(name)
+  if key in registry.Registries.optimizers:
+    return
+  registry.register_optimizer(key)(
+      lambda learning_rate, hparams: opt(learning_rate))
+
+
+for _name, _opt in contrib.layers().OPTIMIZER_CLS_NAMES.items():
+  _register_base_optimizer(_name, _opt)
 
 
 class ConditionalOptimizer(tf.train.Optimizer):
@@ -79,48 +199,62 @@ class ConditionalOptimizer(tf.train.Optimizer):
   def __init__(self, optimizer_name, lr, hparams, use_tpu=False):  # pylint: disable=super-init-not-called
     tf.logging.info("Using optimizer %s", optimizer_name)
 
-    if optimizer_name == "Adam":
-      # We change the default epsilon for Adam.
-      # Using LazyAdam as it's much faster for large vocabulary embeddings.
-      self._opt = tf.contrib.opt.LazyAdamOptimizer(
-          lr,
-          beta1=hparams.optimizer_adam_beta1,
-          beta2=hparams.optimizer_adam_beta2,
-          epsilon=hparams.optimizer_adam_epsilon)
-    elif optimizer_name == "MultistepAdam":
-      self._opt = multistep_optimizer.MultistepAdamOptimizer(
-          lr,
-          beta1=hparams.optimizer_adam_beta1,
-          beta2=hparams.optimizer_adam_beta2,
-          epsilon=hparams.optimizer_adam_epsilon,
-          n=hparams.optimizer_multistep_accumulate_steps)
-    elif optimizer_name == "Momentum":
-      self._opt = tf.train.MomentumOptimizer(
-          lr,
-          momentum=hparams.optimizer_momentum_momentum,
-          use_nesterov=hparams.optimizer_momentum_nesterov)
-    elif optimizer_name == "YellowFin":
-      self._opt = yellowfin.YellowFinOptimizer(
-          learning_rate=lr, momentum=hparams.optimizer_momentum_momentum)
-    elif optimizer_name == "TrueAdam":
-      self._opt = tf.train.AdamOptimizer(
-          lr,
-          beta1=hparams.optimizer_adam_beta1,
-          beta2=hparams.optimizer_adam_beta2,
-          epsilon=hparams.optimizer_adam_epsilon)
-    elif optimizer_name == "Adafactor":
-      self._opt = adafactor.adafactor_optimizer_from_hparams(hparams, lr)
-    else:
-      self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
+    mlperf_log.transformer_print(key=mlperf_log.OPT_NAME,
+                                 value=optimizer_name,
+                                 hparams=hparams)
+    mlperf_log.transformer_print(
+        key=mlperf_log.OPT_HP_ADAM_BETA1, value=hparams.optimizer_adam_beta1,
+        hparams=hparams)
+    mlperf_log.transformer_print(
+        key=mlperf_log.OPT_HP_ADAM_BETA2, value=hparams.optimizer_adam_beta2,
+        hparams=hparams)
+    mlperf_log.transformer_print(
+        key=mlperf_log.OPT_HP_ADAM_EPSILON,
+        value=hparams.optimizer_adam_epsilon,
+        hparams=hparams)
+
+    self._opt = registry.optimizer(optimizer_name)(lr, hparams)
+    if _mixed_precision_is_enabled(hparams):
+      if not hparams.mixed_precision_optimizer_loss_scaler:
+        tf.logging.warning("Using mixed precision without a loss scaler will "
+                           "likely cause numerical errors.")
+      elif hparams.mixed_precision_optimizer_loss_scaler != "exponential":
+        raise ValueError("Mixed precision training only supports the "
+                         "exponential loss scaler")
+      else:
+        tf.logging.info(
+            ("Using Exponential Update Loss Scaler with",
+             "init loss scale of {}".format(
+                 hparams.mixed_precision_optimizer_init_loss_scale)))
+        manager = contrib.mixed_precision().ExponentialUpdateLossScaleManager(
+            init_loss_scale=hparams.mixed_precision_optimizer_init_loss_scale,
+            incr_every_n_steps=2000,
+            decr_every_n_nan_or_inf=2,
+            incr_ratio=2,
+            decr_ratio=0.5)
+        self._opt = contrib.mixed_precision().LossScaleOptimizer(
+            self._opt, manager)
+
+    self._zero_grads = hparams.optimizer_zero_grads
 
     self._zero_grads = hparams.optimizer_zero_grads
 
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
+<<<<<<< HEAD
     gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
     def cast_grad_tpu(g, v):
       """Should match upstream t2t
       https://github.com/tensorflow/tensor2tensor/blob/1547c25571633f828ddd74accba76d07d8d043af/tensor2tensor/utils/optimize.py#L232
       """
+=======
+    if contrib.is_tf2:
+      gradients = self._opt.get_gradients(loss, var_list)
+      gradients = zip(gradients, var_list)
+    else:
+      gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
+
+    def cast_grad(g, v):
+>>>>>>> upstream/master
       if v is not None and g is not None:
         g = common_layers.cast_like(g, v)
       if self._zero_grads and g is None:
@@ -156,8 +290,13 @@ class ConditionalOptimizer(tf.train.Optimizer):
     return gradients
 
   def apply_gradients(self, grads_and_vars, global_step=None, name=None):
-    return self._opt.apply_gradients(
-        grads_and_vars, global_step=global_step, name=name)
+    if contrib.is_tf2:
+      with tf.control_dependencies(
+          [tf.assign_add(tf.train.get_or_create_global_step(), 1)]):
+        return self._opt.apply_gradients(grads_and_vars, name=name)
+    else:
+      return self._opt.apply_gradients(
+          grads_and_vars, global_step=global_step, name=name)
 
 
 def weight_decay_and_noise(loss, hparams, learning_rate, var_list=None):
@@ -192,7 +331,7 @@ def weight_noise(noise_rate, learning_rate, var_list):
   noise_ops = []
 
   for v in var_list:
-    with tf.device(v._ref().device):  # pylint: disable=protected-access
+    with tf.device(v.device):  # pylint: disable=protected-access
       scale = noise_rate * learning_rate * 0.001
       if common_layers.should_generate_summaries():
         tf.summary.scalar("weight_noise_scale", scale)
@@ -275,7 +414,11 @@ def get_variable_initializer(hparams):
   if not hparams.initializer:
     return None
 
-  if not tf.contrib.eager.in_eager_mode():
+  mlperf_log.transformer_print(key=mlperf_log.MODEL_HP_INITIALIZER_GAIN,
+                               value=hparams.initializer_gain,
+                               hparams=hparams)
+
+  if not tf.executing_eagerly():
     tf.logging.info("Using variable initializer: %s", hparams.initializer)
   if hparams.initializer == "orthogonal":
     return tf.orthogonal_initializer(gain=hparams.initializer_gain)
@@ -289,6 +432,6 @@ def get_variable_initializer(hparams):
     return tf.variance_scaling_initializer(
         hparams.initializer_gain, mode="fan_avg", distribution="uniform")
   elif hparams.initializer == "xavier":
-    return tf.contrib.layers.xavier_initializer()
+    return tf.initializers.glorot_uniform()
   else:
     raise ValueError("Unrecognized initializer: %s" % hparams.initializer)

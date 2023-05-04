@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from __future__ import print_function
 from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import quantization
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class AdafactorOptimizer(tf.train.Optimizer):
@@ -122,7 +122,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
 
     Args:
       multiply_by_parameter_scale: a boolean
-      learning_rate: an optional Scalar.
+      learning_rate: an optional Scalar or callable.
       decay_rate: an optional Scalar.
       beta1: a float value between 0 and 1
       clipping_threshold: an optional float >= 1
@@ -191,6 +191,11 @@ class AdafactorOptimizer(tf.train.Optimizer):
   def _apply_sparse(self, grad, var):
     return self._apply_dense(tf.convert_to_tensor(grad), var)
 
+  def _resource_apply_sparse(self, grad, handle, indices):
+    return self._resource_apply_dense(
+        tf.convert_to_tensor(tf.IndexedSlices(grad, indices, tf.shape(handle))),
+        handle)
+
   def _parameter_scale(self, var):
     """Estimate the scale of the parameters from the current values.
 
@@ -212,8 +217,10 @@ class AdafactorOptimizer(tf.train.Optimizer):
     grad = tf.to_float(grad)
     grad_squared = tf.square(grad) + self._epsilon1
     grad_squared_mean = tf.reduce_mean(grad_squared)
-    decay_rate = self._decay_rate
-    update_scale = self._learning_rate
+    decay_rate = self._call_if_callable(self._decay_rate)
+    update_scale = self._call_if_callable(self._learning_rate)
+    update_scale = tf.convert_to_tensor(update_scale, name="update_scale")
+    update_scale = tf.cast(update_scale, grad_squared_mean.dtype.base_dtype)
     old_val = var
     if var.dtype.base_dtype == tf.bfloat16:
       old_val = tf.to_float(self._parameter_encoding.decode(old_val))
@@ -267,6 +274,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       new_val = quantization.simulated_quantize(
           var - subtrahend, self._simulated_quantize_bits,
           self._quantization_noise)
+    new_val = tf.cast(new_val, var.dtype)
     var_update = tf.assign(var, new_val, use_locking=self._use_locking)
     updates = [var_update] + updates
     return tf.group(*updates)
@@ -321,7 +329,7 @@ def adafactor_optimizer_from_hparams(hparams, lr):
   Raises:
     ValueError: on illegal values
   """
-  if hparams.optimizer_adafactor_decay_type == "Adam":
+  if hparams.optimizer_adafactor_decay_type == "adam":
     decay_rate = adafactor_decay_rate_adam(
         hparams.optimizer_adafactor_beta2)
   elif hparams.optimizer_adafactor_decay_type == "pow":

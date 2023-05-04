@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@ from tensor2tensor.data_generators import video_generated  # pylint: disable=unu
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def fill_hparams(hparams, in_frames, out_frames):
@@ -41,28 +42,39 @@ def fill_hparams(hparams, in_frames, out_frames):
 
 
 def action_modalities(hparams):
-  hparams.problem_hparams.input_modality = {
-      "inputs": modalities.VideoModalityL2Raw(hparams, 256),
-      "input_action": modalities.SymbolModality(hparams, 5),
+  """Modalities with actions."""
+  hparams.problem_hparams.modality = {
+      "inputs": modalities.ModalityType.VIDEO_L2_RAW,
+      "input_action": modalities.ModalityType.SYMBOL,
+      "targets": modalities.ModalityType.VIDEO_L2_RAW,
+      "target_action": modalities.ModalityType.SYMBOL,
   }
-  hparams.problem_hparams.target_modality = {
-      "targets": modalities.VideoModalityL2Raw(hparams, 256),
-      "target_action": modalities.SymbolModality(hparams, 5),
+  hparams.problem_hparams.vocab_size = {
+      "inputs": 256,
+      "input_action": 5,
+      "targets": 256,
+      "target_action": 5,
   }
   return hparams
 
 
 def full_modalities(hparams):
   """Full modalities with actions and rewards."""
-  hparams.problem_hparams.input_modality = {
-      "inputs": modalities.VideoModalityL2Raw(hparams, 256),
-      "input_reward": modalities.SymbolModality(hparams, 3),
-      "input_action": modalities.SymbolModality(hparams, 5),
+  hparams.problem_hparams.modality = {
+      "inputs": modalities.ModalityType.VIDEO_L2_RAW,
+      "input_action": modalities.ModalityType.SYMBOL,
+      "input_reward": modalities.ModalityType.SYMBOL,
+      "targets": modalities.ModalityType.VIDEO_L2_RAW,
+      "target_action": modalities.ModalityType.SYMBOL,
+      "target_reward": modalities.ModalityType.SYMBOL,
   }
-  hparams.problem_hparams.target_modality = {
-      "targets": modalities.VideoModalityL2Raw(hparams, 256),
-      "target_reward": modalities.SymbolModality(hparams, 3),
-      "target_action": modalities.SymbolModality(hparams, 5),
+  hparams.problem_hparams.vocab_size = {
+      "inputs": 256,
+      "input_action": 5,
+      "input_reward": 3,
+      "targets": 256,
+      "target_action": 5,
+      "target_reward": 3,
   }
   hparams.force_full_predict = True
   return hparams
@@ -105,7 +117,7 @@ class BaseNextFrameTest(tf.test.TestCase):
 
   def RunModel(self, model, hparams, features):
     with tf.Session() as session:
-      model = model(hparams, tf.estimator.ModeKeys.TRAIN)
+      model = model(hparams, tf_estimator.ModeKeys.TRAIN)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -113,7 +125,7 @@ class BaseNextFrameTest(tf.test.TestCase):
 
   def InferModel(self, model, hparams, features):
     with tf.Session() as session:
-      model = model(hparams, tf.estimator.ModeKeys.PREDICT)
+      model = model(hparams, tf_estimator.ModeKeys.PREDICT)
       output = model.infer(features)
       session.run(tf.global_variables_initializer())
       res = session.run(output)

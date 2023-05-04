@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,9 +28,8 @@ from tensor2tensor.layers import common_audio
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class ByteTextEncoderWithEos(text_encoder.ByteTextEncoder):
@@ -44,27 +43,31 @@ class SpeechRecognitionProblem(problem.Problem):
   """Base class for speech recognition problems."""
 
   def hparams(self, defaults, model_hparams):
+    def add_if_absent(p, attr, value):
+      if not hasattr(p, attr):
+        p.add_hparam(attr, value)
+
     p = model_hparams
     # Filterbank extraction in bottom instead of preprocess_example is faster.
-    p.add_hparam("audio_preproc_in_bottom", False)
+    add_if_absent(p, "audio_preproc_in_bottom", False)
     # The trainer seems to reserve memory for all members of the input dict
-    p.add_hparam("audio_keep_example_waveforms", False)
-    p.add_hparam("audio_sample_rate", 16000)
-    p.add_hparam("audio_preemphasis", 0.97)
-    p.add_hparam("audio_dither", 1.0 / np.iinfo(np.int16).max)
-    p.add_hparam("audio_frame_length", 25.0)
-    p.add_hparam("audio_frame_step", 10.0)
-    p.add_hparam("audio_lower_edge_hertz", 20.0)
-    p.add_hparam("audio_upper_edge_hertz", 8000.0)
-    p.add_hparam("audio_num_mel_bins", 80)
-    p.add_hparam("audio_add_delta_deltas", True)
-    p.add_hparam("num_zeropad_frames", 250)
+    add_if_absent(p, "audio_keep_example_waveforms", False)
+    add_if_absent(p, "audio_sample_rate", 16000)
+    add_if_absent(p, "audio_preemphasis", 0.97)
+    add_if_absent(p, "audio_dither", 1.0 / np.iinfo(np.int16).max)
+    add_if_absent(p, "audio_frame_length", 25.0)
+    add_if_absent(p, "audio_frame_step", 10.0)
+    add_if_absent(p, "audio_lower_edge_hertz", 20.0)
+    add_if_absent(p, "audio_upper_edge_hertz", 8000.0)
+    add_if_absent(p, "audio_num_mel_bins", 80)
+    add_if_absent(p, "audio_add_delta_deltas", True)
+    add_if_absent(p, "num_zeropad_frames", 250)
 
     p = defaults
-    p.input_modality = {
-        "inputs": modalities.SpeechRecognitionModality(model_hparams, None)
-    }
-    p.target_modality = (registry.Modalities.SYMBOL, 256)
+    p.modality = {"inputs": modalities.ModalityType.SPEECH_RECOGNITION,
+                  "targets": modalities.ModalityType.SYMBOL}
+    p.vocab_size = {"inputs": None,
+                    "targets": 256}
 
   @property
   def is_character_level(self):
@@ -123,7 +126,7 @@ class SpeechRecognitionProblem(problem.Problem):
       # This replaces CMVN estimation on data
       var_epsilon = 1e-09
       mean = tf.reduce_mean(mel_fbanks, keepdims=True, axis=1)
-      variance = tf.reduce_mean(tf.square(mel_fbanks - mean),
+      variance = tf.reduce_mean(tf.squared_difference(mel_fbanks, mean),
                                 keepdims=True, axis=1)
       mel_fbanks = (mel_fbanks - mean) * tf.rsqrt(variance + var_epsilon)
 
@@ -140,4 +143,7 @@ class SpeechRecognitionProblem(problem.Problem):
 
   def eval_metrics(self):
     defaults = super(SpeechRecognitionProblem, self).eval_metrics()
-    return defaults + [metrics.Metrics.EDIT_DISTANCE]
+    return defaults + [
+        metrics.Metrics.EDIT_DISTANCE,
+        metrics.Metrics.WORD_ERROR_RATE
+    ]

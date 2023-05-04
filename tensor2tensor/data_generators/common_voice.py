@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,13 +24,13 @@ package installed. The original samples will be downsampled by the encoder.
 import csv
 import os
 import tarfile
+from tensorflow.compat.v1 import estimator as tf_estimator
 import tqdm  # pylint: disable=g-bad-import-order
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import speech_recognition
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
 
 _COMMONVOICE_URL = "https://common-voice-data-download.s3.amazonaws.com/cv_corpus_v1.tar.gz"  # pylint: disable=line-too-long
 
@@ -132,9 +132,9 @@ class CommonVoice(speech_recognition.SpeechRecognitionProblem):
       ]
       corpus_tar.extractall(tmp_dir, members=members)
 
-    data_dir = os.path.join(tmp_dir, "cv_corpus_v1")
-    data_tuples = _collect_data(data_dir)
-    encoders = self.feature_encoders(None)
+    raw_data_dir = os.path.join(tmp_dir, "cv_corpus_v1")
+    data_tuples = _collect_data(raw_data_dir)
+    encoders = self.feature_encoders(data_dir)
     audio_encoder = encoders["waveforms"]
     text_encoder = encoders["targets"]
     for dataset in datasets:
@@ -213,7 +213,7 @@ class CommonVoiceTrainFullTestClean(CommonVoice):
     if mode == problem.DatasetSplit.TRAIN:
       path = os.path.join(data_dir, "common_voice")
       suffix = "train"
-    elif mode in [problem.DatasetSplit.EVAL, tf.estimator.ModeKeys.PREDICT]:
+    elif mode in [problem.DatasetSplit.EVAL, tf_estimator.ModeKeys.PREDICT]:
       path = os.path.join(data_dir, "common_voice_clean")
       suffix = "dev"
     else:

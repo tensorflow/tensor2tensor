@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 # Values for gate_gradients.
@@ -392,7 +392,7 @@ class YellowFinOptimizer(object):
     Returns:
       The lr_t.
     """
-    lr = (1.0 - tf.sqrt(self._mu))**2 / self._h_min
+    lr = tf.squared_difference(1.0, tf.sqrt(self._mu)) / self._h_min
     return lr
 
   def _get_mu_tensor(self):

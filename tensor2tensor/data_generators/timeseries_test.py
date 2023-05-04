@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +24,8 @@ import shutil
 
 from tensor2tensor.data_generators import timeseries
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class TimeseriesTest(tf.test.TestCase):
@@ -39,7 +40,7 @@ class TimeseriesTest(tf.test.TestCase):
     problem = timeseries.TimeseriesToyProblem()
     problem.generate_data(self.tmp_dir, self.tmp_dir)
 
-    dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, self.tmp_dir)
+    dataset = problem.dataset(tf_estimator.ModeKeys.TRAIN, self.tmp_dir)
     features = dataset.make_one_shot_iterator().get_next()
 
     examples = []
@@ -60,6 +61,30 @@ class TimeseriesTest(tf.test.TestCase):
 
     self.assertNotEqual(
         list(examples[0]["inputs"][0, 0]), list(examples[1]["inputs"][0, 0]))
+
+  def testTimeseriesToyProblemNoInputs(self):
+    problem = timeseries.TimeseriesToyProblemNoInputs()
+    problem.generate_data(self.tmp_dir, self.tmp_dir)
+
+    dataset = problem.dataset(tf_estimator.ModeKeys.TRAIN, self.tmp_dir)
+    features = dataset.make_one_shot_iterator().get_next()
+
+    examples = []
+    exhausted = False
+    with self.test_session() as sess:
+      examples.append(sess.run(features))
+      examples.append(sess.run(features))
+      examples.append(sess.run(features))
+      examples.append(sess.run(features))
+      examples.append(sess.run(features))
+
+      try:
+        sess.run(features)
+      except tf.errors.OutOfRangeError:
+        exhausted = True
+
+    self.assertTrue(exhausted)
+    self.assertEqual(5, len(examples))
 
   def testTimeseriesSyntheticData10Series100kSamples(self):
     problem = timeseries.TimeseriesSyntheticDataSeries10Samples100k()

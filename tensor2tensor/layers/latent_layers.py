@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,10 +23,12 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_image_attention as cia
 from tensor2tensor.layers import common_layers
-from tensor2tensor.models import transformer
+from tensor2tensor.layers import transformer_layers
 from tensor2tensor.utils import beam_search
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
+import tensorflow_probability as tfp
 
 DO_SUMMARIES = True
 
@@ -105,7 +107,7 @@ def ae_latent_softmax(latents_pred, latents_discrete_hot, vocab_size, hparams):
     latents_pred: Tensor of shape [..., depth].
     latents_discrete_hot: Tensor of shape [..., vocab_size].
     vocab_size: an int representing the vocab size.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
 
   Returns:
     sample: Tensor of shape [...], a sample from a multinomial distribution.
@@ -142,7 +144,7 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
       length_kv]. Encoder-decoder attention bias.
     embed: Callable which embeds discrete latent hot-vectors and a hidden size
       and returns dense vectors.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
 
   Returns:
     Tensor of shape [batch, length].
@@ -167,7 +169,7 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
 
   initial_ids = tf.zeros([tf.shape(latents_dense_in)[0]], dtype=tf.int32)
   length = tf.shape(latents_dense_in)[1]
-  ids, _ = beam_search.beam_search(
+  ids, _, _ = beam_search.beam_search(
       symbols_to_logits_fn,
       initial_ids,
       1,
@@ -191,7 +193,7 @@ def residual_block_layer(inputs, hparams):
 
   Args:
     inputs: Tensor of shape [batch, height, width, hparams.hidden_size].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
 
   Returns:
     Tensor of shape [batch, height, width, hparams.hidden_size].
@@ -227,7 +229,7 @@ def compress_encoder(inputs,
 
   Args:
     inputs: Tensor of shape [batch, height, width, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     strides: Tuple, strides for conv block.
     kernel_size: Tuple, kernel window size for conv block.
     name: string, variable scope.
@@ -274,7 +276,7 @@ def compress_encoder_2d(x, hparams, name=None):
 
   Args:
     x: Tensor of shape [batch, height, width, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -295,7 +297,7 @@ def compress_encoder_1d(x, hparams, name=None):
 
   Args:
     x: Tensor of shape [batch, length, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -320,7 +322,7 @@ def decompress_decoder(inputs,
 
   Args:
     inputs: Tensor of shape [batch, compress_height, compress_width, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     strides: Tuple, strides for conv block.
     kernel: Tuple, kernel window size for conv block.
     name: string, variable scope.
@@ -356,7 +358,7 @@ def decompress_decoder_2d(x, hparams, name=None):
 
   Args:
     x: Tensor of shape [batch, compress_height, compress_width, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -373,7 +375,7 @@ def decompress_decoder_1d(x, hparams, name=None):
 
   Args:
     x: Tensor of shape [batch, compress_length, channels].
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -396,7 +398,7 @@ def transformer_text_encoder(inputs,
   Args:
     inputs: Tensor of shape [batch, length, 1, hparams.hidden_size].
     target_space: int. Used for encoding inputs under a target space id.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -410,11 +412,10 @@ def transformer_text_encoder(inputs,
         encoder_input,
         encoder_self_attention_bias,
         ed,
-    ] = transformer.transformer_prepare_encoder(inputs,
-                                                target_space=target_space,
-                                                hparams=hparams)
+    ] = transformer_layers.transformer_prepare_encoder(
+        inputs, target_space=target_space, hparams=hparams)
     encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.dropout)
-    encoder_output = transformer.transformer_encoder(
+    encoder_output = transformer_layers.transformer_encoder(
         encoder_input, encoder_self_attention_bias, hparams)
     return encoder_output, ed
 
@@ -432,7 +433,7 @@ def transformer_image_decoder(targets,
     encoder_output: Tensor of shape [batch, length_kv, hparams.hidden_size].
     ed_attention_bias: Tensor which broadcasts with shape [batch,
       hparams.num_heads, length_q, length_kv]. Encoder-decoder attention bias.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -476,7 +477,7 @@ def transformer_latent_decoder(x,
     encoder_output: Tensor of shape [batch, length_kv, hparams.hidden_size].
     ed_attention_bias: Tensor which broadcasts with shape [batch,
       hparams.num_heads, length_q, length_kv]. Encoder-decoder attention bias.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     name: string, variable scope.
 
   Returns:
@@ -547,7 +548,7 @@ def latent_prediction_model(inputs,
     latents_dense: Tensor of shape [batch, length_q, hparams.hidden_size].
       length_q is the latent length, which is
       height * width * hparams.num_latents / (2**hparams.num_compress_steps).
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     vocab_size: int or None. If None, it is 2**hparams.bottleneck_bits.
     name: string, variable scope.
 
@@ -556,7 +557,7 @@ def latent_prediction_model(inputs,
     latents_pred_loss: Tensor of shape [batch, length_q].
   """
   with tf.variable_scope(name, default_name="latent_prediction"):
-    if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode != tf_estimator.ModeKeys.PREDICT:
       latents_pred = transformer_latent_decoder(tf.stop_gradient(latents_dense),
                                                 inputs,
                                                 ed_attention_bias,
@@ -586,7 +587,7 @@ def transformer_autoencoder(inputs,
     targets: Tensor of shape [batch, ..., channels]. Ellipses may be 1 or 2
       dimensions denoting sequence length.
     target_space: int. Used for encoding inputs under a target space id.
-    hparams: tf.contrib.training.HParams.
+    hparams: HParams.
     cache: Tensor of shape [batch, length] or None.
     predict_mask: Tensor masking whether to use gold targets or predictions.
 
@@ -617,10 +618,10 @@ def transformer_autoencoder(inputs,
   losses = {"extra": 0.,
             "extra_loss": 0.,
             "latent_pred": 0.}
-  if hparams.mode != tf.estimator.ModeKeys.PREDICT:
+  if hparams.mode != tf_estimator.ModeKeys.PREDICT:
     targets_compressed = compress_fn(targets, hparams, name="compress")
 
-    if hparams.mode == tf.estimator.ModeKeys.TRAIN:
+    if hparams.mode == tf_estimator.ModeKeys.TRAIN:
       scale = common_layers.inverse_exp_decay(hparams.startup_steps)
     else:
       scale = 1.0
@@ -681,7 +682,7 @@ def transformer_autoencoder(inputs,
       [-1, hparams.img_len, hparams.img_len, hparams.hidden_size])
 
   if hparams.use_gold_targets:
-    if hparams.mode == tf.estimator.ModeKeys.PREDICT:
+    if hparams.mode == tf_estimator.ModeKeys.PREDICT:
       masking = predict_mask
     else:
       masking = common_layers.inverse_exp_decay(hparams.mask_startup_steps)
@@ -732,8 +733,8 @@ def iaf_flow(one_hot_assignments,
     # shifting the rest down by one (and removing the last dimension).
     padded_assignments = tf.pad(
         one_hot_assignments, [[0, 0], [0, 0], [1, 0], [0, 0]])[:, :, :-1, :]
-    scale_bijector = tf.contrib.distributions.bijectors.Affine(
-        scale_tril=tf.contrib.distributions.fill_triangular(scale_weights))
+    scale_bijector = tfp.distributions.bijectors.Affine(
+        scale_tril=tfp.math.fill_triangular(scale_weights))
     scale = scale_bijector.forward(
         tf.transpose(padded_assignments, [0, 1, 3, 2]))
     # Transpose the bijector output since it performs a batch matmul.

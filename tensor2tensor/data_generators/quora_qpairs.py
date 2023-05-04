@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,13 +21,12 @@ from __future__ import print_function
 
 import os
 import zipfile
-import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 EOS = text_encoder.EOS
 
@@ -84,10 +83,7 @@ class QuoraQuestionPairs(text_problems.TextConcat2ClassProblem):
     skipped = 0
     for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
       if idx == 0: continue  # skip header
-      if six.PY2:
-        line = unicode(line.strip(), "utf-8")
-      else:
-        line = line.strip().decode("utf-8")
+      line = text_encoder.to_unicode_utf8(line.strip())
       split_line = line.split("\t")
       if len(split_line) < 6:
         skipped += 1

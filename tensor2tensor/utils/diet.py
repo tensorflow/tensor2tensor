@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,8 @@ import copy
 import math
 
 from tensor2tensor.layers import common_layers
-import tensorflow as tf
+from tensor2tensor.utils import hparam
+import tensorflow.compat.v1 as tf
 
 
 def diet_adam_optimizer_params():
@@ -36,7 +37,7 @@ def diet_adam_optimizer_params():
   Returns:
     a hyperparameters object.
   """
-  return tf.contrib.training.HParams(
+  return hparam.HParams(
       quantize=True,  # use 16-bit fixed-point
       quantization_scale=10.0 / tf.int16.max,
       optimizer="DietAdam",

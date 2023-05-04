@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,7 +41,8 @@ from tensor2tensor.data_generators import problem  # pylint: disable=unused-impo
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import trainer_lib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -60,7 +61,7 @@ def main(_):
     print("This tool only works for video problems.")
     return
 
-  mode = tf.estimator.ModeKeys.TRAIN
+  mode = tf_estimator.ModeKeys.TRAIN
   hparams = trainer_lib.create_hparams(
       FLAGS.hparams_set,
       FLAGS.hparams,

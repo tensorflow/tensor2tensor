@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from tensor2tensor.data_generators import dna_encoder
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class DnaEncoderTest(tf.test.TestCase):

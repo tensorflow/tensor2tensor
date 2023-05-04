@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,20 +42,24 @@ class AudioEncoder(object):
     Returns:
       samples: list of int16s
     """
+    def convert_to_wav(in_path, out_path, extra_args=None):
+      if not os.path.exists(out_path):
+        # TODO(dliebling) On Linux, check if libsox-fmt-mp3 is installed.
+        args = ["sox", "--rate", "16k", "--bits", "16", "--channel", "1"]
+        if extra_args:
+          args += extra_args
+        call(args + [in_path, out_path])
+
     # Make sure that the data is a single channel, 16bit, 16kHz wave.
     # TODO(chorowski): the directory may not be writable, this should fallback
     # to a temp path, and provide instructions for installing sox.
     if s.endswith(".mp3"):
-      # TODO(dliebling) On Linux, check if libsox-fmt-mp3 is installed.
       out_filepath = s[:-4] + ".wav"
-      call([
-          "sox", "--guard", s, "-r", "16k", "-b", "16", "-c", "1", out_filepath
-      ])
+      convert_to_wav(s, out_filepath, ["--guard"])
       s = out_filepath
     elif not s.endswith(".wav"):
       out_filepath = s + ".wav"
-      if not os.path.exists(out_filepath):
-        call(["sox", "-r", "16k", "-b", "16", "-c", "1", s, out_filepath])
+      convert_to_wav(s, out_filepath)
       s = out_filepath
     rate, data = wavfile.read(s)
     assert rate == self._sample_rate
@@ -81,7 +85,7 @@ class AudioEncoder(object):
     return tmp_file_path
 
   def decode_list(self, ids):
-    """Transform a sequence of int ids into an image file.
+    """Transform a sequence of int ids into a wavform file.
 
     Args:
       ids: list of integers to be converted.

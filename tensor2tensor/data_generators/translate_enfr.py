@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,15 +18,16 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+
+import os
+
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.data_generators import translate
+from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
-
-FLAGS = tf.flags.FLAGS
 
 # End-of-sentence marker.
 EOS = text_encoder.EOS_ID
@@ -134,8 +135,76 @@ class TranslateEnfrWmt32kPacked(TranslateEnfrWmt32k):
     return 256
 
   @property
-  def vocab_filename(self):
-    return TranslateEnfrWmt32k().vocab_filename
+  def use_vocab_from_other_problem(self):
+    return TranslateEnfrWmt32k()
+
+
+@registry.register_problem
+class TranslateEnfrWmt32kWithBacktranslateFr(TranslateEnfrWmt32k):
+  """En-Fr translation with added French data, back-translated."""
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return TranslateEnfrWmt32k()
+
+  @property
+  def already_shuffled(self):
+    return True
+
+  @property
+  def skip_random_fraction_when_training(self):
+    return False
+
+  @property
+  def backtranslate_data_filenames(self):
+    """List of pairs of files with matched back-translated data."""
+    # Files must be placed in tmp_dir, each similar size to authentic data.
+    return [("fr_mono_en.txt", "fr_mono_fr.txt")]
+
+  @property
+  def dataset_splits(self):
+    """Splits of data to produce and number of output shards for each."""
+    return [{
+        "split": problem.DatasetSplit.TRAIN,
+        "shards": 1,  # Use just 1 shard so as to not mix data.
+    }, {
+        "split": problem.DatasetSplit.EVAL,
+        "shards": 1,
+    }]
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    datasets = self.source_data_files(dataset_split)
+    tag = "train" if dataset_split == problem.DatasetSplit.TRAIN else "dev"
+    data_path = translate.compile_data(
+        tmp_dir, datasets, "%s-compiled-%s" % (self.name, tag))
+    # For eval, use authentic data.
+    if dataset_split != problem.DatasetSplit.TRAIN:
+      for example in text_problems.text2text_txt_iterator(
+          data_path + ".lang1", data_path + ".lang2"):
+        yield example
+    else:  # For training, mix synthetic and authentic data as follows.
+      for (file1, file2) in self.backtranslate_data_filenames:
+        path1 = os.path.join(tmp_dir, file1)
+        path2 = os.path.join(tmp_dir, file2)
+        # Synthetic data first.
+        for example in text_problems.text2text_txt_iterator(path1, path2):
+          yield example
+        # Now authentic data.
+        for example in text_problems.text2text_txt_iterator(
+            data_path + ".lang1", data_path + ".lang2"):
+          yield example
+
+
+@registry.register_problem
+class TranslateEnfrWmt32kWithBacktranslateEn(
+    TranslateEnfrWmt32kWithBacktranslateFr):
+  """En-Fr translation with added English data, back-translated."""
+
+  @property
+  def backtranslate_data_filenames(self):
+    """List of pairs of files with matched back-translated data."""
+    # Files must be placed in tmp_dir, each similar size to authentic data.
+    return [("en_mono_en.txt%d" % i, "en_mono_fr.txt%d" % i) for i in [0, 1, 2]]
 
 
 @registry.register_problem
@@ -165,3 +234,37 @@ class TranslateEnfrWmtCharacters(TranslateEnfrWmtSmallCharacters):
   @property
   def use_small_dataset(self):
     return False
+
+
+@registry.register_problem
+class TranslateEnfrWmtMulti64k(TranslateEnfrWmtSmall32k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def use_small_dataset(self):
+    return False
+
+  @property
+  def use_vocab_from_other_problem(self):
+    return wiki_lm.LanguagemodelDeEnFrRoWiki64k()
+
+
+@registry.register_problem
+class TranslateEnfrWmtMulti64kPacked1k(TranslateEnfrWmtMulti64k):
+  """Translation with muli-lingual vocabulary."""
+
+  @property
+  def packed_length(self):
+    return 1024
+
+  @property
+  def num_training_examples(self):
+    return 1760600
+
+  @property
+  def inputs_prefix(self):
+    return "translate English French "
+
+  @property
+  def targets_prefix(self):
+    return "translate French English "

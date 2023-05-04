@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,16 +32,12 @@ from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
 
-logger = tf.logging
+# Modern-Shakespeare corpus is consisted of:
+# - 18,395 parallel sentences for training (train set),
+# - 1,218 parallel sentences for evaluation (dev set),
+# - 1,462 parallel sentence for testing (test set).
 
-"""
-Modern-Shakespeare corpus is consisted of:
-- 18,395 parallel sentences for training (train set),
-- 1,218 parallel sentences for evaluation (dev set),
-- 1,462 parallel sentence for testing (test set).
-"""
 
 _SHAKESPEARE_MODERN_TRAIN_DATASET = [[
     "https://github.com/tlatkowski/st/raw/master/shakespeare.train.tgz",

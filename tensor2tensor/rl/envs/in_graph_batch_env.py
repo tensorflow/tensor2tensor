@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.rl.envs import utils
+import gym
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class InGraphBatchEnv(object):
@@ -34,17 +34,6 @@ class InGraphBatchEnv(object):
   def __init__(self, observ_space, action_space):
     self.observ_space = observ_space
     self.action_space = action_space
-
-  def __getattr__(self, name):
-    """Forward unimplemented attributes to one of the original environments.
-
-    Args:
-      name: Attribute that was accessed.
-
-    Returns:
-      Value behind the attribute name in one of the original environments.
-    """
-    return getattr(self._batch_env, name)
 
   def __str__(self):
     return "InGraphEnv(%s)" % str(self._batch_env)
@@ -84,21 +73,29 @@ class InGraphBatchEnv(object):
         lambda: self._reset_non_empty(indices),
         lambda: tf.cast(0, self.observ_dtype))
 
+  @staticmethod
+  def _get_tf_dtype(space):
+    if isinstance(space, gym.spaces.Discrete):
+      return tf.int32
+    if isinstance(space, gym.spaces.Box):
+      return tf.as_dtype(space.dtype)
+    raise NotImplementedError()
+
   @property
   def observ_dtype(self):
-    return utils.parse_dtype(self.observ_space)
+    return self._get_tf_dtype(self.observ_space)
 
   @property
   def observ_shape(self):
-    return utils.parse_shape(self.observ_space)
+    return self.observ_space.shape
 
   @property
   def action_dtype(self):
-    return utils.parse_dtype(self.action_space)
+    return self._get_tf_dtype(self.action_space)
 
   @property
   def action_shape(self):
-    return utils.parse_shape(self.action_space)
+    return self.action_space.shape
 
   @property
   def observ(self):

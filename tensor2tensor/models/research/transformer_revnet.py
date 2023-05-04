@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,9 +21,11 @@ from __future__ import print_function
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 @registry.register_model
@@ -120,14 +122,14 @@ def transformer_revnet_encoder(encoder_input,
   x1, x2 = tf.split(encoder_input, 2, axis=-1)
 
   with tf.variable_scope(name):
-    y1, y2 = tf.contrib.layers.rev_block(
+    y1, y2 = contrib.layers().rev_block(
         x1,
         x2,
         f,
         g,
         num_layers=hparams.num_hidden_layers,
         f_side_input=[encoder_self_attention_bias],
-        is_training=hparams.mode == tf.estimator.ModeKeys.TRAIN)
+        is_training=hparams.mode == tf_estimator.ModeKeys.TRAIN)
     y = tf.concat([y1, y2], axis=-1)
 
   return common_layers.layer_preprocess(y, hparams)
@@ -198,7 +200,7 @@ def transformer_revnet_decoder(decoder_input,
   x1, x2 = tf.split(decoder_input, 2, axis=-1)
 
   with tf.variable_scope(name):
-    y1, y2 = tf.contrib.layers.rev_block(
+    y1, y2 = contrib.layers().rev_block(
         x1,
         x2,
         f,
@@ -208,7 +210,7 @@ def transformer_revnet_decoder(decoder_input,
             decoder_self_attention_bias, encoder_decoder_attention_bias,
             encoder_output
         ],
-        is_training=hparams.mode == tf.estimator.ModeKeys.TRAIN)
+        is_training=hparams.mode == tf_estimator.ModeKeys.TRAIN)
     y = tf.concat([y1, y2], axis=-1)
     return common_layers.layer_preprocess(y, hparams)
 

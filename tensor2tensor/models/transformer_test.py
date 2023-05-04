@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,10 +20,12 @@ from __future__ import division
 from __future__ import print_function
 import numpy as np
 
+from tensor2tensor.data_generators import librispeech
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import transformer
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 BATCH_SIZE = 3
@@ -32,7 +34,7 @@ TARGET_LENGTH = 7
 VOCAB_SIZE = 10
 
 
-def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
+def get_model(hparams=None, mode=tf_estimator.ModeKeys.TRAIN,
               has_input=True, model_cls=transformer.Transformer):
   if hparams is None:
     hparams = transformer.transformer_tiny()
@@ -41,16 +43,17 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
   hparams.num_heads = 1
   hparams.layer_prepostprocess_dropout = 0.0
 
-  p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
-                                                   VOCAB_SIZE,
-                                                   hparams)
+  if hparams.get("problem_hparams", None) is None:
+    p_hparams = problem_hparams.test_problem_hparams(VOCAB_SIZE,
+                                                     VOCAB_SIZE,
+                                                     hparams)
   if not has_input:
-    p_hparams.input_modality = {}
+    del p_hparams.modality["inputs"]
   hparams.problem_hparams = p_hparams
 
-  inputs = -1 + np.random.random_integers(
+  inputs = np.random.randint(
       VOCAB_SIZE, size=(BATCH_SIZE, INPUT_LENGTH, 1, 1))
-  targets = -1 + np.random.random_integers(
+  targets = np.random.randint(
       VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
   features = {
       "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
@@ -62,15 +65,62 @@ def get_model(hparams=None, mode=tf.estimator.ModeKeys.TRAIN,
   return model_cls(hparams, mode, p_hparams), features
 
 
+def small_librispeech_model(param_overrides=None):
+  hparams = transformer.transformer_small()
+  hparams.hidden_size = 8
+  hparams.filter_size = 32
+  hparams.num_heads = 1
+  hparams.layer_prepostprocess_dropout = 0.0
+  p_hparams = librispeech.Librispeech().get_hparams(hparams)
+  p_hparams.vocab_size["targets"] = VOCAB_SIZE
+  hparams.problem_hparams = p_hparams
+  model = transformer.Transformer(hparams, problem_hparams=p_hparams)
+  if param_overrides is not None:  # Add or Set any provided HParams
+    assert isinstance(param_overrides, dict)
+    for param_name in param_overrides:
+      if hasattr(hparams, param_name):
+        hparams.set_hparam(param_name, param_overrides[param_name])
+      else:
+        hparams.add_hparam(param_name, param_overrides[param_name])
+  inputs = np.random.rand(
+      BATCH_SIZE, INPUT_LENGTH, 80, 3).astype("float32")  # modify for speech
+  targets = np.random.randint(
+      VOCAB_SIZE, size=(BATCH_SIZE, TARGET_LENGTH, 1, 1))
+  features = {
+      "inputs": tf.constant(inputs, dtype=tf.float32, name="inputs"),
+      "targets": tf.constant(targets, dtype=tf.int32, name="targets"),
+      "target_space_id": tf.constant(1, dtype=tf.int32)
+  }
+  return model, features
+
+
 class TransformerTest(tf.test.TestCase):
 
-  def testTransformer(self):
-    model, features = get_model(transformer.transformer_small())
+  def testTransformer(self, get_model_fn=None, p=None):
+    if get_model_fn:
+      model, features = get_model_fn(param_overrides=p)
+    else:
+      model, features = get_model(transformer.transformer_small())
     logits, _ = model(features)
     with self.test_session() as session:
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
+
+  def testTransformerLibrispeech(self, params=None):
+    self.testTransformer(get_model_fn=small_librispeech_model, p=params)
+
+  def testLibrispeechSlowVsFast(self, params=None):
+    self.testSlowVsFast(get_model_fn=small_librispeech_model, p=params)
+
+  def testLibrispeechMultihead(self, params=None):
+    self.testTransformerLibrispeech({"num_heads": 2})
+
+  def testLibrispeechWithAreaAttention(self):
+    self.testTransformerLibrispeech({"max_area_width": 2,
+                                     "num_area_layers": 1,
+                                     "area_key_mode": "mean",
+                                     "area_value_mode": "sum"})
 
   def testTransformerRelative(self):
     model, features = get_model(transformer.transformer_relative_tiny())
@@ -80,8 +130,11 @@ class TransformerTest(tf.test.TestCase):
       res = session.run(logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, 1, 1, VOCAB_SIZE))
 
-  def testSlowVsFast(self):
-    model, features = get_model(transformer.transformer_small())
+  def testSlowVsFast(self, get_model_fn=None, p=None):
+    if get_model_fn:
+      model, features = get_model_fn(param_overrides=p)
+    else:
+      model, features = get_model(transformer.transformer_small())
 
     decode_length = 3
 
@@ -98,7 +151,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       greedy_result = model._slow_greedy_infer(
@@ -133,7 +186,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       slow_result = model._slow_greedy_infer(
@@ -152,7 +205,7 @@ class TransformerTest(tf.test.TestCase):
   def testBeamDecodeWithRelativeAttention(self):
     decode_length = 2
     model, features = get_model(transformer.transformer_relative_tiny())
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     beam_result = model._beam_decode(
         features, decode_length, beam_size=4, top_beams=1,
@@ -185,7 +238,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     with tf.variable_scope(tf.get_variable_scope(), reuse=True):
       beam_result = model._beam_decode_slow(
@@ -206,8 +259,6 @@ class TransformerTest(tf.test.TestCase):
       beam_res = beam_result.eval()
       fast_res = fast_result.eval()
 
-    self.assertEqual(fast_res.shape,
-                     (BATCH_SIZE, INPUT_LENGTH + decode_length))
     self.assertAllClose(beam_res, fast_res)
 
   def testTransformerWithoutProblem(self):
@@ -265,7 +316,7 @@ class TransformerTest(tf.test.TestCase):
       for _ in range(100):
         apply_grad.run()
 
-    model.set_mode(tf.estimator.ModeKeys.PREDICT)
+    model.set_mode(tf_estimator.ModeKeys.PREDICT)
 
     return model, features
 
@@ -337,7 +388,7 @@ class TransformerScorerTest(tf.test.TestCase):
 
   def testReturnsScores(self):
     model, features = get_model(
-        mode=tf.estimator.ModeKeys.PREDICT,
+        mode=tf_estimator.ModeKeys.PREDICT,
         model_cls=transformer.TransformerScorer)
     infer_out = model.infer(features)
     self.assertTrue("outputs" in infer_out)
@@ -352,21 +403,21 @@ class TransformerScorerTest(tf.test.TestCase):
   def testVarNames(self):
     with tf.Graph().as_default():
       model, features = get_model(
-          mode=tf.estimator.ModeKeys.PREDICT,
+          mode=tf_estimator.ModeKeys.PREDICT,
           model_cls=transformer.TransformerScorer)
       _ = model.infer(features)
       scorer_vars = [v.name for v in tf.global_variables()]
 
     with tf.Graph().as_default():
       model, features = get_model(
-          mode=tf.estimator.ModeKeys.EVAL,
+          mode=tf_estimator.ModeKeys.EVAL,
           model_cls=transformer.TransformerScorer)
       _ = model(features)
       scorer_eval_vars = [v.name for v in tf.global_variables()]
 
     with tf.Graph().as_default():
       model, features = get_model(
-          mode=tf.estimator.ModeKeys.EVAL,
+          mode=tf_estimator.ModeKeys.EVAL,
           model_cls=transformer.Transformer)
       _ = model(features)
       transformer_vars = [v.name for v in tf.global_variables()]

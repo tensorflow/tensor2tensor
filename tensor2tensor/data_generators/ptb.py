@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 EOS = text_encoder.EOS
@@ -49,8 +49,6 @@ def _build_vocab(filename, vocab_path, vocab_size):
   """Reads a file to build a vocabulary of `vocab_size` most common words.
 
    The vocabulary is sorted by occurrence count and has one word per line.
-   Originally from:
-   https://github.com/tensorflow/models/blob/master/tutorials/rnn/ptb/reader.py
 
   Args:
     filename: file to read list of words from.

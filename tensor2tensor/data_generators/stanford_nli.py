@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,14 +21,14 @@ from __future__ import print_function
 
 import os
 import zipfile
-import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
+from tensor2tensor.data_generators import wiki_lm
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 EOS = text_encoder.EOS
 
@@ -83,10 +83,7 @@ class StanfordNLI(text_problems.TextConcat2ClassProblem):
     label_list = self.class_labels(data_dir=None)
     for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
       if idx == 0: continue  # skip header
-      if six.PY2:
-        line = unicode(line.strip(), "utf-8")
-      else:
-        line = line.strip().decode("utf-8")
+      line = text_encoder.to_unicode_utf8(line.strip())
       split_line = line.split("\t")
       # Works for both splits even though dev has some extra human labels.
       s1, s2 = split_line[5:7]
@@ -130,3 +127,21 @@ class StanfordNLISharedVocab(StanfordNLI):
   @property
   def vocab_filename(self):
     return lm1b.LanguagemodelLm1b32k().vocab_filename
+
+
+@registry.register_problem
+class StanfordNLIWikiLMSharedVocab(StanfordNLI):
+  """StanfordNLI classification problems with the Wiki vocabulary"""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelEnWiki32k().vocab_filename
+
+
+@registry.register_problem
+class StanfordNLIWikiLMSharedVocab64k(StanfordNLIWikiLMSharedVocab):
+  """StanfordNLI classification problems with the Wiki vocabulary"""
+
+  @property
+  def vocab_filename(self):
+    return wiki_lm.LanguagemodelEnWiki64k().vocab_filename

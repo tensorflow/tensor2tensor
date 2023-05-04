@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class Img2imgTransformerTest(tf.test.TestCase):
@@ -35,15 +36,15 @@ class Img2imgTransformerTest(tf.test.TestCase):
     hparams = image_transformer_2d.img2img_transformer2d_tiny()
     hparams.data_dir = ""
     p_hparams = registry.problem("image_celeba").get_hparams(hparams)
-    inputs = np.random.random_integers(0, high=255, size=(3, 4, 4, 3))
-    targets = np.random.random_integers(0, high=255, size=(3, 8, 8, 3))
+    inputs = np.random.randint(256, size=(batch_size, 4, 4, 3))
+    targets = np.random.randint(256, size=(batch_size, 8, 8, 3))
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(inputs, dtype=tf.int32),
           "targets": tf.constant(targets, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = net(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+      model = net(hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -63,9 +64,9 @@ class Imagetransformer2dTest(tf.test.TestCase):
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,
                                                      hparams)
-    inputs = -1 + np.random.random_integers(
+    inputs = np.random.randint(
         vocab_size, size=(batch_size, 1, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         vocab_size, size=(batch_size, size, size, 3))
     with self.test_session() as session:
       features = {
@@ -73,7 +74,7 @@ class Imagetransformer2dTest(tf.test.TestCase):
           "targets": tf.constant(targets, dtype=tf.int32),
           "target_space_id": tf.constant(1, dtype=tf.int32),
       }
-      model = net(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+      model = net(hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

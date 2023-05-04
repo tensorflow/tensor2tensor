@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,9 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-import copy
 import functools
-import multiprocessing
 import os
 import random
 from typing import Dict
@@ -31,20 +29,29 @@ from tensorflow import Tensor
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import text_encoder
-from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import data_reader
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import mlperf_log
 
-import tensorflow as tf
-from tensorflow.contrib.tpu.python.tpu import tpu_config
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
+# pylint: disable=g-import-not-at-top
+try:
+  from tensorflow.contrib.tpu.python.tpu import tpu_config
+except ImportError:
+  # TF 2.0 doesn't ship with contrib.
+  tpu_config = None
+# pylint: enable=g-import-not-at-top
 
 import pretrained_models.bert.utilities as bert_utilities
 from fathomt2t_dependencies.common_t2t_utils import maybe_prepare_for_chunking
 
 
 class DatasetSplit(object):
-  TRAIN = tf.estimator.ModeKeys.TRAIN
-  EVAL = tf.estimator.ModeKeys.EVAL
+  TRAIN = tf_estimator.ModeKeys.TRAIN
+  EVAL = tf_estimator.ModeKeys.EVAL
   TEST = "test"
 
 
@@ -137,7 +144,7 @@ class TaskID(object):
 
 
 def default_model_hparams():
-  return tf.contrib.training.HParams(
+  return hparam.HParams(
       max_input_seq_length=0,
       max_target_seq_length=0,
       prepend_mode="none",
@@ -145,49 +152,34 @@ def default_model_hparams():
       data_dir=None)
 
 
-def preprocess_example_common(example, hparams, mode):
+def preprocess_example_common(example, mode, hparams):
   """Preprocessing steps common to all models."""
-  if hparams.max_input_seq_length > 0:
+  if "inputs" in example and hparams.max_input_seq_length > 0:
     example["inputs"] = example["inputs"][:hparams.max_input_seq_length]
   if hparams.prepend_mode != "none":
-    if mode == tf.estimator.ModeKeys.PREDICT:
+    if mode == tf_estimator.ModeKeys.PREDICT:
       example["partial_targets"] = tf.concat([example["inputs"], [0]], 0)
     else:
       example["targets"] = tf.concat(
           [example["inputs"], [0], example["targets"]], 0)
+<<<<<<< HEAD
   # TODO: We should maybe refactor packed problems to not use max_target_seq_len
   #   the way they currently do.
   #   See https://app.asana.com/0/823468737354222/1149459228825153
   if hparams.max_target_seq_length > 0 and not hasattr(hparams, 'packed_length'):
+=======
+  if "targets" in example and hparams.max_target_seq_length > 0:
+>>>>>>> upstream/master
     example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
-    example["targets"] = tf.reshape(example["targets"],
-                                    [-1, hparams.split_to_length, 1, 1])
-    if len(example) != 1:
-      raise ValueError("split_to_length only works for LM problems")
-    return tf.data.Dataset.from_tensor_slices(example)
+    new_example = {}
+    for k, v in six.iteritems(example):
+      if k == "targets" or k == "inputs":
+        new_example[k] = tf.reshape(v, [-1, hparams.split_to_length, 1, 1])
+      else:
+        tf.logging.warning("Dropping feature %s" % k)
+    return tf.data.Dataset.from_tensor_slices(new_example)
   return example
-
-
-def _file_num_records_cached(filename):
-  """Return the number of TFRecords in a file."""
-  # Cache the result, as this is expensive to compute
-  if filename in _file_num_records_cache:
-    return _file_num_records_cache[filename]
-  ret = 0
-  for _ in tf.python_io.tf_record_iterator(filename):
-    ret += 1
-  _file_num_records_cache[filename] = ret
-  return ret
-
-
-_file_num_records_cache = {}
-
-
-def cpu_count():
-  """Return the number of available cores."""
-  num_available_cores = multiprocessing.cpu_count()
-  return num_available_cores
 
 
 class Problem(object):
@@ -227,7 +219,7 @@ class Problem(object):
     * example_reading_spec
         - Specify the names and types of the features on disk.
         - Specify tf.contrib.slim.tfexample_decoder
-    * preprocess_example(example, mode)
+    * preprocess_example(example, mode, hparams)
         - Preprocess the example feature dict from feature name to Tensor or
           SparseTensor.
         - Used in training, eval, and inference (specified by mode).
@@ -235,6 +227,8 @@ class Problem(object):
   Eval:
     * eval_metrics
         - Specify the set of evaluation metrics for this problem.
+    * eval_hooks
+        - Specify the set of evalueation hooks for this problem.
 
   Inference:
     * feature_encoders(data_dir)
@@ -258,6 +252,11 @@ class Problem(object):
   @property
   def num_generate_tasks(self):
     """Needed if multiprocess_generate is True."""
+    raise NotImplementedError()
+
+  @property
+  def num_training_examples(self):
+    """Used when mixing problems - how many examples are in the dataset."""
     raise NotImplementedError()
 
   def prepare_to_generate(self, data_dir, tmp_dir):
@@ -322,6 +321,15 @@ class Problem(object):
     """
     return False
 
+  @property
+  def skip_random_fraction_when_training(self):
+    """Skip a random number of examples at the beginning of training."""
+    # Skip a random fraction at the beginning of the stream.  The skip is
+    # essential for synchronous highly-parallel training to avoid multiple
+    # replicas reading the same data in lock-step. So keep this true unless
+    # you have a very specific setting in which it needs to be turned off.
+    return True
+
   def dataset_filename(self):
     return self.name
 
@@ -333,6 +341,13 @@ class Problem(object):
     }
 
   def example_reading_spec(self):
+    """Define how data is serialized to file and read back.
+
+    Returns:
+      data_fields: A dictionary mapping data names to its feature type.
+      data_items_to_decoders: A dictionary mapping data names to TF Example
+         decoders, to be used when reading back TF examples from disk.
+    """
     data_fields = {
         "inputs": tf.VarLenFeature(tf.int64),
         "targets": tf.VarLenFeature(tf.int64)
@@ -343,7 +358,7 @@ class Problem(object):
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing.
 
-    Return a dict or a tf.Data.Datset.from_tensor_slices (if you want each
+    Return a dict or a tf.data.Dataset.from_tensor_slices (if you want each
     example to turn into multiple).
 
     Args:
@@ -354,7 +369,7 @@ class Problem(object):
     Returns:
       dict or Dataset
     """
-    return preprocess_example_common(example, hparams, mode)
+    return preprocess_example_common(example, mode, hparams)
 
   def eval_metrics(self):
     return [
@@ -367,6 +382,7 @@ class Problem(object):
     return metrics.METRICS_FNS
 
   def eval_metric_fns(self, model_hparams):
+<<<<<<< HEAD
     """
     Taken from
     https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L360
@@ -378,6 +394,10 @@ class Problem(object):
     del model_hparams
     metric_names = self.eval_metrics()
 
+=======
+    del model_hparams
+    metric_names = self.eval_metrics()
+>>>>>>> upstream/master
     if not all([m in self.all_metrics_fns for m in metric_names]):
       error_str = ("Unrecognized metric. Problem %s specified metrics "
                    "%s. Recognized metrics are %s.")
@@ -389,6 +409,13 @@ class Problem(object):
         for metric_name in metric_names
     }
 
+<<<<<<< HEAD
+=======
+  def eval_hooks(self, features, logits, hparams):
+    del features, logits, hparams
+    return []
+
+>>>>>>> upstream/master
   @property
   def task_id(self):
     if self._task_id == -1 and hasattr(self, "global_task_id"):
@@ -402,10 +429,11 @@ class Problem(object):
   # END SUBCLASS INTERFACE
   # ============================================================================
 
+  @tf.autograph.experimental.do_not_convert()
   def preprocess(self, dataset, mode, hparams, interleave=True):
     """Runtime preprocessing on the whole dataset.
 
-    Return a tf.data.Datset -- the preprocessed version of the given one.
+    Return a tf.data.Dataset -- the preprocessed version of the given one.
     By default this function calls preprocess_example.
 
     Args:
@@ -427,7 +455,7 @@ class Problem(object):
 
     if interleave:
       dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
+          tf.data.experimental.parallel_interleave(
               _preprocess, sloppy=True, cycle_length=8))
     else:
       dataset = dataset.flat_map(_preprocess)
@@ -455,6 +483,16 @@ class Problem(object):
     return generator_utils.test_data_filenames(file_basename, data_dir,
                                                num_shards)
 
+  def data_filepaths(self, split, output_dir, num_shards, shuffled):
+    if split == DatasetSplit.TRAIN:
+      return self.training_filepaths(output_dir, num_shards, shuffled)
+    elif split == DatasetSplit.EVAL:
+      return self.dev_filepaths(output_dir, num_shards, shuffled)
+    elif split == DatasetSplit.TEST:
+      return self.test_filepaths(output_dir, num_shards, shuffled)
+    else:
+      raise ValueError("Unknown value for split: %s" % split)
+
   def filepattern(self, data_dir, mode, shard=None):
     """Get filepattern for data files for mode.
 
@@ -476,7 +514,7 @@ class Problem(object):
     shard_str = "-%05d" % shard if shard is not None else ""
     if mode == DatasetSplit.TRAIN:
       suffix = "train"
-    elif mode in [DatasetSplit.EVAL, tf.estimator.ModeKeys.PREDICT]:
+    elif mode in [DatasetSplit.EVAL, tf_estimator.ModeKeys.PREDICT]:
       suffix = "dev"
     else:
       assert mode == DatasetSplit.TEST
@@ -500,6 +538,11 @@ class Problem(object):
     self._feature_info = None
     self._task_id = -1
 
+  @property
+  def was_reversed(self):
+    """Whether the problem was reversed."""
+    return self._was_reversed
+
   def get_feature_encoders(self, data_dir=None):
     if self._encoders is None:
       self._encoders = self.feature_encoders(data_dir)
@@ -507,10 +550,11 @@ class Problem(object):
 
   def get_hparams(self, model_hparams=None):
     """Returns problem_hparams."""
-    if model_hparams is None:
-      model_hparams = default_model_hparams()
     if self._hparams is not None:
       return self._hparams
+
+    if model_hparams is None:
+      model_hparams = default_model_hparams()
 
     if self._encoders is None:
       data_dir = (model_hparams and hasattr(model_hparams, "data_dir") and
@@ -531,9 +575,6 @@ class Problem(object):
       _reverse_problem_hparams(hp)
     if self._was_copy:
       _copy_problem_hparams(hp)
-
-    model_hparams = copy.copy(model_hparams)
-    _create_modalities(hp, model_hparams)
 
     self._hparams = hp
     return self._hparams
@@ -577,6 +618,7 @@ class Problem(object):
     self.maybe_copy_features(example)
     return example
 
+  @tf.autograph.experimental.do_not_convert()
   def dataset(self,
               mode,
               data_dir=None,
@@ -589,8 +631,8 @@ class Problem(object):
               shard=None,
               partition_id=0,
               num_partitions=1,
-              max_records=-1,
-              only_last=False):
+              shuffle_buffer_size=1024,
+              max_records=-1):
     """Build a Dataset for this problem.
 
     Args:
@@ -601,7 +643,7 @@ class Problem(object):
       output_buffer_size: int, how many elements to prefetch at end of pipeline.
       shuffle_files: whether to shuffle input files. Default behavior (i.e. when
         shuffle_files=None) is to shuffle if mode == TRAIN.
-      hparams: tf.contrib.training.HParams; hparams to be passed to
+      hparams: HParams; hparams to be passed to
         Problem.preprocess_example and Problem.hparams. If None, will use a
         default set that is a no-op.
       preprocess: bool, whether to map the Dataset through
@@ -611,8 +653,9 @@ class Problem(object):
       shard: int, if provided, will only read data from the specified shard.
       partition_id: integer - which partition of the dataset to read from
       num_partitions: how many partitions in the dataset
+      shuffle_buffer_size: if shuffle_files is True, this is the buffer size
+        used to shuffle records.
       max_records: int, number of records to truncate to.
-      only_last: bool, whether we should include only files from last epoch.
 
     Returns:
       Dataset containing dict<feature name, Tensor>.
@@ -620,7 +663,7 @@ class Problem(object):
     Raises:
       ValueError: if num_partitions is greater than the number of data files.
     """
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
     shuffle_files = shuffle_files or shuffle_files is None and is_training
 
     dataset_split = dataset_split or mode
@@ -637,17 +680,9 @@ class Problem(object):
     _ = self.get_hparams(hparams)
 
     data_filepattern = self.filepattern(data_dir, dataset_split, shard=shard)
-    if only_last:
-      imprv_data_filepattern = data_filepattern + r"10.[\d+]"
-    else:
-      imprv_data_filepattern = data_filepattern
     tf.logging.info("Reading data files from %s", data_filepattern)
-    try:
-      data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
-          imprv_data_filepattern))
-    except ValueError:
-      data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
-          data_filepattern))
+    data_files = sorted(
+        contrib.slim().parallel_reader.get_data_files(data_filepattern))
 
     # Functions used in dataset transforms below. `filenames` can be either a
     # `tf.string` tensor or `tf.data.Dataset` containing one or more filenames.
@@ -673,13 +708,14 @@ class Problem(object):
     tf.logging.info(
         "partition: %d num_data_files: %d" % (partition_id, len(data_files)))
     if shuffle_files:
+      mlperf_log.transformer_print(key=mlperf_log.INPUT_ORDER)
       random.shuffle(data_files)
 
     dataset = tf.data.Dataset.from_tensor_slices(tf.constant(data_files))
     # Create data-set from files by parsing, pre-processing and interleaving.
     if shuffle_files:
       dataset = dataset.apply(
-          tf.contrib.data.parallel_interleave(
+          tf.data.experimental.parallel_interleave(
               _load_records_and_preprocess, sloppy=True, cycle_length=8))
     else:
       dataset = _load_records_and_preprocess(dataset)
@@ -687,6 +723,14 @@ class Problem(object):
     dataset = dataset.map(
         self.maybe_reverse_and_copy, num_parallel_calls=num_threads)
     dataset = dataset.take(max_records)
+
+    ## Shuffle records only for training examples.
+    if shuffle_files and is_training:
+      dataset = dataset.shuffle(shuffle_buffer_size)
+    if hparams.get("pack_dataset", False):
+      dataset = generator_utils.pack_dataset(
+          dataset, hparams.max_length, keys=["inputs", "targets"],
+          use_custom_ops=hparams.get("use_custom_ops", False))
     if output_buffer_size:
       dataset = dataset.prefetch(output_buffer_size)
 
@@ -698,13 +742,24 @@ class Problem(object):
     # Necessary to rejoin examples in the correct order with the Cloud ML Engine
     # batch prediction API.
     data_fields["batch_prediction_key"] = tf.FixedLenFeature([1], tf.int64, 0)
-    if data_items_to_decoders is None:
-      data_items_to_decoders = {
-          field: tf.contrib.slim.tfexample_decoder.Tensor(field)
-          for field in data_fields
-      }
 
-    decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
+    if getattr(self._hparams, "sampling_method", "") == "random_per_example":
+      data_fields["sampling_temp"] = tf.FixedLenFeature(
+          [1], tf.float32, getattr(self._hparams, "sampling_temp", 1.0))
+      data_fields["sampling_keep_top_k"] = tf.FixedLenFeature(
+          [1], tf.int64, getattr(self._hparams, "sampling_keep_top_k", -1))
+
+    if data_items_to_decoders is None:
+      data_items_to_decoders = {}
+      for field in data_fields:
+        if data_fields[field].dtype is tf.string:
+          default_value = b""
+        else:
+          default_value = 0
+        data_items_to_decoders[field] = contrib.slim().tfexample_decoder.Tensor(
+            field, default_value=default_value)
+
+    decoder = contrib.slim().tfexample_decoder.TFExampleDecoder(
         data_fields, data_items_to_decoders)
 
     decode_items = list(sorted(data_items_to_decoders))
@@ -742,23 +797,17 @@ class Problem(object):
     assert self._hparams is not None
 
     hp = self.get_hparams()
-    input_mods = hp.input_modality
-    target_mod = hp.target_modality
-    vocabs = hp.vocabulary
     if self.has_inputs:
       in_id = hp.input_space_id
     out_id = hp.target_space_id
 
     features = collections.defaultdict(FeatureInfo)
+    for feature_name, modality_cls in six.iteritems(hp.modality):
+      finfo = features[feature_name]
+      finfo.modality = modality_cls
+      finfo.vocab_size = hp.vocab_size[feature_name]
 
-    for name, mod in six.iteritems(input_mods):
-      finfo = features[name]
-      finfo.modality = mod
-      finfo.vocab_size = mod.top_dimensionality
-
-    features["targets"].modality = target_mod
-    features["targets"].vocab_size = target_mod.top_dimensionality
-
+    vocabs = hp.vocabulary
     for name, encoder in six.iteritems(vocabs):
       features[name].encoder = encoder
 
@@ -796,7 +845,11 @@ class Problem(object):
 
     return estimator_input_fn
 
+<<<<<<< HEAD
   def _dataset_partition(self, mode, config, hvd=None):
+=======
+  def _dataset_partition(self, mode, config, params):
+>>>>>>> upstream/master
     """Which part of the training data to read.
 
     If there are multiple parallel calls to input_fn (multiple TPU hosts),
@@ -812,17 +865,25 @@ class Problem(object):
     Args:
       mode: tf.estimator.ModeKeys
       config: RunConfig
+<<<<<<< HEAD
       hvd: horovod module if horovod is being used for multi gpu
+=======
+      params: A dict that contains parameters.
+>>>>>>> upstream/master
     Returns:
       partition_id: an integer
       num_partitions: an integer
     """
+<<<<<<< HEAD
     if hvd:
         if mode == tf.estimator.ModeKeys.TRAIN:
             return hvd.rank(), hvd.size()
         return 0, 1
 
     if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
+=======
+    if mode != tf_estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
+>>>>>>> upstream/master
       # Reset in the case when using TPU but alternating TRAIN and EVAL.
       self._next_partition_id = 0
       return 0, 1
@@ -832,7 +893,9 @@ class Problem(object):
         phift == tpu_config.InputPipelineConfig.BROADCAST):
       return 0, 1
     if phift:
-      num_partitions = max(config.tpu_config.num_shards // 8, 1)
+      num_hosts = (params["context"].num_hosts if "context" in params
+                   else config.tpu_config.num_shards // 8)
+      num_partitions = max(num_hosts, 1)
     else:
       num_partitions = config.tpu_config.num_shards
     partition_id = getattr(self, "_next_partition_id", 0)
@@ -956,6 +1019,7 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
+<<<<<<< HEAD
     partition_id, num_partitions = self._dataset_partition(mode, config, hvd)
 
     is_training = mode == tf.estimator.ModeKeys.TRAIN
@@ -975,8 +1039,15 @@ class Problem(object):
       return standardize_shapes(example, batch_size=batch_size)
 
     # Read and preprocess
+=======
+    partition_id, num_partitions = self._dataset_partition(mode, config, params)
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
+    if config and config.use_tpu:
+      num_threads = 64
+    else:
+      num_threads = data_reader.cpu_count() if is_training else 1
+>>>>>>> upstream/master
     data_dir = data_dir or (hasattr(hparams, "data_dir") and hparams.data_dir)
-
     dataset_kwargs = dataset_kwargs or {}
     dataset_kwargs.update({
         "mode": mode,
@@ -986,6 +1057,7 @@ class Problem(object):
         "partition_id": partition_id,
         "num_partitions": num_partitions,
     })
+<<<<<<< HEAD
 
     dataset = self.dataset(**dataset_kwargs)
     if (force_repeat or is_training) and not prevent_repeat:
@@ -1056,6 +1128,22 @@ class Problem(object):
                            data_reader.DummyQueueRunner())
 
     return dataset
+=======
+    return data_reader.input_fn(
+        self.dataset(**dataset_kwargs),
+        self.filepattern(data_dir, mode),
+        self.skip_random_fraction_when_training,
+        self.batch_size_means_tokens,
+        self.get_hparams().batch_size_multiplier,
+        self.max_length(hparams),
+        mode,
+        hparams,
+        data_dir=data_dir,
+        params=params,
+        config=config,
+        force_repeat=force_repeat,
+        prevent_repeat=prevent_repeat)
+>>>>>>> upstream/master
 
   def _get_batching_scheme(self, hparams, num_shards):
     """Prepares batching scheme for bucketing by seq length.
@@ -1099,28 +1187,41 @@ class Problem(object):
 
     return None
 
-  def serving_input_fn(self, hparams):
+  def serving_input_fn(self, hparams, decode_hparams=None, use_tpu=False):
     """Input fn for serving export, starting from serialized example."""
-    mode = tf.estimator.ModeKeys.PREDICT
+    self._hparams = hparams
+    mode = tf_estimator.ModeKeys.PREDICT
     serialized_example = tf.placeholder(
         dtype=tf.string, shape=[None], name="serialized_example")
     dataset = tf.data.Dataset.from_tensor_slices(serialized_example)
     dataset = dataset.map(self.decode_example)
     dataset = dataset.map(lambda ex: self.preprocess_example(ex, mode, hparams))
-    dataset = dataset.map(self.maybe_reverse_and_copy)
     dataset = dataset.map(data_reader.cast_ints_to_int32)
-    dataset = dataset.padded_batch(
-        tf.shape(serialized_example, out_type=tf.int64)[0],
-        dataset.output_shapes)
-    dataset = dataset.map(standardize_shapes)
-    features = tf.contrib.data.get_single_element(dataset)
+
+    if use_tpu:
+      padded_shapes = data_reader.pad_for_tpu(dataset.output_shapes, hparams,
+                                              hparams.max_length)
+      batch_size = 1 if not decode_hparams else getattr(decode_hparams,
+                                                        "batch_size", 1)
+      dataset = dataset.padded_batch(
+          batch_size, padded_shapes, drop_remainder=False)
+      dataset = dataset.map(
+          functools.partial(data_reader.pad_batch, batch_multiple=batch_size))
+    else:
+      dataset = dataset.padded_batch(
+          tf.shape(serialized_example, out_type=tf.int64)[0],
+          dataset.output_shapes)
+
+    dataset = dataset.map(data_reader.standardize_shapes)
+    features = tf.data.experimental.get_single_element(dataset)
 
     if self.has_inputs:
       features.pop("targets", None)
 
-    return tf.estimator.export.ServingInputReceiver(
+    return tf_estimator.export.ServingInputReceiver(
         features=features, receiver_tensors=serialized_example)
 
+<<<<<<< HEAD
   def _pad_for_tpu(self, shapes_dict, hparams):
     """Pads unknown features' dimensions for TPU.
 
@@ -1159,6 +1260,8 @@ class Problem(object):
 
     return padded_shapes
 
+=======
+>>>>>>> upstream/master
 
 class FeatureInfo(object):
   """Encapsulates information about a feature."""
@@ -1178,7 +1281,9 @@ def _copy_problem_hparams(p_hparams):
   """Use input modality, vocab, and space id for target."""
   p = p_hparams
   # Duplicate input modality.
-  p.target_modality = p.input_modality["inputs"]
+  p.modality["targets"] = p.modality["inputs"]
+  # Duplicate input vocab size.
+  p.vocab_size["targets"] = p.vocab_size["inputs"]
   # Duplicate input vocabulary.
   p.vocabulary["targets"] = p.vocabulary["inputs"]
   # Duplicate input space ids.
@@ -1192,13 +1297,34 @@ def _reverse_problem_hparams(p_hparams):
   p = p_hparams
 
   # Swap modalities.
-  input_modality = p.input_modality.get("inputs")
-  target_modality = p.target_modality
-  p.target_modality = input_modality
-  if target_modality is not None:
-    p.input_modality["inputs"] = target_modality
-  else:
-    p.input_modality = {}
+  # TODO(trandustin): Note this assumes target modalities have feature name
+  # 'target', and each intended feature to swap has feature name 'input'.
+  # In the future, remove need for this behavior.
+  reversed_modality = {}
+  for feature_name in p.modality:
+    # Copy feature as-is.
+    if "target" not in feature_name and "input" not in feature_name:
+      reversed_modality[feature_name] = p.modality[feature_name]
+    else:
+      # Change "target" to "input" and vice-versa for this feature.
+      if "target" in feature_name:
+        reversed_feature_name = feature_name.replace("target", "input")
+      else:
+        assert "input" in feature_name, feature_name
+        reversed_feature_name = feature_name.replace("input", "target")
+      reversed_modality[reversed_feature_name] = p.modality[feature_name]
+
+  p.modality = reversed_modality
+
+  # Swap vocab sizes.
+  reversed_vocab_size = {}
+  for feature_name in p.vocab_size:
+    reversed_feature_name = feature_name.replace("target", "input")
+    if "target" in feature_name and reversed_feature_name in p.vocab_size:
+      reversed_vocab_size[feature_name] = p.vocab_size[reversed_feature_name]
+      reversed_vocab_size[reversed_feature_name] = p.vocab_size[feature_name]
+
+  p.vocab_size = reversed_vocab_size
 
   # Swap vocabularies.
   input_vocabulary = p.vocabulary.pop("inputs", None)
@@ -1224,86 +1350,9 @@ def _reverse_problem_hparams(p_hparams):
   p.was_reversed = True
 
 
-def _create_modalities(problem_hparams, hparams):
-  """Converts string-type modalities to their corresponding Modality.
-
-  Args:
-    problem_hparams: tf.contrib.training.HParams for the Problem. It must have
-      input_modality and target_modality as attributes. Modalities are either
-      tuples of type ("modality_type:modality_name", vocab_size), and they will
-      be converted to Modality objects; or they are already Modality objects,
-      and they remain the same.
-    hparams: tf.contrib.training.HParams for the model. It may have
-      input_modalities and target_modality, which will override
-      problem_hparams' modalities.
-
-  Returns:
-    None
-  """
-  input_modality_overrides = {}
-  if hasattr(hparams, "input_modalities"):
-    for override_str in hparams.input_modalities.split(";"):
-      if override_str != "default":
-        parts = override_str.split(":")
-        feature_name = parts[0]
-        modality_name = ":".join(parts[1:])
-        input_modality_overrides[feature_name] = modality_name
-
-  input_modality = {}
-  for feature_name, modality in six.iteritems(problem_hparams.input_modality):
-    if isinstance(modality, (list, tuple)):
-      if feature_name in input_modality_overrides:
-        _warn_changed_modality_type(input_modality_overrides[feature_name],
-                                    modality[0],
-                                    feature_name)
-        modality = (input_modality_overrides[feature_name], modality[1])
-      modality = modalities.create_modality(modality, hparams)
-    input_modality[feature_name] = modality
-  problem_hparams.input_modality = input_modality
-
-  target_modality_name = None
-  if (hasattr(hparams, "target_modality") and
-      hparams.target_modality != "default"):
-    target_modality_name = hparams.target_modality
-
-  if isinstance(problem_hparams.target_modality, dict):
-    target_modality = {}
-    for feature_name, modality in six.iteritems(
-        problem_hparams.target_modality):
-      if isinstance(modality, (list, tuple)):
-        # TODO(lukaszkaiser): allow overriding other target modalities.
-        if target_modality_name and feature_name == "targets":
-          _warn_changed_modality_type(target_modality_name,
-                                      modality[0],
-                                      "target_modality/%s" % feature_name)
-          modality = (target_modality_name, modality[1])
-        modality = modalities.create_modality(modality, hparams)
-      target_modality[feature_name] = modality
-    problem_hparams.target_modality = target_modality
-  elif isinstance(problem_hparams.target_modality, (list, tuple)):
-    modality = problem_hparams.target_modality
-    if target_modality_name:
-      _warn_changed_modality_type(target_modality_name,
-                                  modality[0],
-                                  "target")
-      modality = (target_modality_name, modality[1])
-    modality = modalities.create_modality(modality, hparams)
-    problem_hparams.target_modality = modality
-
-
-def _warn_changed_modality_type(new_name, old_name, feature_name):
-  new_type, new_name = modalities.parse_modality_name(new_name)
-  old_type, old_name = modalities.parse_modality_name(old_name)
-  if new_type != old_type:
-    tf.logging.warn(
-        "%s has a designated modality type %s (%s) but has been "
-        "overridden with a modality of type %s (%s).", feature_name, old_type,
-        old_name, new_type, new_name)
-
-
 def _default_hparams():
   """A set of basic model hyperparameters."""
-  return tf.contrib.training.HParams(
+  return hparam.HParams(
       # Use this parameter to get comparable perplexity numbers with different
       # tokenizations.  This value should be set to the ratio of the number of
       # tokens in the test set according to the tokenization used to the number
@@ -1323,17 +1372,11 @@ def _default_hparams():
       # token.
       stop_at_eos=False,
 
-      # Modalities used to map from input features to a space compatible with
-      # chosen model architecture.  One modality spec (which is a 2-tuple,
-      # (modality_full_name, vocab_size)) per feature key. modality_full_name
-      # is a string type:name, e.g. class_label:class_label_2d. Leaving off
-      # the name uses the default modality for that type (e.g. class_label ==
-      # class_label:default).
-      input_modality={},
-
-      # Modality used to map from hidden representation to the target space.
-      # Specified as a modality spec, a 2-tuple described above.
-      target_modality=None,
+      # Modalities used to map from features to a space compatible with
+      # chosen model architecture. It comprises key-value pairs of a feature
+      # name (str) and its modality type.
+      modality={},
+      vocab_size={},
 
       # Identifiers used to tell the model which input/target space will be
       # expected. For example, it can tell that we expect French as characters
@@ -1343,6 +1386,7 @@ def _default_hparams():
       target_space_id=SpaceID.GENERIC)
 
 
+<<<<<<< HEAD
 def _are_shapes_fully_defined(shapes_dict):
   for shape in shapes_dict.values():
     if not shape.is_fully_defined():
@@ -1423,6 +1467,8 @@ def pad_batch(features, batch_multiple):
   return padded_features
 
 
+=======
+>>>>>>> upstream/master
 def problem_hparams_to_features(problem_hparams):
   input_space_id, target_space_id = 0, 0
   if problem_hparams:
@@ -1432,11 +1478,3 @@ def problem_hparams_to_features(problem_hparams):
       "input_space_id": input_space_id,
       "target_space_id": target_space_id,
   }
-
-
-def skip_random_fraction(dataset, data_file):
-  # Skip a random fraction at the beginning of the stream.  The skip is
-  # essential for synchronous highly-parallel training to avoid multiple
-  # replicas reading the same data in lock-step.
-  num_skip = random.randint(0, _file_num_records_cached(data_file))
-  return dataset.skip(num_skip)

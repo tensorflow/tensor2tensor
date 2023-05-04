@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,14 +21,13 @@ from __future__ import print_function
 
 import os
 import zipfile
-import six
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import lm1b
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 EOS = text_encoder.EOS
 
@@ -83,10 +82,7 @@ class SciTail(text_problems.TextConcat2ClassProblem):
   def example_generator(self, filename):
     label_list = self.class_labels(data_dir=None)
     for line in tf.gfile.Open(filename, "rb"):
-      if six.PY2:
-        line = unicode(line.strip(), "utf-8")
-      else:
-        line = line.strip().decode("utf-8")
+      line = text_encoder.to_unicode_utf8(line.strip())
       split_line = line.split("\t")
       s1, s2 = split_line[:2]
       l = label_list.index(split_line[2])

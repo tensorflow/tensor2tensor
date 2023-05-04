@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,9 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import inspect
 from tensor2tensor.utils import expert_utils as eu
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.python.util import tf_inspect as inspect
 
 
 def data_parallelism_from_flags(daisy_chain_variables=True, all_workers=False):
@@ -70,7 +70,6 @@ def data_parallelism(daisy_chain_variables=True,
                      worker_replicas=1,
                      worker_id=0,
                      gpu_order="",
-                     locally_shard_to_cpu=False,
                      worker_job="/job:localhost",
                      no_data_parallelism=False):
   """See data_parallelism_from_flags."""
@@ -141,7 +140,7 @@ def data_parallelism(daisy_chain_variables=True,
         "Schedule=%s. Assuming that training is running on a single machine.",
         schedule)
     datashard_devices = ["gpu:%d" % d for d in _gpu_order(worker_gpu)]
-    if locally_shard_to_cpu or worker_gpu < 1:
+    if worker_gpu < 1:
       datashard_devices += ["cpu:0"]
     caching_devices = None
   elif sync and ps_replicas > 0:

@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,10 +22,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.data_generators import gym_problems_specs
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -45,8 +45,8 @@ def main(_):
 
   # Create problem if not already defined
   problem_name = "gym_discrete_problem_with_agent_on_%s" % FLAGS.game
-  if problem_name not in registry.list_problems():
-    gym_problems_specs.create_problems_for_game(FLAGS.game)
+  if problem_name not in registry.Registries.problems:
+    gym_env.register_game(FLAGS.game)
 
   # Generate
   tf.logging.info("Running %s environment for %d steps for trajectories.",

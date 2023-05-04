@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ around each of these function blocks and apply dropout and layer normalization.
 The recurrent transition function in fact controls how steps communicate with
 each other in depth. For instance, the recurrent transition, can be a simple
 identity function which passes the output of a step as the input to next step.
-Or it can be an LSTM (filliped vertically) next to the transformer which
+Or it can be an LSTM (flipped vertically) next to the transformer which
 controls how state of the model changes in depth.
 
 """
@@ -54,9 +54,10 @@ from six.moves import range  # pylint: disable=redefined-builtin
 from tensor2tensor.layers import common_attention
 from tensor2tensor.layers import common_layers
 from tensor2tensor.models import transformer
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import expert_utils
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def universal_transformer_encoder(encoder_input,
@@ -125,8 +126,6 @@ def universal_transformer_encoder(encoder_input,
     x, extra_output = universal_transformer_layer(
         x, hparams, ffn_unit, attention_unit, pad_remover=pad_remover)
 
-    if hparams.get("use_memory_as_last_state", False):
-      x = extra_output  # which is memory
     return common_layers.layer_preprocess(x, hparams), extra_output
 
 
@@ -214,34 +213,36 @@ def universal_transformer_layer(x,
     ValueError: Unknown recurrence type
   """
 
-  def add_vanilla_transformer_layer(x, num_layers):
+  def add_vanilla_transformer_layer(x, num_layers, name):
     """Passes the input through num_layers of vanilla transformer layers.
 
     Args:
      x: input
      num_layers: number of layers
+     name: string, prefix of layer names
 
     Returns:
        output of vanilla_transformer_layer
     """
-
     if hparams.add_position_timing_signal:
       # In case of add_position_timing_signal=true, we set  hparams.pos=None
       # and add position timing signal at the beginning of each step, so for
       # the vanilla transformer, we need to add timing signal here.
       x = common_attention.add_timing_signal_1d(x)
     for layer in range(num_layers):
-      with tf.variable_scope("layer_%d" % layer):
+      with tf.variable_scope(name + "layer_%d" % layer):
         x = ffn_unit(attention_unit(x))
     return x
 
   with tf.variable_scope("universal_transformer_%s" % hparams.recurrence_type):
-
-    if hparams.mix_with_transformer == "before_ut":
-      x = add_vanilla_transformer_layer(x, hparams.num_mixedin_layers)
+    if (hparams.mix_with_transformer and
+        "before_ut" in hparams.mix_with_transformer):
+      x = add_vanilla_transformer_layer(x, hparams.num_mixedin_layers,
+                                        "before_ut_")
 
     if hparams.recurrence_type == "act":
-      return universal_transformer_act(x, hparams, ffn_unit, attention_unit)
+      output, extra_output = universal_transformer_act(
+          x, hparams, ffn_unit, attention_unit)
 
     else:  # for all the other recurrency types with fixed number of steps
 
@@ -249,14 +250,18 @@ def universal_transformer_layer(x,
                                               attention_unit, pad_remover)
 
       output, _, extra_output = tf.foldl(
-          ut_function, tf.range(hparams.num_rec_steps), initializer=initializer)
+          ut_function, tf.range(hparams.num_rec_steps),
+          initializer=initializer)
 
-      # This is possible only when we are using lstm as transition function.
-      if hparams.get("use_memory_as_final_state", False):
+      # Right now, this is only possible when the transition function is an lstm
+      if (hparams.recurrence_type == "lstm" and
+          hparams.get("use_memory_as_final_state", False)):
         output = extra_output
 
-    if hparams.mix_with_transformer == "after_ut":
-      output = add_vanilla_transformer_layer(output, hparams.num_mixedin_layers)
+    if (hparams.mix_with_transformer and
+        "after_ut" in hparams.mix_with_transformer):
+      output = add_vanilla_transformer_layer(output, hparams.num_mixedin_layers,
+                                             "after_ut_")
 
     return output, extra_output
 
@@ -436,7 +441,8 @@ def transformer_encoder_attention_unit(x,
         save_weights_to=save_weights_to,
         max_relative_position=hparams.max_relative_position,
         make_image_summary=make_image_summary,
-        dropout_broadcast_dims=attention_dropout_broadcast_dims)
+        dropout_broadcast_dims=attention_dropout_broadcast_dims,
+        hard_attention_k=hparams.hard_attention_k)
     x = common_layers.layer_postprocess(x, y, hparams)
   return x
 
@@ -529,7 +535,8 @@ def transformer_decoder_attention_unit(x,
         max_relative_position=hparams.max_relative_position,
         cache=None,
         make_image_summary=make_image_summary,
-        dropout_broadcast_dims=attention_dropout_broadcast_dims)
+        dropout_broadcast_dims=attention_dropout_broadcast_dims,
+        hard_attention_k=hparams.hard_attention_k)
     x = common_layers.layer_postprocess(x, y, hparams)
   if encoder_output is not None:
     with tf.variable_scope("encdec_attention"):
@@ -544,7 +551,8 @@ def transformer_decoder_attention_unit(x,
           hparams.attention_dropout,
           save_weights_to=save_weights_to,
           make_image_summary=make_image_summary,
-          dropout_broadcast_dims=attention_dropout_broadcast_dims)
+          dropout_broadcast_dims=attention_dropout_broadcast_dims,
+          hard_attention_k=hparams.hard_attention_k)
       x = common_layers.layer_postprocess(x, y, hparams)
   return x
 
@@ -574,9 +582,11 @@ def universal_transformer_basic(layer_inputs,
   """
   state, inputs, memory = tf.unstack(layer_inputs, num=None, axis=0,
                                      name="unstack")
-  state = step_preprocess(state, step, hparams)
+  new_state = step_preprocess(state, step, hparams)
 
-  new_state = ffn_unit(attention_unit(state))
+  for i in range(hparams.num_inrecurrence_layers):
+    with tf.variable_scope("rec_layer_%d" % i):
+      new_state = ffn_unit(attention_unit(new_state))
 
   return new_state, inputs, memory
 
@@ -589,7 +599,7 @@ def universal_transformer_highway(layer_inputs,
   """Universal Transformer with highway connection.
 
 
-  It transforms the state using a block contaaining sel-attention and transition
+  It transforms the state using a block containing self-attention and transition
   function  and wrap the whole block with a highway connection.
   (the new state is a combination of the state and the transformed-state
   based on cary/transform gates.)
@@ -616,10 +626,13 @@ def universal_transformer_highway(layer_inputs,
   """
 
   state, inputs, memory = layer_inputs
-  state = step_preprocess(state, step, hparams)
+  new_state = step_preprocess(state, step, hparams)
 
-  transformed_state = ffn_unit(attention_unit(state))
-  state.get_shape().assert_is_compatible_with(state.get_shape())
+  for i in range(hparams.num_inrecurrence_layers):
+    with tf.variable_scope("rec_layer_%d" % i):
+      new_state = ffn_unit(attention_unit(new_state))
+
+  transformed_state = new_state
 
   gate_inputs = []
   if "s" in hparams.gates_inputs:
@@ -641,8 +654,7 @@ def universal_transformer_highway(layer_inputs,
       bias_initializer=tf.constant_initializer(hparams.transform_bias_init),
       activation=tf.sigmoid,
       pad_remover=pad_remover,
-      preprocess=True,
-      postprocess=True)
+      preprocess=True)
 
   if hparams.couple_carry_transform_gates:
     carry_gate = tf.subtract(1.0, transform_gate, name="carry")
@@ -656,16 +668,15 @@ def universal_transformer_highway(layer_inputs,
         bias_initializer=tf.constant_initializer(-hparams.transform_bias_init),
         activation=tf.sigmoid,
         pad_remover=pad_remover,
-        preprocess=True,
-        postprocess=True)
+        preprocess=True)
 
   new_state = state * carry_gate + transformed_state * transform_gate
 
-  tf.contrib.summary.scalar("highway_transform_gate_layer",
-                            tf.reduce_mean(transform_gate))
+  contrib.summary().scalar("highway_transform_gate_layer",
+                           tf.reduce_mean(transform_gate))
 
-  tf.contrib.summary.scalar("highway_carry_gate_layer",
-                            tf.reduce_mean(carry_gate))
+  contrib.summary().scalar("highway_carry_gate_layer",
+                           tf.reduce_mean(carry_gate))
 
   return new_state, inputs, memory
 
@@ -705,9 +716,13 @@ def universal_transformer_skip(layer_inputs,
   """
 
   state, inputs, memory = layer_inputs
-  state = step_preprocess(state, step, hparams)
+  new_state = step_preprocess(state, step, hparams)
 
-  transformed_state = ffn_unit(attention_unit(state))
+  for i in range(hparams.num_inrecurrence_layers):
+    with tf.variable_scope("rec_layer_%d" % i):
+      new_state = ffn_unit(attention_unit(new_state))
+
+  transformed_state = new_state
 
   inputs.get_shape().assert_is_compatible_with(state.get_shape())
 
@@ -731,8 +746,7 @@ def universal_transformer_skip(layer_inputs,
       bias_initializer=tf.constant_initializer(hparams.transform_bias_init),
       activation=tf.sigmoid,
       pad_remover=pad_remover,
-      preprocess=True,
-      postprocess=True)
+      preprocess=True)
 
   if hparams.couple_carry_transform_gates:
     carry_gate = tf.subtract(1.0, transform_gate, name="carry")
@@ -746,13 +760,12 @@ def universal_transformer_skip(layer_inputs,
         bias_initializer=tf.constant_initializer(-hparams.transform_bias_init),
         activation=tf.sigmoid,
         pad_remover=pad_remover,
-        preprocess=True,
-        postprocess=True)
+        preprocess=True)
 
-  tf.contrib.summary.scalar("skip_transform_gate_layer",
-                            tf.reduce_mean(transform_gate))
+  contrib.summary().scalar("skip_transform_gate_layer",
+                           tf.reduce_mean(transform_gate))
 
-  tf.contrib.summary.scalar("skip_carry_gate_layer", tf.reduce_mean(carry_gate))
+  contrib.summary().scalar("skip_carry_gate_layer", tf.reduce_mean(carry_gate))
 
   new_state = inputs * carry_gate + transformed_state * transform_gate
   return new_state, inputs, memory
@@ -804,10 +817,11 @@ def universal_transformer_depthwise_attention(layer_inputs,
   state_to_be_transformed = tf.reduce_sum(
       (states_so_far * states_so_far_weights), axis=0)
 
-  state_to_be_transformed = step_preprocess(state_to_be_transformed, step,
-                                            hparams)
+  new_state = step_preprocess(state_to_be_transformed, step, hparams)
 
-  new_state = ffn_unit(attention_unit(state_to_be_transformed))
+  for i in range(hparams.num_inrecurrence_layers):
+    with tf.variable_scope("rec_layer_%d" % i):
+      new_state = ffn_unit(attention_unit(new_state))
 
   # add the new state to the memory
   memory = fill_memory_slot(memory, new_state, step + 1)
@@ -864,12 +878,10 @@ def universal_transformer_with_gru_as_transition_function(
         name="update",
         bias_initializer=tf.constant_initializer(1.0),
         activation=tf.sigmoid,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
-    tf.contrib.summary.scalar("gru_update_gate",
-                              tf.reduce_mean(transition_function_update_gate))
+    contrib.summary().scalar("gru_update_gate",
+                             tf.reduce_mean(transition_function_update_gate))
 
     # gru reset gate: r_t = sigmoid(W_r.x_t + U_r.h_{t-1})
     transition_function_reset_gate = _ffn_layer_multi_inputs(
@@ -878,12 +890,10 @@ def universal_transformer_with_gru_as_transition_function(
         name="reset",
         bias_initializer=tf.constant_initializer(1.0),
         activation=tf.sigmoid,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
-    tf.contrib.summary.scalar("gru_reset_gate",
-                              tf.reduce_mean(transition_function_reset_gate))
+    contrib.summary().scalar("gru_reset_gate",
+                             tf.reduce_mean(transition_function_reset_gate))
     reset_state = transition_function_reset_gate * state
 
     # gru_candidate_activation: h' = tanh(W_{x_t} + U (r_t h_{t-1})
@@ -893,9 +903,7 @@ def universal_transformer_with_gru_as_transition_function(
         name="candidate",
         bias_initializer=tf.zeros_initializer(),
         activation=tf.tanh,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
     transition_function_output = (
         (1 - transition_function_update_gate) * transition_function_input +
@@ -958,12 +966,10 @@ def universal_transformer_with_lstm_as_transition_function(
         name="input",
         bias_initializer=tf.zeros_initializer(),
         activation=tf.sigmoid,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
-    tf.contrib.summary.scalar("lstm_input_gate",
-                              tf.reduce_mean(transition_function_input_gate))
+    contrib.summary().scalar("lstm_input_gate",
+                             tf.reduce_mean(transition_function_input_gate))
 
     # lstm forget gate: f_t = sigmoid(W_f.x_t + U_f.h_{t-1})
     transition_function_forget_gate = _ffn_layer_multi_inputs(
@@ -972,15 +978,13 @@ def universal_transformer_with_lstm_as_transition_function(
         name="forget",
         bias_initializer=tf.zeros_initializer(),
         activation=None,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
     forget_bias_tensor = tf.constant(hparams.lstm_forget_bias)
     transition_function_forget_gate = tf.sigmoid(
         transition_function_forget_gate + forget_bias_tensor)
 
-    tf.contrib.summary.scalar("lstm_forget_gate",
-                              tf.reduce_mean(transition_function_forget_gate))
+    contrib.summary().scalar("lstm_forget_gate",
+                             tf.reduce_mean(transition_function_forget_gate))
 
     # lstm output gate: o_t = sigmoid(W_o.x_t + U_o.h_{t-1})
     transition_function_output_gate = _ffn_layer_multi_inputs(
@@ -989,12 +993,10 @@ def universal_transformer_with_lstm_as_transition_function(
         name="output",
         bias_initializer=tf.zeros_initializer(),
         activation=tf.sigmoid,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
-    tf.contrib.summary.scalar("lstm_output_gate",
-                              tf.reduce_mean(transition_function_output_gate))
+    contrib.summary().scalar("lstm_output_gate",
+                             tf.reduce_mean(transition_function_output_gate))
 
     # lstm input modulation
     transition_function_input_modulation = _ffn_layer_multi_inputs(
@@ -1003,9 +1005,7 @@ def universal_transformer_with_lstm_as_transition_function(
         name="input_modulation",
         bias_initializer=tf.zeros_initializer(),
         activation=tf.tanh,
-        pad_remover=pad_remover,
-        preprocess=False,
-        postprocess=False)
+        pad_remover=pad_remover)
 
     transition_function_memory = (
         memory * transition_function_forget_gate +
@@ -1025,6 +1025,11 @@ def universal_transformer_act(x, hparams, ffn_unit, attention_unit):
 
   Implementations of all act models are based on craffel@'s cl/160711592.
 
+  (1) Basic AUT based on remainder-distribution ACT (position-wise).
+  (2) AUT with global halting probability (not position-wise).
+  (3) AUT with random halting probability (not position-wise).
+  (4) AUT with final state as accumulation of all states.
+
   Args:
     x: input
     hparams: model hyper-parameters
@@ -1036,68 +1041,30 @@ def universal_transformer_act(x, hparams, ffn_unit, attention_unit):
 
   Raises:
     ValueError: Unknown act type
-
   """
-  # TODO(dehghani): Enable pad_remover for the act computations.
-  if hparams.act_type == "basic":
-    return universal_transformer_act_basic(
-        x, hparams, ffn_unit, attention_unit)
-
-  elif hparams.act_type == "accumulated":
-    return universal_transformer_act_accumulated(
-        x, hparams, ffn_unit, attention_unit)
-
-  elif hparams.act_type == "global":
-    return universal_transformer_act_global(
-        x, hparams, ffn_unit, attention_unit)
-
-  elif hparams.act_type == "random":
-    return universal_transformer_act_random(
-        x, hparams, ffn_unit, attention_unit)
-
-  else:
+  if hparams.act_type not in ["basic", "global", "random", "accumulated"]:
     raise ValueError("Unknown act type: %s" % hparams.act_type)
-
-
-def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
-  """Basic universal_transformer with ACT based on remainder-distribution ACT.
-
-  Args:
-    x: input
-    hparams: model hyper-parameters
-    ffn_unit: feed-forward unit
-    attention_unit: multi-head attention unit
-
-  Returns:
-    the output tensor,  (ponder_times, remainders)
-
-  """
 
   state = x
   act_max_steps = hparams.act_max_steps
   threshold = 1.0 - hparams.act_epsilon
+  state_shape_static = state.get_shape()
 
-  batch_size = tf.shape(state)[0]
-  length = tf.shape(state)[1]
+  state_slice = slice(0, 2)
+  if hparams.act_type == "global":
+    state_slice = slice(0, 1)
+
+  # Dynamic shape for update tensors below
+  update_shape = tf.shape(state)[state_slice]
 
   # Halting probabilities (p_t^n in the paper)
-  halting_probability = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="halting_probability")
+  halting_probability = tf.zeros(update_shape, name="halting_probability")
+
   # Remainders (R(t) in the paper)
-  remainders = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="remainder")
+  remainders = tf.zeros(update_shape, name="remainder")
+
   # Number of updates performed (N(t) in the paper)
-  n_updates = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="n_updates")
+  n_updates = tf.zeros(update_shape, name="n_updates")
 
   # Previous cell states (s_t in the paper)
   previous_state = tf.zeros_like(state, name="previous_state")
@@ -1123,309 +1090,29 @@ def universal_transformer_act_basic(x, hparams, ffn_unit, attention_unit):
       n_updates: act n_updates
       new_state: new state
     """
-    state_shape = state.get_shape()
     state = step_preprocess(state, step, hparams)
 
-    with tf.variable_scope("sigmoid_activation_for_pondering"):
-      p = common_layers.dense(
-          state,
-          1,
-          activation=tf.nn.sigmoid,
-          use_bias=True,
-          bias_initializer=tf.constant_initializer(
-              hparams.act_halting_bias_init))
-      p = tf.squeeze(p)
+    if hparams.act_type == "random":
+      # random as halting probability
+      p = tf.random_uniform(
+          shape=common_layers.shape_list(halting_probability))
+    else:
+      with tf.variable_scope("sigmoid_activation_for_pondering"):
+        p = common_layers.dense(
+            state,
+            1,
+            activation=tf.nn.sigmoid,
+            use_bias=True,
+            bias_initializer=tf.constant_initializer(
+                hparams.act_halting_bias_init))
 
-    # Mask for inputs which have not halted yet
-    still_running = tf.cast(tf.less(halting_probability, 1.0), tf.float32)
-
-    # Mask of inputs which halted at this step
-    new_halted = tf.cast(
-        tf.greater(halting_probability + p * still_running, threshold),
-        tf.float32) * still_running
-
-    # Mask of inputs which haven't halted, and didn't halt this step
-    still_running = tf.cast(
-        tf.less_equal(halting_probability + p * still_running, threshold),
-        tf.float32) * still_running
-
-    # Add the halting probability for this step to the halting
-    # probabilities for those input which haven't halted yet
-    halting_probability += p * still_running
-
-    # Compute remainders for the inputs which halted at this step
-    remainders += new_halted * (1 - halting_probability)
-
-    # Add the remainders to those inputs which halted at this step
-    halting_probability += new_halted * remainders
-
-    # Increment n_updates for all inputs which are still running
-    n_updates += still_running + new_halted
-
-    # Compute the weight to be applied to the new state and output
-    # 0 when the input has already halted
-    # p when the input hasn't halted yet
-    # the remainders when it halted this step
-    update_weights = tf.expand_dims(p * still_running + new_halted * remainders,
-                                    -1)
-
-    # apply transformation on the state
-    transformed_state = ffn_unit(attention_unit(state))
-
-    # update running part in the weighted state and keep the rest
-    new_state = ((transformed_state * update_weights) +
-                 (previous_state * (1 - update_weights)))
-
-    # remind TensorFlow of everything's shape
-    transformed_state.set_shape(state_shape)
-    for x in [halting_probability, remainders, n_updates]:
-      x.set_shape([
-          state_shape[0],
-          state_shape[1],
-      ])
-      new_state.set_shape(state_shape)
-    step += 1
-    return (transformed_state, step, halting_probability, remainders, n_updates,
-            new_state)
-
-  # While loop stops when this predicate is FALSE.
-  # Ie all (probability < 1-eps AND counter < N) are false.
-  def should_continue(u0, u1, halting_probability, u2, n_updates, u3):
-    del u0, u1, u2, u3
-    return tf.reduce_any(
-        tf.logical_and(
-            tf.less(halting_probability, threshold),
-            tf.less(n_updates, act_max_steps)))
-
-  # Do while loop iterations until predicate above is false.
-  (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
-      should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
-
-  ponder_times = n_updates
-  remainders = remainder
-
-  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
-
-  return new_state, (ponder_times, remainders)
-
-
-def universal_transformer_act_accumulated(x, hparams, ffn_unit, attention_unit):
-  """The UTAct layer where the final state is the accumulation of all states.
-
-    (similar to the main ACT paper: --> check the issue of differentiability)
-
-  Args:
-    x: input
-    hparams: model hyper-parameters
-    ffn_unit: feed-forward unit
-    attention_unit: multi-head attention unit
-
-  Returns:
-    the output tensor,  (ponder_times, remainders)
-
-  """
-  state = x
-  act_max_steps = hparams.act_max_steps
-  threshold = 1.0 - hparams.act_epsilon
-
-  batch_size = tf.shape(state)[0]
-  length = tf.shape(state)[1]
-
-  # Halting probabilities (p_t^n in the paper)
-  halting_probability = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="halting_probability")
-  # Remainders (R(t) in the paper)
-  remainders = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="remainder")
-  # Number of updates performed (N(t) in the paper)
-  n_updates = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="n_updates")
-
-  # Accumulated cell states (s_t in the paper)
-  accumulated_state = tf.zeros_like(state, name="previous_state")
-  step = tf.constant(0, dtype=tf.int32)
-
-  def ut_function(state, step, halting_probability, remainders, n_updates,
-                  accumulated_state):
-    """Position-wise act.
-
-    Args:
-      state: 3-D Tensor: [batch_size, length, channel]
-      step: indicates number of steps taken so far
-      halting_probability: halting probability
-      remainders: act remainders
-      n_updates: act n_updates
-      accumulated_state: accumulated state
-
-    Returns:
-      transformed_state: transformed state
-      step: step+1
-      halting_probability: halting probability
-      remainders: act remainders
-      n_updates: act n_updates
-      accumulated_state: accumulated state
-    """
-    state_shape = state.get_shape()
-    state = step_preprocess(state, step, hparams)
-
-    with tf.variable_scope("sigmoid_activation_for_pondering"):
-      p = common_layers.dense(
-          state,
-          1,
-          activation=tf.nn.sigmoid,
-          use_bias=True,
-          bias_initializer=tf.constant_initializer(
-              hparams.act_halting_bias_init))
-      p = tf.squeeze(p)
-
-    # Mask for inputs which have not halted yet
-    still_running = tf.cast(tf.less(halting_probability, 1.0), tf.float32)
-
-    # Mask of inputs which halted at this step
-    new_halted = tf.cast(
-        tf.greater(halting_probability + p * still_running, threshold),
-        tf.float32) * still_running
-
-    # Mask of inputs which haven't halted, and didn't halt this step
-    still_running = tf.cast(
-        tf.less_equal(halting_probability + p * still_running, threshold),
-        tf.float32) * still_running
-
-    # Add the halting probability for this step to the halting
-    # probabilities for those input which haven't halted yet
-    halting_probability += p * still_running
-
-    # Compute remainders for the inputs which halted at this step
-    remainders += new_halted * (1 - halting_probability)
-
-    # Add the remainders to those inputs which halted at this step
-    halting_probability += new_halted * remainders
-
-    # Increment n_updates for all inputs which are still running
-    n_updates += still_running + new_halted
-
-    # Compute the weight to be applied to the new state and output
-    # 0 when the input has already halted
-    # p when the input hasn't halted yet
-    # the remainders when it halted this step
-    update_weights = tf.expand_dims(p * still_running + new_halted * remainders,
-                                    -1)
-
-    # apply transformation on the state
-    transformed_state = ffn_unit(attention_unit(state))
-
-    # Add in the weighted state
-    accumulated_state = (transformed_state * update_weights) + accumulated_state
-
-    # Remind TensorFlow of everything's shape
-    state.set_shape(state_shape)
-    for x in [halting_probability, remainders, n_updates]:
-      x.set_shape([
-          state_shape[0],
-          state_shape[1],
-      ])
-    accumulated_state.set_shape(state_shape)
-    step += 1
-    return (transformed_state, step, halting_probability, remainders, n_updates,
-            accumulated_state)
-
-  # While loop stops when this predicate is FALSE.
-  # Ie all (probability < 1-eps AND counter < N) are false.
-  def should_continue(u0, u1, halting_probability, u2, n_updates, u3):
-    del u0, u1, u2, u3
-    return tf.reduce_any(
-        tf.logical_and(
-            tf.less(halting_probability, threshold),
-            tf.less(n_updates, act_max_steps)))
-
-  # Do while loop iterations until predicate above is false.
-  (_, _, _, remainder, n_updates, accumulated_state) = tf.while_loop(
-      should_continue, ut_function, (state, step, halting_probability,
-                                     remainders, n_updates, accumulated_state))
-
-  ponder_times = n_updates
-  remainders = remainder
-
-  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
-
-  return accumulated_state, (ponder_times, remainders)
-
-
-def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
-  """The UTAct  with global halting probability (not position-wise).
-
-  Args:
-    x: input
-    hparams: model hyper-parameters
-    ffn_unit: feed-forward unit
-    attention_unit: multi-head attention unit
-
-  Returns:
-    the output tensor,  (ponder_times, remainders)
-
-  """
-  state = x
-  act_max_steps = hparams.act_max_steps
-  threshold = 1.0 - hparams.act_epsilon
-  act_max_steps = hparams.act_max_steps
-  batch_size = tf.shape(state)[0]
-  state_shape = state.get_shape()
-
-  # Halting probabilities (p_t^n in the paper)
-  halting_probability = tf.zeros((batch_size,), name="halting_probability")
-  # Remainders (R(t) in the paper)
-  remainders = tf.zeros((batch_size,), name="remainder")
-  # Number of updates performed (N(t) in the paper)
-  n_updates = tf.zeros((batch_size,), name="n_updates")
-  # Previous cell states (s_t in the paper)
-  previous_state = tf.zeros_like(state, name="previous_state")
-  step = tf.constant(0, dtype=tf.int32)
-
-  def ut_function(state, step, halting_probability, remainders, n_updates,
-                  previous_state):
-    """implements act (global halting).
-
-    Args:
-      state: 3-D Tensor: [batch_size, length, channel]
-      step: indicates number of steps taken so far
-      halting_probability: halting probability
-      remainders: act remainders
-      n_updates: act n_updates
-      previous_state: previous state
-
-    Returns:
-      transformed_state: transformed state
-      step: step+1
-      halting_probability: halting probability
-      remainders: act remainders
-      n_updates: act n_updates
-      new_state: new state
-
-    """
-
-    state = step_preprocess(state, step, hparams)
-
-    with tf.variable_scope("sigmoid_activation_for_pondering"):
-      p = common_layers.dense(
-          state,
-          1,
-          activation=tf.nn.sigmoid,
-          use_bias=True,
-          bias_initializer=tf.constant_initializer(
-              hparams.act_halting_bias_init))
-      # average over all positions (as a global halting prob)
-      p = tf.reduce_mean(p, axis=1)
-      p = tf.squeeze(p)
+        if hparams.act_type == "global":
+          # average over all positions (as a global halting prob)
+          p = tf.reduce_mean(p, axis=1)
+          p = tf.squeeze(p)
+        else:
+          # maintain position-wise probabilities
+          p = tf.squeeze(p, axis=-1)
 
     # Mask for inputs which have not halted yet
     still_running = tf.cast(tf.less(halting_probability, 1.0), tf.float32)
@@ -1458,175 +1145,32 @@ def universal_transformer_act_global(x, hparams, ffn_unit, attention_unit):
     # p when the input hasn't halted yet
     # the remainders when it halted this step
     update_weights = tf.expand_dims(
-        tf.expand_dims(p * still_running + new_halted * remainders, -1), -1)
+        p * still_running + new_halted * remainders, -1)
+    if hparams.act_type == "global":
+      update_weights = tf.expand_dims(update_weights, -1)
 
     # apply transformation on the state
-    transformed_state = ffn_unit(attention_unit(state))
-
-    # Add in the weighted state
-    new_state = ((transformed_state * update_weights) +
-                 (previous_state * (1 - update_weights)))
-
-    # Remind TensorFlow of everything's shape
-    state.set_shape(state_shape)
-    for x in [halting_probability, remainders, n_updates]:
-      x.set_shape([
-          state_shape[0],
-      ])
-      new_state.set_shape(state_shape)
-
-    step += 1
-    return [
-        transformed_state, step, halting_probability, remainders, n_updates,
-        new_state
-    ]
-
-  # While loop stops when this predicate is FALSE.
-  # Ie all (probability < 1-eps AND counter < N) are false.
-  def should_continue(u0, u1, halting_probability, u2, n_updates, u3):
-    del u0, u1, u2, u3
-    return tf.reduce_any(
-        tf.logical_and(
-            tf.less(halting_probability, threshold),
-            tf.less(n_updates, act_max_steps)))
-
-  # Do while loop iterations until predicate above is false.
-  (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
-      should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
-
-  ponder_times = n_updates
-  remainders = remainder
-
-  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
-
-  return new_state, (ponder_times, remainders)
-
-
-def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
-  """universal_transformer with ACT with random halting probability.
-
-  Args:
-    x: input
-    hparams: model hyper-parameters
-    ffn_unit: feed-forward unit
-    attention_unit: multi-head attention unit
-
-  Returns:
-    the output tensor,  (ponder_times, remainders)
-
-  """
-
-  state = x
-  act_max_steps = hparams.act_max_steps
-  threshold = 1.0 - hparams.act_epsilon
-
-  batch_size = tf.shape(state)[0]
-  length = tf.shape(state)[1]
-
-  # Halting probabilities (p_t^n in the paper)
-  halting_probability = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="halting_probability")
-  # Remainders (R(t) in the paper)
-  remainders = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="remainder")
-  # Number of updates performed (N(t) in the paper)
-  n_updates = tf.zeros(
-      (
-          batch_size,
-          length,
-      ), name="n_updates")
-
-  # Previous cell states (s_t in the paper)
-  previous_state = tf.zeros_like(state, name="previous_state")
-  step = tf.constant(0, dtype=tf.int32)
-
-  def ut_function(state, step, halting_probability, remainders, n_updates,
-                  previous_state):
-    """Implements act (position-wise halting).
-
-    Args:
-      state: 3-D Tensor: [batch_size, length, channel]
-      step: indicates number of steps taken so far
-      halting_probability: halting probability
-      remainders: act remainders
-      n_updates: act n_updates
-      previous_state: previous state
-
-    Returns:
-      transformed_state: transformed state
-      step: step+1
-      halting_probability: halting probability
-      remainders: act remainders
-      n_updates: act n_updates
-      new_state: new state
-
-    """
-    state_shape = state.get_shape()
-    state = step_preprocess(state, step, hparams)
-
-    # random as halting probability
-    p = tf.random_uniform(shape=common_layers.shape_list(halting_probability))
-
-    # Mask for inputs which have not halted yet
-    still_running = tf.cast(tf.less(halting_probability, 1.0), tf.float32)
-
-    # Mask of inputs which halted at this step
-    new_halted = tf.cast(
-        tf.greater(halting_probability + p * still_running, threshold),
-        tf.float32) * still_running
-
-    # Mask of inputs which haven't halted, and didn't halt this step
-    still_running = tf.cast(
-        tf.less_equal(halting_probability + p * still_running, threshold),
-        tf.float32) * still_running
-
-    # Add the halting probability for this step to the halting
-    # probabilities for those input which haven't halted yet
-    halting_probability += p * still_running
-
-    # Compute remainders for the inputs which halted at this step
-    remainders += new_halted * (1 - halting_probability)
-
-    # Add the remainders to those inputs which halted at this step
-    halting_probability += new_halted * remainders
-
-    # Increment n_updates for all inputs which are still running
-    n_updates += still_running + new_halted
-
-    # Compute the weight to be applied to the new state and output
-    # 0 when the input has already halted
-    # p when the input hasn't halted yet
-    # the remainders when it halted this step
-    update_weights = tf.expand_dims(p * still_running + new_halted * remainders,
-                                    -1)
-
-    # apply transformation on the state
-    transformed_state = ffn_unit(attention_unit(state))
+    transformed_state = state
+    for i in range(hparams.num_inrecurrence_layers):
+      with tf.variable_scope("rec_layer_%d" % i):
+        transformed_state = ffn_unit(attention_unit(transformed_state))
 
     # update running part in the weighted state and keep the rest
     new_state = ((transformed_state * update_weights) +
                  (previous_state * (1 - update_weights)))
 
+    if hparams.act_type == "accumulated":
+      # Add in the weighted state
+      new_state = (transformed_state * update_weights) + previous_state
+
     # remind TensorFlow of everything's shape
-    transformed_state.set_shape(state_shape)
+    transformed_state.set_shape(state_shape_static)
     for x in [halting_probability, remainders, n_updates]:
-      x.set_shape([
-          state_shape[0],
-          state_shape[1],
-      ])
-      new_state.set_shape(state_shape)
+      x.set_shape(state_shape_static[state_slice])
+    new_state.set_shape(state_shape_static)
     step += 1
-    return [
-        transformed_state, step, halting_probability, remainders, n_updates,
-        new_state
-    ]
+    return (transformed_state, step, halting_probability, remainders, n_updates,
+            new_state)
 
   # While loop stops when this predicate is FALSE.
   # Ie all (probability < 1-eps AND counter < N) are false.
@@ -1640,18 +1184,20 @@ def universal_transformer_act_random(x, hparams, ffn_unit, attention_unit):
   # Do while loop iterations until predicate above is false.
   (_, _, _, remainder, n_updates, new_state) = tf.while_loop(
       should_continue, ut_function,
-      (state, step, halting_probability, remainders, n_updates, previous_state))
+      (state, step, halting_probability, remainders, n_updates, previous_state),
+      maximum_iterations=act_max_steps + 1)
 
   ponder_times = n_updates
   remainders = remainder
 
-  tf.contrib.summary.scalar("ponder_times", tf.reduce_mean(ponder_times))
+  contrib.summary().scalar("ponder_times", tf.reduce_mean(ponder_times))
 
   return new_state, (ponder_times, remainders)
 
 
 def _ffn_layer_multi_inputs(inputs_list,
                             hparams,
+                            output_size=None,
                             ffn_layer_type="dense",
                             name="ffn",
                             kernel_initializer=None,
@@ -1665,14 +1211,15 @@ def _ffn_layer_multi_inputs(inputs_list,
   Args:
     inputs_list: list of input tensors
     hparams: hyper-parameters
+    output_size: dimentionality of the output
     ffn_layer_type: dense / dense_dropconnect/ dense_relu_dense
     name: name
     kernel_initializer: kernel initializer
     bias_initializer: bias initializer
     activation: activation function
     pad_remover: pad remover
-    preprocess: if preprocess the input
-    postprocess: if postprocess the output
+    preprocess: if preprocess the input --> default: layer-norm
+    postprocess: if postprocess the output --> default: drop-out and residual
 
   Returns:
     a tensor
@@ -1685,10 +1232,14 @@ def _ffn_layer_multi_inputs(inputs_list,
   num_inputs = len(inputs_list)
   assert num_inputs > 0
 
-  if preprocess and num_inputs == 1:
-    inputs_list[0] = common_layers.layer_preprocess(inputs_list[0], hparams)
+  if preprocess:
+    # In case of having more than one input to the ffn,
+    # we just apply layer norm on them independently as preprocessing
+    for i, inputs in enumerate(inputs_list):
+      inputs_list[i] = common_layers.layer_preprocess(inputs_list[i], hparams)
 
-  if postprocess:
+  # for the residual connection
+  if postprocess and num_inputs == 1:
     original_inputs = inputs_list[0]
 
   # the output size is the hidden size of the main inputs
@@ -1711,14 +1262,14 @@ def _ffn_layer_multi_inputs(inputs_list,
     for i, inputs in enumerate(inputs_list):
       inputs_list[i] = remove_pads(inputs)
 
-  ffn_inputs = (
-      inputs_list[0]
-      if len(inputs_list) == 1 else tf.concat(inputs_list, axis=-1))
+  ffn_inputs = inputs_list[0]
+  if len(inputs_list) != 1:
+    ffn_inputs = tf.concat(inputs_list, axis=-1)
 
   if ffn_layer_type == "dense":
     output = common_layers.dense(
         ffn_inputs,
-        hparams.hidden_size,
+        hparams.hidden_size if output_size is None else output_size,
         name=name,
         activation=activation,
         use_bias=True,
@@ -1728,7 +1279,7 @@ def _ffn_layer_multi_inputs(inputs_list,
   elif ffn_layer_type == "dense_dropconnect":
     output = common_layers.dense_dropconnect(
         ffn_inputs,
-        hparams.hidden_size,
+        hparams.hidden_size if output_size is None else output_size,
         name=name,
         dropconnect_dropout=hparams.dropconnect_dropout,
         output_activation=activation)
@@ -1738,7 +1289,7 @@ def _ffn_layer_multi_inputs(inputs_list,
     output = common_layers.dense_relu_dense(
         ffn_inputs,
         hparams.filter_size,
-        hparams.hidden_size,
+        hparams.hidden_size if output_size is None else output_size,
         name=name,
         dropout=hparams.relu_dropout,
         output_activation=activation,
@@ -1755,11 +1306,11 @@ def _ffn_layer_multi_inputs(inputs_list,
   if postprocess:
     if num_inputs == 1:
       output = common_layers.layer_postprocess(original_inputs, output, hparams)
-    else:  # only dropout (no residual)x
+    else:  # only dropout (no residual)
       hp = copy.copy(hparams)
       hp.layer_postprocess_sequence = hp.layer_postprocess_sequence.replace(
           "a", "")
-      output = common_layers.layer_postprocess(original_inputs, output, hp)
+      output = common_layers.layer_postprocess(None, output, hp)
 
   return output
 
@@ -1867,9 +1418,10 @@ def add_position_timing_signal(x, step, hparams):
 
   elif hparams.position_start_index == "step":
     # Shift positions based on the step
-    num_steps = (
-        hparams.act_max_steps
-        if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+    if hparams.recurrence_type == "act":
+      num_steps = hparams.act_max_steps
+    else:
+      num_steps = hparams.num_rec_steps
     index = tf.cast(
         common_layers.shape_list(x)[1] * step / num_steps, dtype=tf.int32)
 
@@ -1882,7 +1434,7 @@ def add_position_timing_signal(x, step, hparams):
       length, channels, start_index=index)
 
   if hparams.add_or_concat_timing_signal == "add":
-    x_with_timing = x + signal
+    x_with_timing = x + common_layers.cast_like(signal, x)
 
   elif hparams.add_or_concat_timing_signal == "concat":
     batch_size = common_layers.shape_list(x)[0]
@@ -1904,9 +1456,10 @@ def add_step_timing_signal(x, step, hparams):
     a Tensor with the same shape as x.
 
   """
-  num_steps = (
-      hparams.act_max_steps
-      if hparams.recurrence_type == "act" else hparams.num_rec_steps)
+  if hparams.recurrence_type == "act":
+    num_steps = hparams.act_max_steps
+  else:
+    num_steps = hparams.num_rec_steps
   channels = common_layers.shape_list(x)[-1]
 
   if hparams.step_timing_signal_type == "learned":
@@ -1918,7 +1471,7 @@ def add_step_timing_signal(x, step, hparams):
         channels, step, num_steps)
 
   if hparams.add_or_concat_timing_signal == "add":
-    x_with_timing = x + signal
+    x_with_timing = x + common_layers.cast_like(signal, x)
 
   elif hparams.add_or_concat_timing_signal == "concat":
     batch_size = common_layers.shape_list(x)[0]

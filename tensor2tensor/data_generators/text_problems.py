@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 
 * Text2TextProblem: input=text, target=text.
 * Text2ClassProblem: input=text, target=class.
+* Text2RealProblem: input=text, target=float.
 * Text2SelfProblem (for language modeling): target=text
 * QuestionAndContext2TextProblem: input=text, context=text, target=text.
 
@@ -29,14 +30,17 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import re
 
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
+from tensor2tensor.layers import modalities
 from tensor2tensor.utils import metrics
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 class VocabType(object):
@@ -210,12 +214,27 @@ class Text2TextProblem(problem.Problem):
 
   @property
   def vocab_filename(self):
+    other_problem = self.use_vocab_from_other_problem
+    if other_problem:
+      return other_problem.vocab_filename
     if self.vocab_type == VocabType.SUBWORD:
       return "vocab.%s.%d.%s" % (self.dataset_filename(),
                                  self.approx_vocab_size,
                                  VocabType.SUBWORD)
     else:
       return "vocab.%s.%s" % (self.dataset_filename(), VocabType.TOKEN)
+
+  @property
+  def use_vocab_from_other_problem(self):
+    """Optional - use the vocabulary from a different problem.
+
+    TODO(noam): problems should override this method instead of overriding
+    vocab_filename(), so as to generate the correct vocabulary. Fix everywhere.
+
+    Returns:
+       a Text2TextProblem instance or None
+    """
+    return None
 
   def get_or_create_vocab(self, data_dir, tmp_dir, force_get=False):
     if self.vocab_type == VocabType.CHARACTER:
@@ -225,6 +244,9 @@ class Text2TextProblem(problem.Problem):
         vocab_filepath = os.path.join(data_dir, self.vocab_filename)
         encoder = text_encoder.SubwordTextEncoder(vocab_filepath)
       else:
+        other_problem = self.use_vocab_from_other_problem
+        if other_problem:
+          return other_problem.get_or_create_vocab(data_dir, tmp_dir, force_get)
         encoder = generator_utils.get_or_generate_vocab_inner(
             data_dir, self.vocab_filename, self.approx_vocab_size,
             self.generate_text_for_vocab(data_dir, tmp_dir),
@@ -240,6 +262,32 @@ class Text2TextProblem(problem.Problem):
           "Unrecognized VocabType: %s" % str(self.vocab_type))
     return encoder
 
+  def _pack_fn(self):
+    """For packed datasets, returns a function to pack examples.
+
+    Returns:
+      None or a function from list of TFRecords to list of TFRecords
+    """
+    if not self.packed_length:
+      return None
+    def my_fn(records):
+      """Function from list of TFRecords to list of TFRecords."""
+      examples = []
+      for record in records:
+        x = tf.train.Example()
+        x.ParseFromString(record)
+        example_dict = {}
+        if self.has_inputs:
+          example_dict["inputs"] = [
+              int(i) for i in x.features.feature["inputs"].int64_list.value]
+        example_dict["targets"] = [
+            int(i) for i in x.features.feature["targets"].int64_list.value]
+        examples.append(example_dict)
+      examples = list(self._maybe_pack_examples(examples))
+      return [
+          generator_utils.to_example(x).SerializeToString() for x in examples]
+    return my_fn
+
   def _maybe_pack_examples(self, generator):
     """Wraps generator with packer if self.packed_length."""
     if not self.packed_length:
@@ -252,10 +300,17 @@ class Text2TextProblem(problem.Problem):
         chop_long_sequences=not self.has_inputs)
 
   def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    if dataset_split == problem.DatasetSplit.TRAIN:
+      mlperf_log.transformer_print(key=mlperf_log.PREPROC_TOKENIZE_TRAINING)
+    elif dataset_split == problem.DatasetSplit.EVAL:
+      mlperf_log.transformer_print(key=mlperf_log.PREPROC_TOKENIZE_EVAL)
+
     generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
     encoder = self.get_or_create_vocab(data_dir, tmp_dir)
     return text2text_generate_encoded(generator, encoder,
-                                      has_inputs=self.has_inputs)
+                                      has_inputs=self.has_inputs,
+                                      inputs_prefix=self.inputs_prefix,
+                                      targets_prefix=self.targets_prefix)
 
   @property
   def max_subtoken_length(self):
@@ -273,6 +328,20 @@ class Text2TextProblem(problem.Problem):
   def batch_size_means_tokens(self):
     return True
 
+  @property
+  def already_shuffled(self):
+    return False
+
+  @property
+  def inputs_prefix(self):
+    """String to prepend to inputs before tokenization."""
+    return ""
+
+  @property
+  def targets_prefix(self):
+    """String to prepend to targets before tokenization."""
+    return ""
+
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
 
     filepath_fns = {
@@ -282,7 +351,7 @@ class Text2TextProblem(problem.Problem):
     }
 
     split_paths = [(split["split"], filepath_fns[split["split"]](
-        data_dir, split["shards"], shuffled=False))
+        data_dir, split["shards"], shuffled=self.already_shuffled))
                    for split in self.dataset_splits]
     all_paths = []
     for _, paths in split_paths:
@@ -291,37 +360,36 @@ class Text2TextProblem(problem.Problem):
     if self.is_generate_per_split:
       for split, paths in split_paths:
         generator_utils.generate_files(
-            self._maybe_pack_examples(
-                self.generate_encoded_samples(data_dir, tmp_dir, split)), paths)
+            self.generate_encoded_samples(data_dir, tmp_dir, split), paths)
     else:
       generator_utils.generate_files(
-          self._maybe_pack_examples(
-              self.generate_encoded_samples(
-                  data_dir, tmp_dir, problem.DatasetSplit.TRAIN)), all_paths)
+          self.generate_encoded_samples(
+              data_dir, tmp_dir, problem.DatasetSplit.TRAIN), all_paths)
 
-    generator_utils.shuffle_dataset(all_paths)
+    generator_utils.shuffle_dataset(all_paths, extra_fn=self._pack_fn())
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
     p.stop_at_eos = int(True)
 
+    p.modality = {"targets": modalities.ModalityType.SYMBOL}
+    p.vocab_size = {"targets": self._encoders["targets"].vocab_size}
     if self.has_inputs:
-      source_vocab_size = self._encoders["inputs"].vocab_size
-      p.input_modality = {
-          "inputs": (registry.Modalities.SYMBOL, source_vocab_size)
-      }
-    target_vocab_size = self._encoders["targets"].vocab_size
-    p.target_modality = (registry.Modalities.SYMBOL, target_vocab_size)
+      p.modality["inputs"] = modalities.ModalityType.SYMBOL
+      p.vocab_size["inputs"] = self._encoders["inputs"].vocab_size
     if self.vocab_type == VocabType.CHARACTER:
       p.loss_multiplier = 2.0
 
     if self.packed_length:
-      identity = (registry.Modalities.GENERIC, None)
       if self.has_inputs:
-        p.input_modality["inputs_segmentation"] = identity
-        p.input_modality["inputs_position"] = identity
-      p.input_modality["targets_segmentation"] = identity
-      p.input_modality["targets_position"] = identity
+        p.modality["inputs_segmentation"] = modalities.ModalityType.IDENTITY
+        p.modality["inputs_position"] = modalities.ModalityType.IDENTITY
+        p.vocab_size["inputs_segmentation"] = None
+        p.vocab_size["inputs_position"] = None
+      p.modality["targets_segmentation"] = modalities.ModalityType.IDENTITY
+      p.modality["targets_position"] = modalities.ModalityType.IDENTITY
+      p.vocab_size["targets_segmentation"] = None
+      p.vocab_size["targets_position"] = None
 
   def example_reading_spec(self):
     data_fields = {"targets": tf.VarLenFeature(tf.int64)}
@@ -390,9 +458,8 @@ class QuestionAndContext2TextProblem(Text2TextProblem):
     (super(QuestionAndContext2TextProblem, self)
      .hparams(defaults, unused_model_hparams))
     p = defaults
-    source_vocab_size = self._encoders["context"].vocab_size
-    p.input_modality["context"] = (registry.Modalities.SYMBOL,
-                                   source_vocab_size)
+    p.modality["context"] = modalities.ModalityType.SYMBOL
+    p.vocab_size["context"] = self._encoders["context"].vocab_size
     if self.packed_length:
       raise NotImplementedError("QuestionAndContext2Text does not "
                                 "support packed_length")
@@ -495,11 +562,10 @@ class Text2ClassProblem(Text2TextProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    source_vocab_size = self._encoders["inputs"].vocab_size
-    p.input_modality = {
-        "inputs": (registry.Modalities.SYMBOL, source_vocab_size)
-    }
-    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
+    p.modality = {"inputs": modalities.ModalityType.SYMBOL,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
+    p.vocab_size = {"inputs": self._encoders["inputs"].vocab_size,
+                    "targets": self.num_classes}
 
   def example_reading_spec(self):
     data_fields = {
@@ -533,11 +599,101 @@ class TextConcat2ClassProblem(Text2ClassProblem):
       inputs = []
       for idx, inp in enumerate(sample["inputs"]):
         inputs += encoder.encode(inp)
-        inputs.append(text_encoder.EOS_ID)
         if idx < len(sample["inputs"]) - 1:
           inputs.append(encoder.encode(self.CONCAT_TOKEN)[0])
+      inputs.append(text_encoder.EOS_ID)
       label = sample["label"]
       yield {"inputs": inputs, "targets": [label]}
+
+
+class Text2RealProblem(Text2TextProblem):
+  """Base class for text regression problems with one or more tasks.
+
+    Suitable for text-based problems where targets are continuous, real values.
+    When ntasks = 1, each text example is mapped to a single scalar value. When
+    ntasks > 1, each text example is mapped to a 1-d vector of length ntasks.
+  """
+
+  @property
+  def ntasks(self):
+    """Set to n > 1 for multitask regression."""
+    return 1
+
+  def generate_samples(self, data_dir, tmp_dir, dataset_split):
+    """Generate samples of text and real-valued target pairs.
+
+    Each yielded dict will be a single example. The inputs should be raw text.
+    The target should be a list containing ntasks floats.
+    Args:
+      data_dir: final data directory. Typically only used in this method to copy
+        over user-supplied vocab files (for example, if vocab_type ==
+        VocabType.TOKEN).
+      tmp_dir: temporary directory that you can use for downloading and scratch.
+      dataset_split: problem.DatasetSplit, which data split to generate samples
+        for (for example, training and evaluation).
+    Yields:
+      {"inputs": text, "targets": [x1, x2, ..., xN]} where N is ntasks
+    """
+    raise NotImplementedError()
+
+  def generate_text_for_vocab(self, data_dir, tmp_dir):
+    for i, sample in enumerate(
+        self.generate_samples(data_dir, tmp_dir, problem.DatasetSplit.TRAIN)):
+      yield sample["inputs"]
+      if self.max_samples_for_vocab and (i + 1) >= self.max_samples_for_vocab:
+        break
+
+  def generate_encoded_samples(self, data_dir, tmp_dir, dataset_split):
+    generator = self.generate_samples(data_dir, tmp_dir, dataset_split)
+    encoder = self.get_or_create_vocab(data_dir, tmp_dir)
+    for sample in generator:
+      inputs = encoder.encode(sample["inputs"])
+      inputs.append(text_encoder.EOS_ID)
+      yield {"inputs": inputs, "targets": sample["targets"]}
+
+  def feature_encoders(self, data_dir):
+    encoder = self.get_or_create_vocab(data_dir, None, force_get=True)
+
+    return {
+        "inputs": encoder,
+        "targets": text_encoder.RealEncoder(),
+    }
+
+  def hparams(self, defaults, unused_model_hparams):
+    p = defaults
+    p.modality = {
+        "inputs": modalities.ModalityType.SYMBOL,
+        "targets": modalities.ModalityType.REAL_L2_LOSS,
+    }
+    p.vocab_size = {
+        "inputs": self._encoders["inputs"].vocab_size,
+        "targets": self.ntasks
+    }
+    p.target_space_id = problem.SpaceID.REAL
+    p.add_hparam("regression_targets", True)
+
+  def max_length(self, model_hparams):
+    return model_hparams.batch_size * self.ntasks
+
+  def preprocess_example(self, example, unused_mode, unused_hparams):
+    example = problem.preprocess_example_common(example, unused_mode,
+                                                unused_hparams)
+    example["targets"] = tf.reshape(example["targets"], [1, 1, self.ntasks])
+    return example
+
+  def example_reading_spec(self):
+    data_fields = {
+        "inputs": tf.VarLenFeature(tf.int64),
+        "targets": tf.FixedLenFeature([self.ntasks], tf.float32),
+    }
+    data_items_to_decoders = None
+    return (data_fields, data_items_to_decoders)
+
+  def eval_metrics(self):
+    metrics_list = [metrics.Metrics.RMSE]
+    if self.ntasks == 1:
+      metrics_list.append(metrics.Metrics.PEARSON)
+    return metrics_list
 
 
 def txt_line_iterator(txt_path):
@@ -547,11 +703,45 @@ def txt_line_iterator(txt_path):
       yield line.strip()
 
 
+def txt_and_label_iterator(txt_path):
+  """Iterate through lines of file."""
+  problem_pattern_without_vocab_size = re.compile("(.*)\tExtra_Label: (.*)")
+  with tf.gfile.Open(txt_path) as f:
+    for line in f:
+      results = problem_pattern_without_vocab_size.search(line.strip())
+      try:
+        line = results.group(1)
+        extra_label = int(results.group(2))
+      except AttributeError:
+        raise ValueError(
+            "Please provide the file in the right format, with each line having"
+            " the following format:\n<word_1 word_2 ... word_n>\\t"
+            "Extra_Label:\\s<int_label>"
+        )
+      yield [line, extra_label]
+
+
 def text2text_txt_iterator(source_txt_path, target_txt_path):
   """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
   for inputs, targets in zip(
       txt_line_iterator(source_txt_path), txt_line_iterator(target_txt_path)):
     yield {"inputs": inputs, "targets": targets}
+
+
+def text2text_txt_iterator_with_label(source_txt_path, target_txt_path):
+  """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
+  for inputs, (targets, extra_label) in zip(
+      txt_line_iterator(source_txt_path),
+      txt_and_label_iterator(target_txt_path)):
+    yield {"inputs": inputs, "targets": targets, "extra_label": [extra_label]}
+
+
+def text2text_txt_iterator_with_index(source_txt_path, target_txt_path):
+  """Yield dicts for Text2TextProblem.generate_samples from lines of files."""
+  for (idx, (inputs, targets)) in enumerate(zip(
+      txt_line_iterator(source_txt_path),
+      txt_line_iterator(target_txt_path))):
+    yield {"inputs": inputs, "targets": targets, "idx": [idx]}
 
 
 def text2text_distill_iterator(source_txt_path, target_txt_path,
@@ -593,6 +783,48 @@ def text2class_txt_iterator(source_txt_path, label_txt_path, class_strs=None):
     yield {"inputs": inputs, "label": label}
 
 
+def text2real_txt_iterator(source_txt_path, target_txt_path):
+  """Yield dicts for Text2RealProblem.generate_samples from lines of files.
+
+  Args:
+    source_txt_path: txt file with record per line.
+    target_txt_path: txt file with float (or space-separated float list for
+      multitask) per line.
+  Yields:
+    {"inputs": inputs, "targets": targets}
+  """
+  for inputs, targets in zip(
+      txt_line_iterator(source_txt_path), txt_line_iterator(target_txt_path)):
+    targets = [float(x) for x in targets.split(" ")]
+    yield {"inputs": inputs, "targets": targets}
+
+
+def txt_line_sharded_iterator(txt_pattern):
+  """Iterate through lines of sharded file."""
+  all_files = tf.gfile.Glob(txt_pattern)
+  for txt_path in all_files:
+    with tf.gfile.Open(txt_path) as f:
+      for line in f:
+        yield line.strip()
+
+
+def text2text_txt_sharded_iterator(source_txt_pattern, target_txt_pattern):
+  """Yield dicts for Text2TextProblem.generate_samples from lines of files.
+
+  Args:
+    source_txt_pattern: path to the sharded source file
+    target_txt_pattern: path to the sharded target file
+
+  Yields:
+    {"inputs": inputs, "targets": targets}
+
+  """
+  for inputs, targets in zip(
+      txt_line_sharded_iterator(source_txt_pattern),
+      txt_line_sharded_iterator(target_txt_pattern)):
+    yield {"inputs": inputs, "targets": targets}
+
+
 def text2text_txt_tab_iterator(txt_path):
   """Yield dicts for Text2TextProblem.generate_samples from lines of txt_path.
 
@@ -603,7 +835,11 @@ def text2text_txt_tab_iterator(txt_path):
   Yields:
     {"inputs": inputs, "targets": targets}
   """
-  for line in txt_line_iterator(txt_path):
+  if txt_path.endswith(".tsv*"):
+    data_iterator = txt_line_sharded_iterator(txt_path)
+  else:
+    data_iterator = txt_line_iterator(txt_path)
+  for line in data_iterator:
     if line and "\t" in line:
       parts = line.split("\t", 1)
       inputs, targets = parts[:2]
@@ -613,14 +849,16 @@ def text2text_txt_tab_iterator(txt_path):
 def text2text_generate_encoded(sample_generator,
                                vocab,
                                targets_vocab=None,
-                               has_inputs=True):
+                               has_inputs=True,
+                               inputs_prefix="",
+                               targets_prefix=""):
   """Encode Text2Text samples from the generator with the vocab."""
   targets_vocab = targets_vocab or vocab
   for sample in sample_generator:
     if has_inputs:
-      sample["inputs"] = vocab.encode(sample["inputs"])
+      sample["inputs"] = vocab.encode(inputs_prefix + sample["inputs"])
       sample["inputs"].append(text_encoder.EOS_ID)
-    sample["targets"] = targets_vocab.encode(sample["targets"])
+    sample["targets"] = targets_vocab.encode(targets_prefix + sample["targets"])
     sample["targets"].append(text_encoder.EOS_ID)
     yield sample
 
@@ -640,6 +878,7 @@ class Text2textTmpdir(Text2TextProblem):
   TRAIN_FILES = ("inputs.train.txt", "targets.train.txt")
   EVAL_FILES = ("inputs.eval.txt", "targets.eval.txt")
 
+  @property
   def is_generate_per_split(self):
     return True
 
@@ -1143,7 +1382,9 @@ class DistributedText2TextProblem(Text2TextProblem):
     generator = self.generate_samples(data_dir, tmp_dir, dataset_split,
                                       input_files)
     return text2text_generate_encoded(
-        generator, encoder, has_inputs=self.has_inputs)
+        generator, encoder, has_inputs=self.has_inputs,
+        inputs_prefix=self.inputs_prefix,
+        targets_prefix=self.targets_prefix)
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
     # task_id should be in [0, self.num_output_shards)
@@ -1159,10 +1400,9 @@ class DistributedText2TextProblem(Text2TextProblem):
 
     # Actually generate examples.
     generator_utils.generate_files(
-        self._maybe_pack_examples(
-            self.generate_encoded_samples(
-                data_dir, tmp_dir, split, input_files)),
+        self.generate_encoded_samples(
+            data_dir, tmp_dir, split, input_files),
         [output_file])
 
     # Shuffle the output.
-    generator_utils.shuffle_dataset([output_file])
+    generator_utils.shuffle_dataset([output_file], extra_fn=self._pack_fn())

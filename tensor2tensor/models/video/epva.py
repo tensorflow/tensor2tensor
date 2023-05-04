@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,20 +28,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from six.moves import reduce
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.video import epva_params  # pylint: disable=unused-import
 from tensor2tensor.models.video import sv2p
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from tensorflow.contrib.framework.python.ops import arg_scope
 from tensorflow.contrib.slim.python.slim.nets import vgg
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+tfcl = contrib.layers()
 
 IMG_WIDTH = 64
 IMG_HEIGHT = 64
@@ -70,12 +72,12 @@ def van_image_enc_2d(x, first_depth, reuse=False, hparams=None):
 
     enc = tf.layers.conv2d(
         x, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc = tf.layers.conv2d(
         enc, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
     enc = tf.nn.max_pool(enc, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME')
     enc = tf.nn.dropout(enc, hparams.van_keep_prob)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc_history.append(enc)
 
     enc = tf.layers.conv2d(
@@ -94,7 +96,7 @@ def van_image_enc_2d(x, first_depth, reuse=False, hparams=None):
         strides=1)
     enc = tf.nn.max_pool(enc, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME')
     enc = tf.nn.dropout(enc, hparams.van_keep_prob)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc_history.append(enc)
 
     enc = tf.layers.conv2d(
@@ -143,13 +145,13 @@ def van_enc_2d(x, first_depth, reuse=False):
     # a, b = 4,4
     enc = tf.nn.relu(x)
     enc = tf.layers.dense(enc, first_depth * a * b, tf.nn.relu)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
 
     enc = tf.reshape(enc, [-1, a, b, first_depth])
 
     enc = tf.layers.conv2d_transpose(
         enc, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc = tf.layers.conv2d_transpose(
         enc,
         first_depth * 2,
@@ -166,7 +168,7 @@ def van_enc_2d(x, first_depth, reuse=False):
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    enc = tf.contrib.layers.layer_norm(enc)
+    enc = contrib.layers().layer_norm(enc)
     enc = tf.layers.conv2d_transpose(
         enc,
         first_depth * 4,
@@ -198,7 +200,7 @@ def van_dec_2d(x, skip_connections, output_shape, first_depth, hparams=None):
     dec = tf.layers.conv2d_transpose(
         x, first_depth * 4, 3, padding='same', activation=tf.nn.relu, strides=2)
     dec = tf.nn.dropout(dec, hparams.van_keep_prob)
-    dec = tf.contrib.layers.layer_norm(dec)
+    dec = contrib.layers().layer_norm(dec)
     dec = tf.layers.conv2d_transpose(
         dec,
         first_depth * 4,
@@ -215,7 +217,7 @@ def van_dec_2d(x, skip_connections, output_shape, first_depth, hparams=None):
         activation=tf.nn.relu,
         strides=1)
     dec = tf.nn.dropout(dec, hparams.van_keep_prob)
-    dec = tf.contrib.layers.layer_norm(dec)
+    dec = contrib.layers().layer_norm(dec)
 
     dec = tf.layers.conv2d_transpose(
         dec,
@@ -228,7 +230,7 @@ def van_dec_2d(x, skip_connections, output_shape, first_depth, hparams=None):
     dec = tf.layers.conv2d_transpose(
         dec, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
     dec = tf.nn.dropout(dec, hparams.van_keep_prob)
-    dec = tf.contrib.layers.layer_norm(dec)
+    dec = contrib.layers().layer_norm(dec)
 
     dec = tf.layers.conv2d_transpose(
         dec,
@@ -280,7 +282,7 @@ def analogy_computation_2d(f_first_enc,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    analogy = tf.contrib.layers.layer_norm(analogy)
+    analogy = contrib.layers().layer_norm(analogy)
     analogy = tf.layers.conv2d(
         analogy,
         first_depth * 4,
@@ -457,7 +459,7 @@ def predictor(enc_flat,
         use_peepholes=True,
         initializer=tf.truncated_normal_initializer(stddev=lstm_init_stddev),
         num_proj=initial_size)
-    part_pred = tf.contrib.layers.layer_norm(part_pred)
+    part_pred = contrib.layers().layer_norm(part_pred)
     pred = part_pred
 
     for pred_layer_num in range(1, pred_depth, 2):
@@ -477,7 +479,7 @@ def predictor(enc_flat,
           use_peepholes=True,
           initializer=tf.truncated_normal_initializer(stddev=lstm_init_stddev),
           num_proj=initial_size)
-      part_pred = tf.contrib.layers.layer_norm(part_pred)
+      part_pred = contrib.layers().layer_norm(part_pred)
       pred += part_pred
 
     pred = tf.layers.dense(
@@ -589,7 +591,8 @@ def mean_squared_error(true, pred):
   Returns:
     mean squared error between ground truth and predicted image.
   """
-  result = tf.reduce_sum(tf.square(true - pred)) / tf.to_float(tf.size(pred))
+  result = tf.reduce_sum(
+      tf.squared_difference(true, pred)) / tf.to_float(tf.size(pred))
   return result
 
 
@@ -654,11 +657,16 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
     # all_rewards = tf.concat([input_rewards, target_rewards], axis=0)
 
     all_actions = tf.concat([input_actions, target_actions], axis=0)
+    # flatten actions tensor to have the shape: framesXbatch_sizeXaction_dims.
+    actions_shape = common_layers.shape_list(all_actions)
+    all_actions = tf.reshape(
+        all_actions,
+        [actions_shape[0], -1,
+         reduce(lambda x, y: x * y, actions_shape[2:])])
     all_frames = tf.concat([input_frames, target_frames], axis=0)
 
     all_frames = tf.unstack(all_frames, axis=0)
     all_actions = tf.unstack(all_actions, axis=0)
-    all_actions = [tf.squeeze(a, 1) for a in all_actions]
 
     # TODO(blazej) - most likely this downsize is too strong.
     all_frames = [
@@ -699,6 +707,9 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
 
     predictions = tf.stack(van_on_enc_all)
 
+    if hparams.clip_pixel_values:
+      predictions = tf.clip_by_value(predictions, 0.0, 1.0)
+
     # TODO(mbz): clean this up!
     def fix_video_dims_and_concat_on_x_axis(x):
       x = tf.transpose(x, [1, 3, 4, 0, 2])
@@ -711,10 +722,18 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=1)
     tf.summary.image('full_video', side_by_side_video)
 
+    predictions = tf.unstack(predictions)
+    predictions = [
+        tf.image.resize_images(
+            image, (frame_width, frame_height),
+            method=tf.image.ResizeMethod.BICUBIC)
+        for image in predictions
+    ]
+    predictions = tf.stack(predictions)
+
     predictions = common_video.swap_time_and_batch_axes(predictions)
     predictions = tf.slice(predictions,
-                           [0, hparams.video_num_target_frames-1, 0, 0, 0],
+                           [0, hparams.video_num_input_frames-1, 0, 0, 0],
                            [-1]*5)
 
     return predictions, {'extra': epva_loss}
-

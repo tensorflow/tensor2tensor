@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,24 +24,36 @@ import sys
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
+<<<<<<< HEAD
 # Fathom commented out
 # from tensor2tensor.utils import cloud_mlengine
+=======
+
+from tensor2tensor.utils import cloud_mlengine
+from tensor2tensor.utils import contrib
+>>>>>>> upstream/master
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
+from tensor2tensor.utils import hparams_lib
+from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import trainer_lib
 from tensor2tensor.utils import usr_dir
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
+<<<<<<< HEAD
 # Fathom
 import fathomt2t_dependencies.t2t_trainer_utils as fathom
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
+=======
+>>>>>>> upstream/master
 
 flags = tf.flags
 FLAGS = flags.FLAGS
 
-# See flags.py for additional command-line flags.
+# See utils/flags.py for additional command-line flags.
 flags.DEFINE_string("t2t_usr_dir", None,
                     "Path to a Python module that will be imported. The "
                     "__init__.py file should include the necessary imports. "
@@ -50,12 +62,27 @@ flags.DEFINE_string("t2t_usr_dir", None,
                     "available to the t2t-trainer.")
 flags.DEFINE_integer("random_seed", None, "Random seed.")
 flags.DEFINE_integer("tpu_num_shards", 8, "Number of tpu shards.")
+flags.DEFINE_string("tpu_job_name", None,
+                    "TPU job name. TPUEstimator can auto-infer this but if the "
+                    "configuration is esoteric it should be provided here.")
 flags.DEFINE_integer("iterations_per_loop", 100,
                      "Number of iterations in a TPU training loop.")
 flags.DEFINE_bool("use_tpu", False, "Whether to use TPU.")
 flags.DEFINE_bool("use_tpu_estimator", False, "Whether to use TPUEstimator. "
                   "This is always enabled when use_tpu is True.")
-flags.DEFINE_bool("xla_compile", False, "Whether to use XLA to compile graph.")
+flags.DEFINE_integer("export_saved_model_api_version", 1,
+                     "ExportSavedModelApiVersion, 1 (V1, default) or 2 (V2). "
+                     "Default V2 uses model_fn_inference_on_tpu for rewrite."
+                     "Flag use_guarantee_const is only enabled in V2.")
+flags.DEFINE_bool("use_guarantee_const_getter", False,
+                  "Whether to use GuaranteeConst Ops to mark all weights as "
+                  "constant. It may improve TPU inference performance and "
+                  "reduce HBM arguments usage. Only available when "
+                  "export_saved_model_api_version=2 and use_tpu=True.")
+flags.DEFINE_bool("xla_compile", False,
+                  "Whether to use XLA to compile model_fn.")
+flags.DEFINE_integer("xla_jit_level", -1,
+                     "GlobalJitLevel to use while compiling the full graph.")
 flags.DEFINE_integer("tpu_infeed_sleep_secs", None,
                      "How long to sleep the infeed thread.")
 flags.DEFINE_bool("generate_data", False, "Generate data before training?")
@@ -68,14 +95,12 @@ flags.DEFINE_integer("inter_op_parallelism_threads", 0,
 flags.DEFINE_integer("intra_op_parallelism_threads", 0,
                      "Number of intra_op_parallelism_threads to use for CPU. "
                      "See TensorFlow config.proto for details.")
-# TODO(hinsu): Enable DistributionStrategy by default once performance gap
-# between DistributionStrategy and Parallelism is resolved.
+# TODO(lukaszkaiser): resolve memory and variable assign issues and set to True.
 flags.DEFINE_bool(
     "optionally_use_dist_strat", False,
     "Whether to use TensorFlow DistributionStrategy instead of explicitly "
     "replicating the model. DistributionStrategy is used only if the "
     "model replication configuration is supported by the DistributionStrategy.")
-
 # To maintain compatibility with some internal libs, we guard against these flag
 # definitions possibly erroring. Apologies for the ugliness.
 try:
@@ -133,10 +158,17 @@ flags.DEFINE_string("job-dir", None,
 flags.DEFINE_integer("log_step_count_steps", 100,
                      "Number of local steps after which progress is printed "
                      "out")
+<<<<<<< HEAD
 flags.DEFINE_bool('restart_after_eval', False,
                   "Determines whether to restart training after eval. "
                   "This flag also disables the first eval that occurs after "
                   "starting a training run with a checkpointed model")
+=======
+flags.DEFINE_bool("gpu_automatic_mixed_precision", False,
+                  "Whether to employ GPU automatic mixed precision training "
+                  "(via graph rewrite and dynamic loss scaling).")
+
+>>>>>>> upstream/master
 
 
 def set_hparams_from_args(args):
@@ -173,11 +205,14 @@ def set_hparams_from_args(args):
 
 
 def create_hparams():
+  """Create hparams."""
   if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
     tf.logging.warn("Not all hyperparameter sets work on TPU. "
                     "Prefer hparams_sets with a '_tpu' suffix, "
                     "e.g. transformer_tpu, if available for your model.")
-  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
+  hparams_path = os.path.join(FLAGS.output_dir, "hparams.json")
+  return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams,
+                                    hparams_path=hparams_path)
 
 
 def create_experiment_fn():
@@ -199,9 +234,13 @@ def create_experiment_fn():
       eval_early_stopping_metric_delta=FLAGS.eval_early_stopping_metric_delta,
       eval_early_stopping_metric_minimize=FLAGS
       .eval_early_stopping_metric_minimize,
+      eval_timeout_mins=FLAGS.eval_timeout_mins,
+      eval_use_test_set=FLAGS.eval_use_test_set,
       use_tpu=FLAGS.use_tpu,
       use_tpu_estimator=FLAGS.use_tpu_estimator,
       use_xla=FLAGS.xla_compile,
+      export_saved_model_api_version=FLAGS.export_saved_model_api_version,
+      use_guarantee_const_getter=FLAGS.use_guarantee_const_getter,
       warm_start_from=FLAGS.warm_start_from,
       decode_from_file=FLAGS.decode_from_file,
       decode_to_file=FLAGS.decode_to_file,
@@ -223,15 +262,19 @@ def create_run_config(hp, output_dir=None):
   save_ckpt_secs = FLAGS.save_checkpoints_secs or None
   if save_ckpt_secs:
     save_ckpt_steps = None
-  assert FLAGS.output_dir or FLAGS.checkpoint_path
+  assert FLAGS.output_dir
   tpu_config_extra_kwargs = {}
+  if FLAGS.tpu_job_name is not None:
+    tpu_config_extra_kwargs["tpu_job_name"] = FLAGS.tpu_job_name
 
   if getattr(hp, "mtf_mode", False):
     save_ckpt_steps = None  # Disable the default saver
     save_ckpt_secs = None  # Disable the default saver
     tpu_config_extra_kwargs = {
-        "num_cores_per_replica": 1,
-        "per_host_input_for_training": tpu_config.InputPipelineConfig.BROADCAST,
+        "num_cores_per_replica":
+            1,
+        "per_host_input_for_training":
+            tf_estimator.tpu.InputPipelineConfig.BROADCAST,
     }
 
   # the various custom getters we have written do not play well together yet.
@@ -253,12 +296,12 @@ def create_run_config(hp, output_dir=None):
       keep_checkpoint_every_n_hours=FLAGS.keep_checkpoint_every_n_hours,
       num_gpus=FLAGS.worker_gpu,
       gpu_order=FLAGS.gpu_order,
-      shard_to_cpu=FLAGS.locally_shard_to_cpu,
       num_async_replicas=FLAGS.worker_replicas,
       gpu_mem_fraction=FLAGS.worker_gpu_memory_fraction,
       enable_graph_rewriter=FLAGS.enable_graph_rewriter,
       use_tpu=FLAGS.use_tpu,
       use_tpu_estimator=FLAGS.use_tpu_estimator,
+      xla_jit_level=FLAGS.xla_jit_level,
       schedule=FLAGS.schedule,
       no_data_parallelism=hp.no_data_parallelism,
       optionally_use_dist_strat=FLAGS.optionally_use_dist_strat,
@@ -293,7 +336,7 @@ def generate_data():
 @contextlib.contextmanager
 def profile_context():
   if FLAGS.profile:
-    with tf.contrib.tfprof.ProfileContext(
+    with contrib.tfprof().ProfileContext(
         "t2tprof", trace_steps=range(100), dump_steps=range(100)) as pctx:
       opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
       pctx.add_auto_profiling("op", opts, range(100))
@@ -342,9 +385,13 @@ def save_metadata(hparams):
       f.write(t2t_flags_str)
 
   # Save hparams as hparams.json
+  new_hparams = hparams_lib.copy_hparams(hparams)
+  # Modality class is not JSON serializable so remove.
+  new_hparams.del_hparam("modality")
+
   hparams_fname = os.path.join(output_dir, "hparams.json")
   with tf.gfile.Open(hparams_fname, "w") as f:
-    f.write(hparams.to_json(indent=0, sort_keys=True))
+    f.write(new_hparams.to_json(indent=0, sort_keys=True))
 
 
 def execute_schedule(exp):
@@ -371,11 +418,28 @@ def main(argv):
     fathom.exit_if_no_eval_checkpoint_found(FLAGS.eval_checkpoint_path)
 
   tf.logging.set_verbosity(tf.logging.INFO)
+
+  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
+
+  # If we just have to print the registry, do that and exit early.
+  maybe_log_registry_and_exit()
+
+  # Create HParams.
+  if argv:
+    set_hparams_from_args(argv[1:])
+  if FLAGS.schedule != "run_std_server":
+    hparams = create_hparams()
+  if FLAGS.gpu_automatic_mixed_precision:
+    setattr(hparams, "gpu_automatic_mixed_precision", True)
+
+  if FLAGS.schedule == "train" or FLAGS.schedule == "train_eval_and_decode":
+    mlperf_log.transformer_print(key=mlperf_log.RUN_START, hparams=hparams)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
+  mlperf_log.transformer_print(
+      key=mlperf_log.RUN_SET_RANDOM_SEED, value=FLAGS.random_seed,
+      hparams=hparams)
   trainer_lib.set_random_seed(FLAGS.random_seed)
-  usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
-  maybe_log_registry_and_exit()
 
   if FLAGS.cloud_mlengine:
     # Fathom
@@ -390,6 +454,7 @@ def main(argv):
   # if cloud_mlengine.job_dir():
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
 
+<<<<<<< HEAD
   if argv:
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
@@ -397,11 +462,16 @@ def main(argv):
   # Fathom
   hparams = fathom.adjust_params(hparams)
 
+=======
+>>>>>>> upstream/master
   exp_fn = create_experiment_fn()
   exp = exp_fn(create_run_config(hparams), hparams)
   if is_chief():
     save_metadata(hparams)
   execute_schedule(exp)
+  if FLAGS.schedule != "train":
+    mlperf_log.transformer_print(key=mlperf_log.RUN_FINAL,
+                                 hparams=hparams)
 
   # Fathom
   # NOTE: this must run LAST in the process, to make sure STDOUT is

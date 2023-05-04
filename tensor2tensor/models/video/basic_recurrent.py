@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,12 +22,6 @@ from __future__ import print_function
 from tensor2tensor.layers import common_video
 from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.utils import registry
-
-import tensorflow as tf
-
-
-tfl = tf.layers
-tfcl = tf.contrib.layers
 
 
 @registry.register_model
@@ -58,8 +52,11 @@ class NextFrameBasicRecurrent(
 def next_frame_basic_recurrent():
   """Basic 2-frame recurrent model with stochastic tower."""
   hparams = basic_stochastic.next_frame_basic_stochastic_discrete()
+  hparams.filter_double_steps = 2
+  hparams.hidden_size = 64
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 4
+  hparams.concat_internal_states = False
   hparams.add_hparam("num_lstm_layers", 2)
   hparams.add_hparam("num_lstm_filters", 256)
   return hparams

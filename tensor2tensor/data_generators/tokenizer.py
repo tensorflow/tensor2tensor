@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,7 +49,8 @@ import sys
 import unicodedata
 import six
 from six.moves import range  # pylint: disable=redefined-builtin
-import tensorflow as tf
+from tensor2tensor.utils import mlperf_log
+import tensorflow.compat.v1 as tf
 
 # Conversion between Unicode and UTF-8, if required (on Python2)
 _native_to_unicode = (lambda s: s.decode("utf-8")) if six.PY2 else (lambda s: s)
@@ -165,6 +166,8 @@ def corpus_token_counts(
       split_on_newlines=split_on_newlines):
     counts.update(encode(_native_to_unicode(doc)))
 
+  mlperf_log.transformer_print(
+      key=mlperf_log.PREPROC_VOCAB_SIZE, value=len(counts))
   return counts
 
 

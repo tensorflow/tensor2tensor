@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,424 +13,538 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Registry for models, hyperparameter settings, problem types, and datasets.
+"""Object registration.
+
+Registries are instances of `Registry`.
+
+See `Registries` for a centralized list of object registries
+(models, problems, hyperparameter sets, etc.).
+
+New functions and classes can be registered using `.register`. The can be
+accessed/queried similar to dictionaries, keyed by default by `snake_case`
+equivalents.
+
+```
+@Registries.models.register
+class MyModel(T2TModel):
+  ...
+
+'my_model' in Registries.models  # True
+for k in Registries.models:
+  print(k)  # prints 'my_model'
+model = Registries.models['my_model'](constructor_arg)
+```
+
+#### Legacy Support
 
 Define a new model by subclassing T2TModel and register it:
 
 ```
-@registry.register_model
+@register_model
 class MyModel(T2TModel):
   ...
 ```
 
-Access by snake-cased name: `registry.model("my_model")`. If you're using
+Access by snake-cased name: `model("my_model")`. If you're using
 `t2t_trainer.py`, you can pass on the command-line: `--model=my_model`.
 
-See all the models registered: `registry.list_models()`.
+See all the models registered: `list_models()`.
 
 For hyperparameter sets:
-  * Register: `registry.register_hparams`
-  * List: `registry.list_hparams`
-  * Retrieve by name: `registry.hparams`
+  * Register: `register_hparams`
+  * List: `list_hparams`
+  * Retrieve by name: `hparams`
   * Command-line flag in `t2t_trainer.py`: `--hparams_set=name`
 
 For hyperparameter ranges:
-  * Register: `registry.register_ranged_hparams`
-  * List: `registry.list_ranged_hparams`
-  * Retrieve by name: `registry.ranged_hparams`
+  * Register: `register_ranged_hparams`
+  * List: `list_ranged_hparams`
+  * Retrieve by name: `ranged_hparams`
   * Command-line flag in `t2t_trainer.py`: `--hparams_range=name`
 """
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import inspect
-import re
-import tensorflow as tf
+import collections
 
-_ATTACKS = {}
-_ATTACK_PARAMS = {}
-_HPARAMS = {}
-_MODELS = {}
-_PROBLEMS = {}
-_PRUNING_PARAMS = {}
-_PRUNING_STRATEGY = {}
-_RANGED_HPARAMS = {}
+from tensor2tensor.utils import misc_utils
+import tensorflow.compat.v1 as tf
+
+from tensorflow.python.util import tf_inspect as inspect  # pylint: disable=g-direct-tensorflow-import
 
 
-# TODO(trandustin): Many files depend on this to specify modality strings; let's
-# remove it in the future.
-class Modalities(object):
-  """An enum-like object carrying the set of available modality types."""
-  SYMBOL = "symbol"
-  IMAGE = "image"
-  AUDIO = "audio"
-  VIDEO = "video"
-  CLASS_LABEL = "class_label"
-  GENERIC = "generic"
-  REAL = "real"
+def default_name(class_or_fn):
+  """Default name for a class or function.
 
-
-# Camel case to snake case utils
-_first_cap_re = re.compile("(.)([A-Z][a-z0-9]+)")
-_all_cap_re = re.compile("([a-z0-9])([A-Z])")
-
-
-def _convert_camel_to_snake(name):
-  s1 = _first_cap_re.sub(r"\1_\2", name)
-  return _all_cap_re.sub(r"\1_\2", s1).lower()
-
-
-def _reset():
-  for ctr in [_MODELS, _HPARAMS, _RANGED_HPARAMS, _ATTACK_PARAMS]:
-    ctr.clear()
-
-
-def default_name(obj_class):
-  """Convert a class name to the registry's default name for the class.
+  This is the naming function by default for registries expecting classes or
+  functions.
 
   Args:
-    obj_class: the name of a class
+    class_or_fn: class or function to be named.
 
   Returns:
-    The registry's default name for the class.
+    Default name for registration.
   """
-  return _convert_camel_to_snake(obj_class.__name__)
+  return misc_utils.camelcase_to_snakecase(class_or_fn.__name__)
 
 
-def default_object_name(obj):
-  """Convert an object to the registry's default name for the object class.
+default_object_name = lambda obj: default_name(type(obj))
+
+
+class Registry(object):
+  """Dict-like class for managing function registrations.
+
+  ```python
+  my_registry = Registry("custom_name")
+
+  @my_registry.register
+  def my_func():
+    pass
+
+  @my_registry.register()
+  def another_func():
+    pass
+
+  @my_registry.register("non_default_name")
+  def third_func(x, y, z):
+    pass
+
+  def foo():
+    pass
+
+  my_registry.register()(foo)
+  my_registry.register("baz")(lambda (x, y): x + y)
+  my_register.register("bar")
+
+  print(list(my_registry))
+  # ["my_func", "another_func", "non_default_name", "foo", "baz"]
+  # (order may vary)
+  print(my_registry["non_default_name"] is third_func)  # True
+  print("third_func" in my_registry)                    # False
+  print("bar" in my_registry)                           # False
+  my_registry["non-existent_key"]                       # raises KeyError
+  ```
+
+  Optional validation, on_set callback and value transform also supported.
+  See `__init__` doc.
+  """
+
+  def __init__(self,
+               registry_name,
+               default_key_fn=default_name,
+               validator=None,
+               on_set=None,
+               value_transformer=(lambda k, v: v)):
+    """Construct a new registry.
+
+    Args:
+      registry_name: str identifier for the given registry. Used in error msgs.
+      default_key_fn (optional): function mapping value -> key for registration
+        when a key is not provided
+      validator (optional): if given, this is run before setting a given (key,
+        value) pair. Accepts (key, value) and should raise if there is a
+        problem. Overwriting existing keys is not allowed and is checked
+        separately. Values are also checked to be callable separately.
+      on_set (optional): callback function accepting (key, value) pair which is
+        run after an item is successfully set.
+      value_transformer (optional): if run, `__getitem__` will return
+        value_transformer(key, registered_value).
+    """
+    self._registry = {}
+    self._name = registry_name
+    self._default_key_fn = default_key_fn
+    self._validator = validator
+    self._on_set = on_set
+    self._value_transformer = value_transformer
+
+  def default_key(self, value):
+    """Default key used when key not provided. Uses function from __init__."""
+    return self._default_key_fn(value)
+
+  @property
+  def name(self):
+    return self._name
+
+  def validate(self, key, value):
+    """Validation function run before setting. Uses function from __init__."""
+    if self._validator is not None:
+      self._validator(key, value)
+
+  def on_set(self, key, value):
+    """Callback called on successful set. Uses function from __init__."""
+    if self._on_set is not None:
+      self._on_set(key, value)
+
+  def __setitem__(self, key, value):
+    """Validate, set, and (if successful) call `on_set` for the given item.
+
+    Args:
+      key: key to store value under. If `None`, `self.default_key(value)` is
+        used.
+      value: callable stored under the given key.
+
+    Raises:
+      KeyError: if key is already in registry.
+    """
+    if key is None:
+      key = self.default_key(value)
+    if key in self:
+      raise KeyError(
+          "key %s already registered in registry %s" % (key, self._name))
+    if not callable(value):
+      raise ValueError("value must be callable")
+    self.validate(key, value)
+    self._registry[key] = value
+    self.on_set(key, value)
+
+  def register(self, key_or_value=None):
+    """Decorator to register a function, or registration itself.
+
+    This is primarily intended for use as a decorator, either with or without
+    a key/parentheses.
+    ```python
+    @my_registry.register('key1')
+    def value_fn(x, y, z):
+      pass
+
+    @my_registry.register()
+    def another_fn(x, y):
+      pass
+
+    @my_registry.register
+    def third_func():
+      pass
+    ```
+
+    Note if key_or_value is provided as a non-callable, registration only
+    occurs once the returned callback is called with a callable as its only
+    argument.
+    ```python
+    callback = my_registry.register('different_key')
+    'different_key' in my_registry  # False
+    callback(lambda (x, y): x + y)
+    'different_key' in my_registry  # True
+    ```
+
+    Args:
+      key_or_value (optional): key to access the registered value with, or the
+        function itself. If `None` (default), `self.default_key` will be called
+        on `value` once the returned callback is called with `value` as the only
+        arg. If `key_or_value` is itself callable, it is assumed to be the value
+        and the key is given by `self.default_key(key)`.
+
+    Returns:
+      decorated callback, or callback generated a decorated function.
+    """
+
+    def decorator(value, key):
+      self[key] = value
+      return value
+
+    # Handle if decorator was used without parens
+    if callable(key_or_value):
+      return decorator(value=key_or_value, key=None)
+    else:
+      return lambda value: decorator(value, key=key_or_value)
+
+  def __getitem__(self, key):
+    if key not in self:
+      raise KeyError("%s never registered with registry %s. Available:\n %s" %
+                     (key, self.name, display_list_by_prefix(sorted(self), 4)))
+    value = self._registry[key]
+    return self._value_transformer(key, value)
+
+  def __contains__(self, key):
+    return key in self._registry
+
+  def keys(self):
+    return self._registry.keys()
+
+  def values(self):
+    return (self[k] for k in self)  # complicated because of transformer
+
+  def items(self):
+    return ((k, self[k]) for k in self)  # complicated because of transformer
+
+  def __iter__(self):
+    return iter(self._registry)
+
+  def __len__(self):
+    return len(self._registry)
+
+  def _clear(self):
+    self._registry.clear()
+
+  def get(self, key, default=None):
+    return self[key] if key in self else default
+
+
+def _on_model_set(k, v):
+  v.REGISTERED_NAME = k
+
+
+def _nargs_validator(nargs, message):
+  """Makes validator for function to ensure it takes nargs args."""
+  if message is None:
+    message = "Registered function must take exactly %d arguments" % nargs
+
+  def f(key, value):
+    del key
+    spec = inspect.getfullargspec(value)
+    if (len(spec.args) != nargs or spec.varargs is not None or
+        spec.varkw is not None):
+      raise ValueError(message)
+
+  return f
+
+
+ProblemSpec = collections.namedtuple("ProblemSpec",
+                                     ["base_name", "was_reversed", "was_copy"])
+
+
+def parse_problem_name(name):
+  """Determines if problem_name specifies a copy and/or reversal.
 
   Args:
-    obj: an object instance
+    name: str, problem name, possibly with suffixes.
 
   Returns:
-    The registry's default name for the class of the object.
+    ProblemSpec: namedtuple with ["base_name", "was_reversed", "was_copy"]
+
+  Raises:
+    ValueError if name contains multiple suffixes of the same type
+      ('_rev' or '_copy'). One of each is ok.
   """
-  return default_name(obj.__class__)
+  # Recursively strip tags until we reach a base name.
+  if name.endswith("_rev"):
+    base, was_reversed, was_copy = parse_problem_name(name[:-4])
+    if was_reversed:
+      # duplicate rev
+      raise ValueError(
+          "Invalid problem name %s: multiple '_rev' instances" % name)
+    return ProblemSpec(base, True, was_copy)
+  elif name.endswith("_copy"):
+    base, was_reversed, was_copy = parse_problem_name(name[:-5])
+    if was_copy:
+      raise ValueError(
+          "Invalid problem_name %s: multiple '_copy' instances" % name)
+    return ProblemSpec(base, was_reversed, True)
+  else:
+    return ProblemSpec(name, False, False)
 
 
-def register_model(name=None):
-  """Register a model. name defaults to class name snake-cased."""
+def get_problem_name(base_name, was_reversed=False, was_copy=False):
+  """Construct a problem name from base and reversed/copy options.
 
-  def decorator(model_cls, registration_name=None):
-    """Registers & returns model_cls with registration_name or default name."""
-    model_name = registration_name or default_name(model_cls)
-    if model_name in _MODELS and not tf.contrib.eager.in_eager_mode():
-      raise LookupError("Model %s already registered." % model_name)
-    model_cls.REGISTERED_NAME = model_name
-    _MODELS[model_name] = model_cls
-    return model_cls
+  Inverse of `parse_problem_name`.
 
-  # Handle if decorator was used without parens
-  if callable(name):
-    model_cls = name
-    return decorator(model_cls, registration_name=default_name(model_cls))
+  Args:
+    base_name: base problem name. Should not end in "_rev" or "_copy"
+    was_reversed: if the problem is to be reversed
+    was_copy: if the problem is to be copied
 
-  return lambda model_cls: decorator(model_cls, name)
+  Returns:
+    string name consistent with use with `parse_problem_name`.
 
-
-def model(name):
-  if name not in _MODELS:
-    raise LookupError("Model %s never registered.  Available models:\n %s" %
-                      (name, "\n".join(list_models())))
-
-  return _MODELS[name]
+  Raises:
+    ValueError if `base_name` ends with "_rev" or "_copy"
+  """
+  if any(base_name.endswith(suffix) for suffix in ("_rev", "_copy")):
+    raise ValueError("`base_name` cannot end in '_rev' or '_copy'")
+  name = base_name
+  if was_copy:
+    name = "%s_copy" % name
+  if was_reversed:
+    name = "%s_rev" % name
+  return name
 
 
-def list_models():
-  return list(sorted(_MODELS))
+def _problem_name_validator(k, v):
+  del v
+  if parse_problem_name(k).base_name != k:
+    raise KeyError(
+        "Invalid problem name: cannot end in %s or %s" % ("_rev", "_copy"))
 
 
-def register_hparams(name=None):
-  """Register an HParams set. name defaults to function name snake-cased."""
-
-  def decorator(hp_fn, registration_name=None):
-    """Registers & returns hp_fn with registration_name or default name."""
-    hp_name = registration_name or default_name(hp_fn)
-    if hp_name in _HPARAMS and not tf.contrib.eager.in_eager_mode():
-      raise LookupError("HParams set %s already registered." % hp_name)
-    _HPARAMS[hp_name] = hp_fn
-    return hp_fn
-
-  # Handle if decorator was used without parens
-  if callable(name):
-    hp_fn = name
-    return decorator(hp_fn, registration_name=default_name(hp_fn))
-
-  return lambda hp_fn: decorator(hp_fn, name)
+def _on_problem_set(k, v):
+  v.name = k
 
 
-def hparams(name):
-  """Retrieve registered hparams by name."""
-  if name not in _HPARAMS:
-    error_msg = "HParams set %s never registered. Sets registered:\n%s"
-    raise LookupError(
-        error_msg % (name,
-                     display_list_by_prefix(list_hparams(), starting_spaces=4)))
-  hp = _HPARAMS[name]()
-  if hp is None:
+def _call_value(k, v):
+  del k
+  return v()
+
+
+def _hparams_value_transformer(key, value):
+  out = value()
+  if out is None:
     raise TypeError("HParams %s is None. Make sure the registered function "
-                    "returns the HParams object." % name)
-  return hp
+                    "returns the HParams object" % key)
+  return out
+
+
+class Registries(object):
+  """Object holding `Registry` objects."""
+
+  def __init__(self):
+    raise RuntimeError("Registries is not intended to be instantiated")
+
+  models = Registry("models", on_set=_on_model_set)
+
+  optimizers = Registry(
+      "optimizers",
+      validator=_nargs_validator(
+          2, "Registered optimizer functions must take exactly two arguments: "
+          "learning_rate (float) and hparams (HParams)."))
+
+  hparams = Registry("hparams", value_transformer=_hparams_value_transformer)
+
+  ranged_hparams = Registry(
+      "ranged_hparams",
+      validator=_nargs_validator(
+          1, "Registered ranged_hparams functions must take a single argument, "
+          "the RangedHParams object."))
+
+  problems = Registry(
+      "problems", validator=_problem_name_validator, on_set=_on_problem_set)
+
+  attacks = Registry("attacks", value_transformer=_call_value)
+
+  attack_params = Registry("attack_params", value_transformer=_call_value)
+
+  pruning_params = Registry("pruning_params", value_transformer=_call_value)
+
+  pruning_strategies = Registry("pruning_strategies")
+
+  mtf_layers = Registry(
+      "mtf_layers",
+      validator=_nargs_validator(
+          2, "Registered layer functions must take exaction two arguments: "
+          "hparams (HParams) and prefix (str)."))
+
+  env_problems = Registry("env_problems", on_set=_on_problem_set)
+
+
+# consistent version of old API
+model = Registries.models.__getitem__
+list_models = lambda: sorted(Registries.models)
+register_model = Registries.models.register
+
+
+def optimizer(name):
+  """Get pre-registered optimizer keyed by name.
+
+  `name` should be snake case, though SGD -> sgd, RMSProp -> rms_prop and
+  UpperCamelCase -> snake_case conversions included for legacy support.
+
+  Args:
+    name: name of optimizer used in registration. This should be a snake case
+      identifier, though others supported for legacy reasons.
+
+  Returns:
+    optimizer
+  """
+  warn_msg = ("Please update `registry.optimizer` callsite "
+              "(likely due to a `HParams.optimizer` value)")
+  if name == "SGD":
+    name = "sgd"
+    tf.logging.warning("'SGD' optimizer now keyed by 'sgd'. %s" % warn_msg)
+  elif name == "RMSProp":
+    name = "rms_prop"
+    tf.logging.warning(
+        "'RMSProp' optimizer now keyed by 'rms_prop'. %s" % warn_msg)
+  else:
+    snake_name = misc_utils.camelcase_to_snakecase(name)
+    if name != snake_name:
+      tf.logging.warning(
+          "optimizer names now keyed by snake_case names. %s" % warn_msg)
+      name = snake_name
+  return Registries.optimizers[name]
+
+
+list_optimizers = lambda: sorted(Registries.optimizers)
+register_optimizer = Registries.optimizers.register
+
+hparams = Registries.hparams.__getitem__
+register_hparams = Registries.hparams.register
+
+list_env_problems = lambda: sorted(Registries.env_problems)
+register_env_problem = Registries.env_problems.register
 
 
 def list_hparams(prefix=None):
+  hp_names = sorted(Registries.hparams)
   if prefix:
-    return [name for name in _HPARAMS if name.startswith(prefix)]
-  return list(_HPARAMS)
+    hp_names = [name for name in hp_names if name.startswith(prefix)]
+  return hp_names
 
 
-def register_ranged_hparams(name=None):
-  """Register a RangedHParams set. name defaults to fn name snake-cased."""
+ranged_hparams = Registries.ranged_hparams.__getitem__
+list_ranged_hparams = lambda: sorted(Registries.ranged_hparams)
+register_ranged_hparams = Registries.ranged_hparams.register
 
-  def decorator(rhp_fn, registration_name=None):
-    """Registers & returns hp_fn with registration_name or default name."""
-    rhp_name = registration_name or default_name(rhp_fn)
-    if rhp_name in _RANGED_HPARAMS:
-      raise LookupError("RangedHParams set %s already registered." % rhp_name)
-    # Check that the fn takes a single argument
-    args, varargs, keywords, _ = inspect.getargspec(rhp_fn)
-    if len(args) != 1 or varargs is not None or keywords is not None:
-      raise ValueError("RangedHParams set function must take a single "
-                       "argument, the RangedHParams object.")
+base_problem = Registries.problems.__getitem__
+list_base_problems = lambda: sorted(Registries.problems)
+register_base_problem = Registries.problems.register
 
-    _RANGED_HPARAMS[rhp_name] = rhp_fn
-    return rhp_fn
-
-  # Handle if decorator was used without parens
-  if callable(name):
-    rhp_fn = name
-    return decorator(rhp_fn, registration_name=default_name(rhp_fn))
-
-  return lambda rhp_fn: decorator(rhp_fn, name)
+# Keeping for back-compatibility
+list_problems = list_base_problems
+register_problem = register_base_problem
 
 
-def ranged_hparams(name):
-  if name not in _RANGED_HPARAMS:
-    raise LookupError("RangedHParams set %s never registered." % name)
-  return _RANGED_HPARAMS[name]
+def problem(problem_name, **kwargs):
+  """Get possibly copied/reversed problem in `base_registry` or `env_registry`.
+
+  Args:
+    problem_name: string problem name. See `parse_problem_name`.
+    **kwargs: forwarded to env problem's initialize method.
+
+  Returns:
+    possibly reversed/copied version of base problem registered in the given
+    registry.
+  """
+  spec = parse_problem_name(problem_name)
+  try:
+    return Registries.problems[spec.base_name](
+        was_copy=spec.was_copy, was_reversed=spec.was_reversed)
+  except KeyError:
+    # If name is not found in base problems then try creating an env problem
+    return env_problem(problem_name, **kwargs)
 
 
-def list_ranged_hparams():
-  return list(_RANGED_HPARAMS)
+def env_problem(env_problem_name, **kwargs):
+  """Get and initialize the `EnvProblem` with the given name and batch size.
+
+  Args:
+    env_problem_name: string name of the registered env problem.
+    **kwargs: forwarded to env problem's initialize method.
+
+  Returns:
+    an initialized EnvProblem with the given batch size.
+  """
+
+  ep_cls = Registries.env_problems[env_problem_name]
+  ep = ep_cls()
+  ep.initialize(**kwargs)
+  return ep
 
 
-def register_problem(name=None):
-  """Register a Problem. name defaults to cls name snake-cased."""
+attack = Registries.attacks.__getitem__
+list_attacks = lambda: sorted(Registries.attacks)
+register_attack = Registries.attacks.register
 
-  def decorator(p_cls, registration_name=None):
-    """Registers & returns p_cls with registration_name or default name."""
-    p_name = registration_name or default_name(p_cls)
-    if p_name in _PROBLEMS and not tf.contrib.eager.in_eager_mode():
-      raise LookupError("Problem %s already registered." % p_name)
+attack_params = Registries.attack_params.__getitem__
+list_attack_params = lambda: sorted(Registries.attack_params)
+register_attack_params = Registries.attack_params.register
 
-    _PROBLEMS[p_name] = p_cls
-    p_cls.name = p_name
-    return p_cls
+pruning_params = Registries.pruning_params.__getitem__
+list_pruning_params = lambda: sorted(Registries.pruning_params)
+register_pruning_params = Registries.pruning_params.register
 
-  # Handle if decorator was used without parens
-  if callable(name):
-    p_cls = name
-    return decorator(p_cls, registration_name=default_name(p_cls))
-
-  return lambda p_cls: decorator(p_cls, name)
-
-
-def problem(name):
-  """Retrieve a problem by name."""
-
-  def parse_problem_name(problem_name):
-    """Determines if problem_name specifies a copy and/or reversal.
-
-    Args:
-      problem_name: str, problem name, possibly with suffixes.
-
-    Returns:
-      base_name: A string with the base problem name.
-      was_reversed: A boolean.
-      was_copy: A boolean.
-    """
-    # Recursively strip tags until we reach a base name.
-    if problem_name.endswith("_rev"):
-      base, _, was_copy = parse_problem_name(problem_name[:-4])
-      return base, True, was_copy
-    elif problem_name.endswith("_copy"):
-      base, was_reversed, _ = parse_problem_name(problem_name[:-5])
-      return base, was_reversed, True
-    else:
-      return problem_name, False, False
-
-  base_name, was_reversed, was_copy = parse_problem_name(name)
-
-  if base_name not in _PROBLEMS:
-    all_problem_names = list_problems()
-    error_lines = ["%s not in the set of supported problems:" % base_name
-                  ] + all_problem_names
-    error_msg = "\n  * ".join(error_lines)
-    raise LookupError(error_msg)
-  return _PROBLEMS[base_name](was_reversed, was_copy)
-
-
-def list_problems():
-  return sorted(list(_PROBLEMS))
-
-
-def register_attack(name=None):
-  """Register an attack HParams set. Same behaviour as register_hparams."""
-
-  def decorator(attack_fn, registration_name=None):
-    """Registers & returns attack_fn with registration_name or default name."""
-    attack_name = registration_name or default_name(attack_fn)
-    if attack_name in _ATTACKS and not tf.contrib.eager.in_eager_mode():
-      raise LookupError("Attack %s already registered." % attack_name)
-    _ATTACKS[attack_name] = attack_fn
-    return attack_fn
-
-  # Handle if decorator was used without parens
-  if callable(name):
-    attack_fn = name
-    return decorator(attack_fn, registration_name=default_name(attack_fn))
-
-  return lambda attack_fn: decorator(attack_fn, name)
-
-
-def attacks(name):
-  """Retrieve registered attack by name."""
-  if name not in _ATTACKS:
-    error_msg = "Attack %s never registered. Sets registered:\n%s"
-    raise LookupError(
-        error_msg % (name,
-                     display_list_by_prefix(list_attacks(), starting_spaces=4)))
-  attack = _ATTACKS[name]()
-  if attack is None:
-    raise TypeError(
-        "Attack %s is None. Make sure the registered function returns a "
-        "`cleverhans.attack.Attack` object." % name)
-  return attack
-
-
-def list_attacks(prefix=None):
-  if prefix:
-    return [name for name in _ATTACKS if name.startswith(prefix)]
-  return list(_ATTACKS)
-
-
-def register_attack_params(name=None):
-  """Register an attack HParams set. Same behaviour as register_hparams."""
-
-  def decorator(ap_fn, registration_name=None):
-    """Registers & returns ap_fn with registration_name or default name."""
-    ap_name = registration_name or default_name(ap_fn)
-    if ap_name in _ATTACK_PARAMS and not tf.contrib.eager.in_eager_mode():
-      raise LookupError("Attack HParams set %s already registered." % ap_name)
-    _ATTACK_PARAMS[ap_name] = ap_fn
-    return ap_fn
-
-  # Handle if decorator was used without parens
-  if callable(name):
-    ap_fn = name
-    return decorator(ap_fn, registration_name=default_name(ap_fn))
-
-  return lambda ap_fn: decorator(ap_fn, name)
-
-
-def attack_params(name):
-  """Retrieve registered aparams by name."""
-  if name not in _ATTACK_PARAMS:
-    error_msg = "Attack HParams set %s never registered. Sets registered:\n%s"
-    raise LookupError(
-        error_msg %
-        (name, display_list_by_prefix(list_attack_params(), starting_spaces=4)))
-  ap = _ATTACK_PARAMS[name]()
-  if ap is None:
-    raise TypeError("Attack HParams %s is None. Make sure the registered "
-                    "function returns the HParams object." % name)
-  return ap
-
-
-def list_attack_params(prefix=None):
-  if prefix:
-    return [name for name in _ATTACK_PARAMS if name.startswith(prefix)]
-  return list(_ATTACK_PARAMS)
-
-
-def register_pruning_params(name=None):
-  """Register an pruning HParams set. Same behaviour as register_hparams."""
-
-  def decorator(pp_fn, registration_name=None):
-    """Registers & returns pp_fn with registration_name or default name."""
-    pp_name = registration_name or default_name(pp_fn)
-    if pp_name in _PRUNING_PARAMS and not tf.contrib.eager.in_eager_mode():
-      raise LookupError("Pruning HParams set %s already registered." % pp_name)
-    _PRUNING_PARAMS[pp_name] = pp_fn
-    return pp_fn
-
-  # Handle if decorator was used without parens
-  if callable(name):
-    pp_fn = name
-    return decorator(pp_fn, registration_name=default_name(pp_fn))
-
-  return lambda pp_fn: decorator(pp_fn, name)
-
-
-def pruning_params(name):
-  """Retrieve registered pruning params by name."""
-  if name not in _PRUNING_PARAMS:
-    error_msg = "Pruning HParams set %s never registered. Sets registered:\n%s"
-    raise LookupError(error_msg % (
-        name, display_list_by_prefix(list_pruning_params(), starting_spaces=4)))
-  pp = _PRUNING_PARAMS[name]()
-  if pp is None:
-    raise TypeError("Pruning HParams %s is None. Make sure the registered "
-                    "function returns the HParams object." % name)
-  return pp
-
-
-def list_pruning_params(prefix=None):
-  if prefix:
-    return [name for name in _PRUNING_PARAMS if name.startswith(prefix)]
-  return list(_PRUNING_PARAMS)
-
-
-def register_pruning_strategy(name=None):
-  """Register an pruning strategy. Same behaviour as register_hparams."""
-
-  def decorator(ps_fn, registration_name=None):
-    """Registers & returns ps_fn with registration_name or default name."""
-    ps_name = registration_name or default_name(ps_fn)
-    if ps_name in _PRUNING_STRATEGY and not tf.contrib.eager.in_eager_mode():
-      raise LookupError("Pruning strategy %s already registered." % ps_name)
-    _PRUNING_STRATEGY[ps_name] = ps_fn
-    return ps_fn
-
-  # Handle if decorator was used without parens
-  if callable(name):
-    ps_fn = name
-    return decorator(ps_fn, registration_name=default_name(ps_fn))
-
-  return lambda ps_fn: decorator(ps_fn, name)
-
-
-def pruning_strategies(name):
-  """Retrieve registered pruning strategies by name."""
-  if name not in _PRUNING_STRATEGY:
-    error_msg = "Pruning strategy set %s never registered. Sets registered:\n%s"
-    raise LookupError(
-        error_msg % (name,
-                     display_list_by_prefix(
-                         list_pruning_strategies(), starting_spaces=4)))
-  ps = _PRUNING_STRATEGY[name]
-  if ps is None:
-    raise TypeError("Pruning strategy %s is None. Make sure to register the "
-                    "function." % name)
-  return ps
-
-
-def list_pruning_strategies(prefix=None):
-  if prefix:
-    return [name for name in _PRUNING_STRATEGY if name.startswith(prefix)]
-  return list(_PRUNING_STRATEGY)
+pruning_strategy = Registries.pruning_strategies.__getitem__
+list_pruning_strategies = lambda: sorted(Registries.pruning_strategies)
+register_pruning_strategy = Registries.pruning_strategies.register
 
 
 def display_list_by_prefix(names_list, starting_spaces=0):
@@ -465,6 +579,9 @@ Registry contents:
   Problems:
 %s
 
+  Optimizers:
+%s
+
   Attacks:
 %s
 
@@ -476,17 +593,21 @@ Registry contents:
 
   Pruning Strategies:
 %s
+
+  Env Problems:
+%s
 """
-  m, hp, rhp, probs, atks, ap, pp, ps = [
-      display_list_by_prefix(entries, starting_spaces=4) for entries in [
+  lists = tuple(
+      display_list_by_prefix(entries, starting_spaces=4) for entries in [  # pylint: disable=g-complex-comprehension
           list_models(),
           list_hparams(),
           list_ranged_hparams(),
-          list_problems(),
+          list_base_problems(),
+          list_optimizers(),
           list_attacks(),
           list_attack_params(),
           list_pruning_params(),
           list_pruning_strategies(),
-      ]
-  ]
-  return help_str % (m, hp, rhp, probs, atks, ap, pp, ps)
+          list_env_problems(),
+      ])
+  return help_str % lists

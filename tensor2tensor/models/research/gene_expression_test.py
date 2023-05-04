@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,8 @@ from tensor2tensor.data_generators import gene_expression as gene_data
 from tensor2tensor.layers import modalities  # pylint: disable=unused-import
 from tensor2tensor.models.research import gene_expression
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def gene_expression_conv_test():
@@ -42,8 +43,8 @@ class GeneExpressionModelsTest(tf.test.TestCase):
     input_length = target_length * 128 // 4  # chunk_size=4
     input_vocab_size = 5
 
-    inputs = np.random.random_integers(
-        input_vocab_size, size=(batch_size, input_length, 1, 1))
+    inputs = np.random.randint(
+        1, input_vocab_size + 1, size=(batch_size, input_length, 1, 1))
     targets = np.random.random_sample((batch_size, target_length, 1,
                                        target_out))
 
@@ -53,7 +54,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
     }
     p_hparams = hparams.problem_hparams
     logits, _ = model_cls(
-        hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)(features)
+        hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)(features)
 
     with self.test_session() as sess:
       sess.run(tf.global_variables_initializer())

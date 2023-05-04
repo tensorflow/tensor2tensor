@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,10 +21,11 @@ from six.moves import range  # pylint: disable=redefined-builtin
 
 from tensor2tensor.layers import common_hparams
 from tensor2tensor.layers import common_layers
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 @registry.register_model
@@ -118,7 +119,7 @@ def fc_layer(x, num_out, dropout_rate, name="fc"):
   with tf.variable_scope(name):
     out = x
     out = tf.layers.dense(out, num_out)
-    out = tf.contrib.layers.layer_norm(out)
+    out = contrib.layers().layer_norm(out)
     out = tf.nn.relu(out)
     out = tf.layers.dropout(out, dropout_rate)
     return out

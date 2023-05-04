@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,20 +19,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from six.moves import zip  # pylint: disable=redefined-builtin
+from tensor2tensor.utils import hparam
 from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 @registry.register_hparams("basic_1")
 def basic_params1():
   """A set of basic hyperparameters."""
-  return tf.contrib.training.HParams(
+  return hparam.HParams(
       # If the problem consists of variable-length sequences
       # (see problem.batch_size_means_tokens()), then this is the number
       # of tokens per batch per GPU or per TPU core.  Otherwise, this is
       # the number of examples per GPU or per TPU core.
       batch_size=4096,
+      batch_shuffle_size=512,
       # If True, then if the features are of variable length, the batch_size is
       # used as the actual batch size (and not tokens per batch).
       use_fixed_batch_size=False,
@@ -47,12 +49,14 @@ def basic_params1():
       clip_grad_norm=2.0,
       grad_noise_scale=0.0,
       summarize_grads=False,
+      # Flag for whether mlperf mode is on
+      mlperf_mode=False,
       # Whether to log the name and size of every variable
       summarize_vars=False,
       initializer="orthogonal",
       initializer_gain=1.5,
       label_smoothing=0.1,
-      optimizer="Adam",
+      optimizer="adam",
       optimizer_adam_epsilon=1e-6,
       optimizer_adam_beta1=0.85,
       optimizer_adam_beta2=0.997,
@@ -66,7 +70,18 @@ def basic_params1():
       optimizer_adafactor_clipping_threshold=1.0,
       optimizer_adafactor_multiply_by_parameter_scale=True,
       # Number of accumulating steps for multi step optimizers.
+<<<<<<< HEAD
       optimizer_multistep_accumulate_steps=None,
+=======
+      optimizer_multistep_accumulate_steps=0,
+      # Loss scaling used.
+      # Generally only necessary with mixed precision training.
+      # Mixed precision training only supports exponential scaling currently
+      # To disable the scaler, see to 0/False
+      mixed_precision_optimizer_loss_scaler="exponential",
+      # Determines the initial loss scaling value for mixed precision
+      mixed_precision_optimizer_init_loss_scale=2**15,
+>>>>>>> upstream/master
       # Whether to zero gradients that were not computed, so that the
       # appropriate slots are created. Useful for sharing checkpoints between
       # models with different sets of heads.
@@ -94,6 +109,7 @@ def basic_params1():
       learning_rate=0.1,
       sampling_method="argmax",  # "argmax" or "random"
       sampling_temp=1.0,  # temperature for sampling
+      sampling_keep_top_k=-1,  # If >0, ignore all but the top k logits
       # expand the logits a piece at a time - saves memory.
       factored_logits=False,
       multiply_embedding_mode="sqrt_depth",
@@ -130,7 +146,6 @@ def basic_params1():
       norm_type="layer",  # "batch", layer", "noam", "none".
       # epsilon parameter to normalization function
       norm_epsilon=1e-6,
-      symbol_modality_num_shards=1,
       # pad vocabularies so that this value divides the vocabulary size.
       vocab_divisor=1,
       # During training, we drop sequences whose inputs and targets are shorter
@@ -140,6 +155,14 @@ def basic_params1():
       # than max_length.
       # If max_length==0, we use hparams.batch_size instead.
       max_length=0,
+      # Pack examples on the fly.
+      pack_dataset=False,
+      # Use custom ops not included in standard tensorflow.
+      use_custom_ops=True,
+      # Split targets on the first axis into chunks of this length.
+      split_targets_chunk_length=0,
+      split_targets_max_chunks=100,
+      split_targets_strided_training=False,
       # Maximum length in the smallest length bucket.  Setting this
       # flag too high will result in wasteful padding of short
       # sequences.  Due to some (hopefully) temporary hacks in the
@@ -158,26 +181,26 @@ def basic_params1():
       # If True, run the model autoregressively instead of teacher-forcing
       # during eval
       eval_run_autoregressive=False,
-      # TODO(lukaszkaiser): these parameters should probably be set elsewhere.
-      # (SymbolModality) - If this flag is on, we try to share all of the input
-      # embeddings, the target embeddings and the softmax weights.
+      # (For features with symbol modality) If True, share all of the
+      # input embeddings, target embeddings, and softmax weights.
       shared_embedding_and_softmax_weights=False,
-      # (SymbolModality) - If this flag is on, we try to share the input
-      # embeddings and the target embeddings.
-      # You can also share the input embeddings with the target embeddings
-      # by using a problem_hparams that uses the same modality object for
-      # the input_modality and target_modality.
+      # (For features with symbol modality) If True, share the input embeddings
+      # and target embeddings.
       shared_embedding=False,
-      # In SymbolModality, skip the top layer, assume we're providing logits.
-      symbol_modality_skip_top=False,
-      # For each feature for which you want to override the default input
-      # modality, add an entry to this semicolon-separated string. Entries are
-      # formatted "feature_name:modality_type:modality_name", e.g.
-      # "inputs:symbol:default;other_inputs:audio:identity".
-      input_modalities="default",  # We don't use empty string in params.
-      # To override the default target modality, specify
-      # "modality_type:modality_name", e.g. "symbol:ctc".
-      target_modality="default",
+      # (For features with symbol modality) Number to shard embeddings by.
+      symbol_modality_num_shards=1,
+      # Feature transformations are optional dictionaries comprising key-value
+      # pairs of a feature name (str) and its transformation (function). If not
+      # specified, T2TModel applies a default transformation according to the
+      # feature's modality. Bottom is applicable to all features; loss, top, and
+      # weights_fn are only applicable to target features.
+      # TODO(trandustin): `name` is an optional hparam for legacy reasons,
+      # defining variable scope names. Remove this hparam in the future.
+      bottom={},
+      loss={},
+      name={},
+      top={},
+      weights_fn={},
       # The maximum length of "input" sequence.
       # Sequences longer than this value will be truncated. 0 or negative values
       # mean there is no maximum or truncation.
@@ -223,12 +246,17 @@ def basic_params1():
       # will such additional step be run. It's turned off (0.0) by default.
       # This probability will exponentially warm up for the number of
       # steps determined by scheduled_sampling_warmup_steps.
-      # The tensor used for the second step will consist of outputs from
-      # the first step mixed with gold truth, with the proportion of gold
-      # determined by scheduled_sampling_gold_mixin_prob.
+      # The tensor used for the n-th pass will consist of outputs from
+      # the (n-1)-th pass mixed with gold truth, with the proportion of gold
+      # determined by scheduled_sampling_gold_mixin_prob. Control the number
+      # of passes with scheduled_sampling_num_passes.
       scheduled_sampling_prob=0.0,
+      scheduled_sampling_method="parallel",  # parallel or sequential.
       scheduled_sampling_warmup_steps=50000,
       scheduled_sampling_gold_mixin_prob=0.5,
+      scheduled_sampling_num_passes=1,
+      scheduled_sampling_warmup_schedule="exp",  # exp, linear, or sigmoid.
+
       # This setting controls whether to copy variables around in a daisy chain
       # (if true) or leave their placement to TensorFlow. It only affects multi
       # device training and mostly should be turned on for performance. One
@@ -263,6 +291,14 @@ def basic_params1():
       # mixing should stop (eg: 0.5 means stop at 50-50 mixing, 0.8 means stop
       # at 20-80 mixing for the primary-others mixing case.)
       multiproblem_schedule_threshold=0.5,
+      # For more than 2 tasks, we may want to specify per-task thresholds here.
+      # In that case, this needs to be a string with as many floating point
+      # numbers as the number of tasks in the multi-problem. These numbers
+      # are later normalized to add up to 1 and taken as probabilities for
+      # each task. This enforces a constant mixing schedule and if this is
+      # empty then the threshold from above is used for the first task and
+      # the other tasks get the remaining probability split uniformly.
+      multiproblem_per_task_threshold="",
       # The number of examples at which the proportion of the mixed in datasets
       # is multiproblem_schedule_threshold
       multiproblem_schedule_max_examples=1e7,
@@ -272,8 +308,6 @@ def basic_params1():
       # A list of supported schedules can be found in
       # `data_generators.multi_problem.py`.
       multiproblem_mixing_schedule="constant",
-      # A scalar to upweight the classifier loss in a multiproblem setting.
-      multiproblem_class_loss_multiplier=0.0,
       # A boolean that decides whether input sequence losses and target label
       # losses in classification problems should be reweighted.
       multiproblem_reweight_label_loss=False,
@@ -293,6 +327,33 @@ def basic_params1():
       tpu_enable_host_call=False,
       # Pad batch dim of inputs to nearest multiple of batch multiple.
       pad_batch=False,
+      # When true, do not evaluate on the language model data when running the
+      # multiproblem since it can take a while. If False, set eval_steps to
+      # something large like 6000 or 10000.
+      multiproblem_target_eval_only=False,
+      # Max out the vocab size to a power of 2 for efficiency and to reserve
+      # extra space in the vocabulary for new task ids and label classes.
+      multiproblem_vocab_size=-1,
+      # When using multiproblem with generation tasks, need to truncate the
+      # inputs and targets manually before concatenating them.
+      multiproblem_max_input_length=-1,
+      multiproblem_max_target_length=-1,
+      # If positive, makes training targets fixed-length in MultiProblem.
+      multiproblem_fixed_train_length=-1,
+      # Load weights from a second model. For instance, when using
+      # pre-trained weights, you might want to initialize the encoder
+      # and decoder by loading different models.
+      warm_start_from_second="",
+      # Area attention hyper parameters
+      area_value_mode="none",
+      area_key_mode="none",
+      # Using area attention for the number of layers from the bottom
+      num_area_layers=0,
+      max_area_width=1,
+      max_area_height=1,
+      memory_height=1,
+      # Whether to use GPU automatic mixed precision (via graph rewrite)
+      gpu_automatic_mixed_precision=False,
   )
 
 
@@ -439,7 +500,7 @@ def basic_range1(ranged_hparams):
   rhp.set_float("optimizer_adam_beta2", 0.995, 0.999)
   rhp.set_categorical(
       "optimizer",
-      ["Adam", "Adagrad", "Momentum", "RMSProp", "SGD", "YellowFin"])
+      ["adam", "adagrad", "momentum", "rms_prop", "sgd", "yellow_fin"])
 
 
 @registry.register_ranged_hparams

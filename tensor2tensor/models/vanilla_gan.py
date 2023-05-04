@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,8 @@ from tensor2tensor.layers import common_layers
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def lrelu(input_, leak=0.2, name="lrelu"):
@@ -135,7 +136,7 @@ class AbstractGAN(t2t_model.T2TModel):
       and losses is a dictionary of losses (that get added for the final loss).
     """
     features["targets"] = features["inputs"]
-    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    is_training = self.hparams.mode == tf_estimator.ModeKeys.TRAIN
 
     # Input images.
     inputs = tf.to_float(features["targets_raw"])
@@ -170,7 +171,7 @@ class SlicedGan(AbstractGAN):
 
   def losses(self, inputs, generated):
     """Losses in the sliced case."""
-    is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
+    is_training = self.hparams.mode == tf_estimator.ModeKeys.TRAIN
     def discriminate(x):
       return self.discriminator(x, is_training=is_training, reuse=False)
     generator_loss = common_layers.sliced_gan_loss(
@@ -199,7 +200,7 @@ class SlicedGan(AbstractGAN):
 def sliced_gan():
   """Basic parameters for a vanilla_gan."""
   hparams = common_hparams.basic_params1()
-  hparams.optimizer = "Adam"
+  hparams.optimizer = "adam"
   hparams.learning_rate_constant = 0.0002
   hparams.learning_rate_warmup_steps = 500
   hparams.learning_rate_schedule = "constant * linear_warmup"

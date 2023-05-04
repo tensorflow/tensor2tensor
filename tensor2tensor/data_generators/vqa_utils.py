@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,8 @@ from __future__ import division
 from __future__ import print_function
 
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 from tensorflow.python.ops import control_flow_ops
 
@@ -208,7 +209,7 @@ def vqa_v2_preprocess_image(
   assert resize_side > 0
   if resize_side:
     image = _aspect_preserving_resize(image, resize_side)
-  if mode == tf.estimator.ModeKeys.TRAIN:
+  if mode == tf_estimator.ModeKeys.TRAIN:
     image = tf.random_crop(image, [height, width, 3])
   else:
     # Central crop, assuming resize_height > height, resize_width > width.
@@ -216,7 +217,7 @@ def vqa_v2_preprocess_image(
 
   image = tf.clip_by_value(image, 0.0, 1.0)
 
-  if mode == tf.estimator.ModeKeys.TRAIN and distort:
+  if mode == tf_estimator.ModeKeys.TRAIN and distort:
     image = _flip(image)
     num_distort_cases = 4
     # pylint: disable=unnecessary-lambda

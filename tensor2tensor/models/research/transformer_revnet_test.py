@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,8 @@ import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models.research import transformer_revnet
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 def transformer_revnet_test():
@@ -47,9 +48,9 @@ class TransformerRevnetTest(tf.test.TestCase):
                                                      vocab_size,
                                                      hparams)
     hparams.problem_hparams = p_hparams
-    inputs = -1 + np.random.random_integers(
+    inputs = np.random.randint(
         vocab_size, size=(batch_size, input_length, 1, 1))
-    targets = -1 + np.random.random_integers(
+    targets = np.random.randint(
         vocab_size, size=(batch_size, target_length, 1, 1))
     features = {
         "inputs": tf.constant(inputs, dtype=tf.int32),
@@ -57,7 +58,7 @@ class TransformerRevnetTest(tf.test.TestCase):
         "target_space_id": tf.constant(1, dtype=tf.int32),
     }
     model = transformer_revnet.TransformerRevnet(
-        hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+        hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
     logits, _ = model(features)
     grads = tf.gradients(
         tf.reduce_mean(logits), [features["inputs"]] + tf.global_variables())

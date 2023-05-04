@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,7 +30,8 @@ from tensor2tensor.models.research import vqa_attention
 from tensor2tensor.utils import registry
 # from tensor2tensor.utils import restore_hook
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 from tensorflow.contrib.layers.python.layers import utils
 
@@ -57,7 +58,7 @@ class VqaRecurrentSelfAttention(vqa_attention.VqaAttentionBaseline):
           features["inputs"],
           model_fn=eval(hp.image_model_fn),
           trainable=hp.train_resnet,
-          is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
+          is_training=hp.mode == tf_estimator.ModeKeys.TRAIN)
     else:
       image_feat = features["inputs"]
 

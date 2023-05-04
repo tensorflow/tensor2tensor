@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import os
 import re
 import urllib
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 # pylint: disable=g-import-not-at-top
 # To maintain compatibility with Python 2 and 3
@@ -120,7 +120,7 @@ def wet_records(wet_filepath):
   if wet_filepath.endswith('.gz'):
     fopen = gzip.open
   else:
-    fopen = tf.gfile.FastGFile
+    fopen = tf.gfile.GFile
 
   with fopen(wet_filepath) as f:
     for record in wet_records_from_file_obj(f):

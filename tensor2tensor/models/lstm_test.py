@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,15 +23,16 @@ import numpy as np
 from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.models import lstm
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2Seq(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_seq2seq()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,
@@ -41,7 +42,7 @@ class LSTMTest(tf.test.TestCase):
           "inputs": tf.constant(x, dtype=tf.int32),
           "targets": tf.constant(y, dtype=tf.int32),
       }
-      model = lstm.LSTMSeq2seq(hparams, tf.estimator.ModeKeys.TRAIN,
+      model = lstm.LSTMSeq2seq(hparams, tf_estimator.ModeKeys.TRAIN,
                                p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
@@ -50,8 +51,8 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2SeqAttention(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_attention()
 
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
@@ -66,7 +67,7 @@ class LSTMTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = lstm.LSTMSeq2seqAttention(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+          hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -74,8 +75,8 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2seqBidirectionalEncoder(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_seq2seq()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
                                                      vocab_size,
@@ -86,7 +87,7 @@ class LSTMTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = lstm.LSTMSeq2seqBidirectionalEncoder(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+          hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)
@@ -94,8 +95,8 @@ class LSTMTest(tf.test.TestCase):
 
   def testLSTMSeq2seqAttentionBidirectionalEncoder(self):
     vocab_size = 9
-    x = np.random.random_integers(1, high=vocab_size - 1, size=(3, 5, 1, 1))
-    y = np.random.random_integers(1, high=vocab_size - 1, size=(3, 6, 1, 1))
+    x = np.random.randint(1, high=vocab_size, size=(3, 5, 1, 1))
+    y = np.random.randint(1, high=vocab_size, size=(3, 6, 1, 1))
     hparams = lstm.lstm_attention()
 
     p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
@@ -108,7 +109,7 @@ class LSTMTest(tf.test.TestCase):
           "targets": tf.constant(y, dtype=tf.int32),
       }
       model = lstm.LSTMSeq2seqAttentionBidirectionalEncoder(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+          hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
       session.run(tf.global_variables_initializer())
       res = session.run(logits)

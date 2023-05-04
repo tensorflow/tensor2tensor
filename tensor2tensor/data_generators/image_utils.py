@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,10 +27,11 @@ from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
 from tensor2tensor.data_generators import text_encoder
 from tensor2tensor.layers import common_layers
+from tensor2tensor.layers import modalities
+from tensor2tensor.utils import contrib
 from tensor2tensor.utils import metrics
-from tensor2tensor.utils import registry
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 def matplotlib_pyplot():
@@ -51,6 +52,9 @@ def image_to_tf_summary_value(image, tag):
   """
   curr_image = np.asarray(image, dtype=np.uint8)
   height, width, n_channels = curr_image.shape
+  # If monochrome image, then reshape to [height, width]
+  if n_channels == 1:
+    curr_image = np.reshape(curr_image, [height, width])
   s = io.BytesIO()
   matplotlib_pyplot().imsave(s, curr_image, format="png")
   img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
@@ -169,7 +173,7 @@ class ImageProblem(problem.Problem):
 
     data_items_to_decoders = {
         "inputs":
-            tf.contrib.slim.tfexample_decoder.Image(
+            contrib.slim().tfexample_decoder.Image(
                 image_key="image/encoded",
                 format_key="image/format",
                 channels=self.num_channels),
@@ -235,14 +239,16 @@ class Image2ClassProblem(ImageProblem):
         super(Image2ClassProblem, self).example_reading_spec())
     data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
 
-    data_items_to_decoders[
-        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    data_items_to_decoders["targets"] = contrib.slim().tfexample_decoder.Tensor(
+        label_key)
     return data_fields, data_items_to_decoders
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
-    p.target_modality = (registry.Modalities.CLASS_LABEL, self.num_classes)
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.CLASS_LABEL}
+    p.vocab_size = {"inputs": 256,
+                    "targets": self.num_classes}
     p.batch_size_multiplier = 4 if self.is_small else 256
     p.loss_multiplier = 3.0 if self.is_small else 1.0
     if self._was_reversed:
@@ -260,7 +266,7 @@ class Image2ClassProblem(ImageProblem):
 
 def encode_images_as_png(images):
   """Yield images encoded as pngs."""
-  if tf.contrib.eager.in_eager_mode():
+  if tf.executing_eagerly():
     for image in images:
       yield tf.image.encode_png(image).numpy()
   else:
@@ -337,8 +343,8 @@ class Image2TextProblem(ImageProblem):
     data_fields, data_items_to_decoders = (
         super(Image2TextProblem, self).example_reading_spec())
     data_fields[label_key] = tf.VarLenFeature(tf.int64)
-    data_items_to_decoders[
-        "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
+    data_items_to_decoders["targets"] = contrib.slim().tfexample_decoder.Tensor(
+        label_key)
     return data_fields, data_items_to_decoders
 
   def feature_encoders(self, data_dir):
@@ -353,9 +359,10 @@ class Image2TextProblem(ImageProblem):
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
-    p.input_modality = {"inputs": (registry.Modalities.IMAGE, 256)}
-    encoder = self._encoders["targets"]
-    p.target_modality = (registry.Modalities.SYMBOL, encoder.vocab_size)
+    p.modality = {"inputs": modalities.ModalityType.IMAGE,
+                  "targets": modalities.ModalityType.SYMBOL}
+    p.vocab_size = {"inputs": 256,
+                    "targets": self._encoders["targets"].vocab_size}
     p.batch_size_multiplier = 256
     p.loss_multiplier = 1.0
     p.input_space_id = problem.SpaceID.IMAGE
@@ -416,4 +423,4 @@ def random_shift(image, wsr=0.1, hsr=0.1):
   height_translations = tf.random_uniform((1,), -height_range, height_range)
   width_translations = tf.random_uniform((1,), -width_range, width_range)
   translations = tf.concat((height_translations, width_translations), axis=0)
-  return tf.contrib.image.translate(image, translations=translations)
+  return contrib.image().translate(image, translations=translations)

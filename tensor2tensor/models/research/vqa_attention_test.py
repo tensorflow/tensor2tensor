@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@ from tensor2tensor.data_generators import problem_hparams
 from tensor2tensor.layers import modalities
 from tensor2tensor.models.research import vqa_attention
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import estimator as tf_estimator
 
 
 class VqaAttentionBaselineTest(tf.test.TestCase):
@@ -39,19 +40,18 @@ class VqaAttentionBaselineTest(tf.test.TestCase):
     question_length = 5
     answer_length = 10
     x = 2 * np.random.rand(batch_size, image_size, image_size, 3) - 1
-    q = np.random.random_integers(
-        1, high=vocab_size - 1, size=(batch_size, question_length, 1, 1))
-    a = np.random.random_integers(
-        0, high=num_classes, size=(batch_size, answer_length, 1, 1))
+    q = np.random.randint(
+        1, high=vocab_size, size=(batch_size, question_length, 1, 1))
+    a = np.random.randint(
+        num_classes + 1, size=(batch_size, answer_length, 1, 1))
     hparams = vqa_attention.vqa_attention_base()
     p_hparams = problem_hparams.test_problem_hparams(vocab_size,
-                                                     vocab_size,
+                                                     num_classes + 1,
                                                      hparams)
-    p_hparams.input_modality["inputs"] = modalities.ImageModality(hparams)
-    p_hparams.input_modality["question"] = modalities.SymbolModality(
-        hparams, vocab_size)
-    p_hparams.target_modality = modalities.MultiLabelModality(
-        hparams, num_classes + 1)
+    p_hparams.modality["inputs"] = modalities.ModalityType.IMAGE
+    p_hparams.modality["targets"] = modalities.ModalityType.MULTI_LABEL
+    p_hparams.modality["question"] = modalities.ModalityType.SYMBOL
+    p_hparams.vocab_size["question"] = vocab_size
     with self.test_session() as session:
       features = {
           "inputs": tf.constant(x, dtype=tf.float32),
@@ -59,7 +59,7 @@ class VqaAttentionBaselineTest(tf.test.TestCase):
           "targets": tf.constant(a, dtype=tf.int32),
       }
       model = vqa_attention.VqaAttentionBaseline(
-          hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
+          hparams, tf_estimator.ModeKeys.TRAIN, p_hparams)
       logits, losses = model(features)
       session.run(tf.global_variables_initializer())
       logits_, losses_ = session.run([logits, losses])

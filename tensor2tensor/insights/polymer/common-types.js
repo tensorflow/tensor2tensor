@@ -17,6 +17,7 @@
 
 /**
  * @fileoverview A set of shared types that will be replaced by js proto types.
+ * @externs
  */
 
 /**

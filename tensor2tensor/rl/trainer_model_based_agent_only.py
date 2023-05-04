@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2018 The Tensor2Tensor Authors.
+# Copyright 2023 The Tensor2Tensor Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,12 +28,12 @@ from __future__ import division
 from __future__ import print_function
 
 from tensor2tensor.bin import t2t_trainer  # pylint: disable=unused-import
-from tensor2tensor.data_generators import gym_problems_specs
+from tensor2tensor.data_generators import gym_env
 from tensor2tensor.rl import trainer_model_based
 from tensor2tensor.rl import trainer_model_based_params
 
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 
 flags = tf.flags
@@ -45,7 +45,7 @@ flags.DEFINE_string("world_model_dir", "",
 
 def get_simulated_problem_name(game):
   game_with_mode = game
-  if game in gym_problems_specs.ATARI_GAMES:
+  if game in gym_env.ATARI_GAMES:
     game_with_mode += "_deterministic-v4"
   return "gym_simulated_discrete_problem_with_agent_on_%s" % game_with_mode
 
@@ -65,6 +65,7 @@ def main(_):
       world_model_dir,
       epoch_data_dir,
       hparams,
+      0,
       epoch=0,
       is_final_epoch=True)
 
