@@ -24,14 +24,10 @@ import sys
 from tensor2tensor import models  # pylint: disable=unused-import
 from tensor2tensor import problems as problems_lib  # pylint: disable=unused-import
 from tensor2tensor.data_generators import problem  # pylint: disable=unused-import
-<<<<<<< HEAD
 # Fathom commented out
 # from tensor2tensor.utils import cloud_mlengine
-=======
 
-from tensor2tensor.utils import cloud_mlengine
 from tensor2tensor.utils import contrib
->>>>>>> upstream/master
 from tensor2tensor.utils import decoding
 from tensor2tensor.utils import flags as t2t_flags  # pylint: disable=unused-import
 from tensor2tensor.utils import hparams_lib
@@ -42,13 +38,10 @@ from tensor2tensor.utils import usr_dir
 import tensorflow.compat.v1 as tf
 from tensorflow.compat.v1 import estimator as tf_estimator
 
-<<<<<<< HEAD
 # Fathom
 import fathomt2t_dependencies.t2t_trainer_utils as fathom
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
-=======
->>>>>>> upstream/master
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -158,17 +151,14 @@ flags.DEFINE_string("job-dir", None,
 flags.DEFINE_integer("log_step_count_steps", 100,
                      "Number of local steps after which progress is printed "
                      "out")
-<<<<<<< HEAD
 flags.DEFINE_bool('restart_after_eval', False,
                   "Determines whether to restart training after eval. "
                   "This flag also disables the first eval that occurs after "
                   "starting a training run with a checkpointed model")
-=======
 flags.DEFINE_bool("gpu_automatic_mixed_precision", False,
                   "Whether to employ GPU automatic mixed precision training "
                   "(via graph rewrite and dynamic loss scaling).")
 
->>>>>>> upstream/master
 
 
 def set_hparams_from_args(args):
@@ -454,7 +444,6 @@ def main(argv):
   # if cloud_mlengine.job_dir():
   #   FLAGS.output_dir = cloud_mlengine.job_dir()
 
-<<<<<<< HEAD
   if argv:
     set_hparams_from_args(argv[1:])
   hparams = create_hparams()
@@ -462,8 +451,6 @@ def main(argv):
   # Fathom
   hparams = fathom.adjust_params(hparams)
 
-=======
->>>>>>> upstream/master
   exp_fn = create_experiment_fn()
   exp = exp_fn(create_run_config(hparams), hparams)
   if is_chief():

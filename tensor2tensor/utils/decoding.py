@@ -39,13 +39,8 @@ from tensor2tensor.utils import contrib
 from tensor2tensor.utils import hparam
 from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
-<<<<<<< HEAD
-
-import tensorflow as tf
-=======
 import tensorflow.compat.v1 as tf
 from tensorflow.compat.v1 import estimator as tf_estimator
->>>>>>> upstream/master
 
 FLAGS = tf.flags.FLAGS
 
@@ -212,17 +207,12 @@ def decode_from_dataset(estimator,
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
 
-<<<<<<< HEAD
   # Setup decode output directory for any artifacts that may be written out
   # Fathom
   # use passed in output_dir for writing decode summaries and logs
   #output_dir = os.path.join(estimator.model_dir, "decode")
   if not output_dir:
     output_dir = os.path.join(estimator.model_dir, "decode")
-=======
-  # Setup output directory for any artifacts that may be written out.
-  output_dir = os.path.join(estimator.model_dir, "decode")
->>>>>>> upstream/master
   tf.gfile.MakeDirs(output_dir)
 
   # If decode_hp.batch_size is specified, use a fixed batch size
@@ -239,8 +229,7 @@ def decode_from_dataset(estimator,
   # Build the inference input function
   problem = hparams.problem
   infer_input_fn = problem.make_estimator_input_fn(
-<<<<<<< HEAD
-      tf.estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
+    tf_estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
   
   ##############
   # BEGIN FATHOM
@@ -264,9 +253,6 @@ def decode_from_dataset(estimator,
   ##############
   # END FATHOM
   ##############
-=======
-      tf_estimator.ModeKeys.PREDICT, hparams, dataset_kwargs=dataset_kwargs)
->>>>>>> upstream/master
 
   predictions, output_dirs = [], []
   for decode_id in range(decode_hp.num_decodes):
@@ -366,16 +352,12 @@ def decode_once(estimator,
   inputs_vocab_key = "inputs" if has_input else "targets"
   inputs_vocab = problem_hparams.vocabulary[inputs_vocab_key]
   targets_vocab = problem_hparams.vocabulary["targets"]
-<<<<<<< HEAD
-  
-=======
 
   num_eval_samples = 0
 
   # all_outputs[i][j] = (input: str, output: str, target: str). Input,
   # decoded output, and target strings for example i, beam rank j.
   all_outputs = []
->>>>>>> upstream/master
   for num_predictions, prediction in enumerate(predictions):
     num_eval_samples += 1
     num_predictions += 1
@@ -384,15 +366,11 @@ def decode_once(estimator,
     outputs = prediction.get("outputs")
 
     # Log predictions
-<<<<<<< HEAD
-    decoded_outputs = []
-=======
     decoded_outputs = []  # [(str, str, str)]. See all_outputs above.
     if decode_hp.decode_in_memory:
       all_outputs.append(decoded_outputs)
     decoded_scores = []
 
->>>>>>> upstream/master
     if decode_hp.return_beams:
       output_beams = np.split(outputs, decode_hp.beam_size, axis=0)
       for i, beam in enumerate(output_beams):

@@ -240,13 +240,6 @@ class ConditionalOptimizer(tf.train.Optimizer):
     self._zero_grads = hparams.optimizer_zero_grads
 
   def compute_gradients(self, loss, var_list=None, **kwargs):  # pylint: disable=arguments-differ
-<<<<<<< HEAD
-    gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
-    def cast_grad_tpu(g, v):
-      """Should match upstream t2t
-      https://github.com/tensorflow/tensor2tensor/blob/1547c25571633f828ddd74accba76d07d8d043af/tensor2tensor/utils/optimize.py#L232
-      """
-=======
     if contrib.is_tf2:
       gradients = self._opt.get_gradients(loss, var_list)
       gradients = zip(gradients, var_list)
@@ -254,7 +247,6 @@ class ConditionalOptimizer(tf.train.Optimizer):
       gradients = self._opt.compute_gradients(loss, var_list, **kwargs)
 
     def cast_grad(g, v):
->>>>>>> upstream/master
       if v is not None and g is not None:
         g = common_layers.cast_like(g, v)
       if self._zero_grads and g is None:

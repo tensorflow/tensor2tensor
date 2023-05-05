@@ -89,12 +89,7 @@ class ProblemTest(parameterized.TestCase, tf.test.TestCase):
     with tf.Session() as sess:
       self.assertTrue(assert_tensors_equal(sess, tensor1, tensor2, 20))
 
-<<<<<<< HEAD
-
-  @tf.contrib.eager.run_test_in_graph_and_eager_modes()
-=======
   @test_utils.run_in_graph_and_eager_modes()
->>>>>>> upstream/master
   def testProblemHparamsModality(self):
     problem = problem_hparams.TestProblem(input_vocab_size=2,
                                           target_vocab_size=3)

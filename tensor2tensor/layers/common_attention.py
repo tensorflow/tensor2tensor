@@ -1609,14 +1609,11 @@ def dot_product_attention(q,
                           make_image_summary=True,
                           save_weights_to=None,
                           dropout_broadcast_dims=None,
-<<<<<<< HEAD
                           probability_fn=tf.nn.softmax):
-=======
                           activation_dtype=None,
                           weight_dtype=None,
                           hard_attention_k=0,
                           gumbel_noise_weight=0.0):
->>>>>>> upstream/master
   """Dot-product attention.
 
   Args:
@@ -1636,10 +1633,8 @@ def dot_product_attention(q,
       a string key created from the variable scope (including name).
     dropout_broadcast_dims: an optional list of integers less than rank of q.
       Specifies in which dimensions to broadcast the dropout decisions.
-<<<<<<< HEAD
     probability_fn: function used to transform the logits into a probability
         distribution i.e. the attention weights.
-=======
     activation_dtype: Used to define function activation dtype when using
       mixed precision.
     weight_dtype: The dtype weights are stored in when using mixed precision
@@ -1647,7 +1642,6 @@ def dot_product_attention(q,
     gumbel_noise_weight: if > 0, apply Gumbel noise with weight
       `gumbel_noise_weight` before picking top-k. This is a no op if
       hard_attention_k <= 0.
->>>>>>> upstream/master
 
   Returns:
     Tensor with shape [..., length_q, depth_v].
@@ -1658,17 +1652,13 @@ def dot_product_attention(q,
     if bias is not None:
       bias = common_layers.cast_like(bias, logits)
       logits += bias
-<<<<<<< HEAD
-    weights = probability_fn(logits, name="attention_weights")
-=======
     # If logits are fp16, upcast before softmax
     logits = maybe_upcast(logits, activation_dtype, weight_dtype)
-    weights = tf.nn.softmax(logits, name="attention_weights")
+    weights = probability_fn(logits, name="attention_weights")
     if hard_attention_k > 0:
       weights = harden_attention_weights(weights, hard_attention_k,
                                          gumbel_noise_weight)
     weights = common_layers.cast_like(weights, q)
->>>>>>> upstream/master
     if save_weights_to is not None:
       save_weights_to[scope.name] = weights
       save_weights_to[scope.name + "/logits"] = logits

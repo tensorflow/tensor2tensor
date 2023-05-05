@@ -70,9 +70,6 @@ def basic_params1():
       optimizer_adafactor_clipping_threshold=1.0,
       optimizer_adafactor_multiply_by_parameter_scale=True,
       # Number of accumulating steps for multi step optimizers.
-<<<<<<< HEAD
-      optimizer_multistep_accumulate_steps=None,
-=======
       optimizer_multistep_accumulate_steps=0,
       # Loss scaling used.
       # Generally only necessary with mixed precision training.
@@ -81,7 +78,6 @@ def basic_params1():
       mixed_precision_optimizer_loss_scaler="exponential",
       # Determines the initial loss scaling value for mixed precision
       mixed_precision_optimizer_init_loss_scale=2**15,
->>>>>>> upstream/master
       # Whether to zero gradients that were not computed, so that the
       # appropriate slots are created. Useful for sharing checkpoints between
       # models with different sets of heads.

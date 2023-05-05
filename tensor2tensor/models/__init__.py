@@ -46,19 +46,16 @@ from tensor2tensor.models.research import aligned
 from tensor2tensor.models.research import autoencoders
 from tensor2tensor.models.research import cycle_gan
 from tensor2tensor.models.research import gene_expression
-<<<<<<< HEAD
 from tensor2tensor.models.research import glow
 from tensor2tensor.models.research import lm_experiments
 from tensor2tensor.models.research import moe_experiments
 # FATHOM
 # comment out so gym not required
 #from tensor2tensor.models.research import rl
-=======
 from tensor2tensor.models.research import neural_stack
 from tensor2tensor.models.research import residual_shuffle_exchange
-from tensor2tensor.models.research import rl
+# from tensor2tensor.models.research import rl
 from tensor2tensor.models.research import shuffle_network
->>>>>>> upstream/master
 from tensor2tensor.models.research import similarity_transformer
 from tensor2tensor.models.research import super_lm
 from tensor2tensor.models.research import transformer_moe
@@ -74,16 +71,12 @@ from tensor2tensor.models.video import basic_deterministic
 from tensor2tensor.models.video import basic_recurrent
 from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.models.video import emily
-<<<<<<< HEAD
 from tensor2tensor.models.video import epva
 # Fathom BEGIN
 # removed because gan packages were split off into tensorflow-gan
 # rather than supporting gans, we simply do not import gan models
 # from tensor2tensor.models.video import savp
 # Fathom END
-=======
-from tensor2tensor.models.video import savp
->>>>>>> upstream/master
 from tensor2tensor.models.video import sv2p
 from tensor2tensor.utils import contrib
 from tensor2tensor.utils import registry

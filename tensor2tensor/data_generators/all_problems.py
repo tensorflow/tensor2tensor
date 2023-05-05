@@ -25,12 +25,9 @@ from six.moves import range  # pylint: disable=redefined-builtin
 MODULES = [
     "tensor2tensor.data_generators.algorithmic",
     "tensor2tensor.data_generators.algorithmic_math",
-<<<<<<< HEAD
-=======
     "tensor2tensor.data_generators.algorithmic_math_deepmind",
     "tensor2tensor.data_generators.algorithmic_math_two_variables",
     "tensor2tensor.data_generators.allen_brain",
->>>>>>> upstream/master
     "tensor2tensor.data_generators.audio",
     "tensor2tensor.data_generators.babi_qa",
     "tensor2tensor.data_generators.bair_robot_pushing",
@@ -53,11 +50,8 @@ MODULES = [
     # remove h5py and gym dependencies
     #"tensor2tensor.data_generators.gene_expression",
     "tensor2tensor.data_generators.google_robot_pushing",
-<<<<<<< HEAD
     #"tensor2tensor.data_generators.gym_problems_specs",
-=======
-    "tensor2tensor.data_generators.gym_env",
->>>>>>> upstream/master
+    # "tensor2tensor.data_generators.gym_env",
     "tensor2tensor.data_generators.ice_parsing",
     "tensor2tensor.data_generators.imagenet",
     "tensor2tensor.data_generators.image_lsun",

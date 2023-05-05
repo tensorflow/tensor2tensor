@@ -739,13 +739,6 @@ def create_evaluation_metrics(problems, model_hparams):
   eval_metrics = {}
   for problem_instance in problems:
     problem_name = problem_instance.name
-<<<<<<< HEAD
-    metrics = problem_instance.eval_metric_fns(model_hparams)
-    if hasattr(model_hparams.problem, "task_list"):
-      metrics = model_hparams.problem.eval_metrics_fns(model_hparams)
-
-    tm = problem_instance.get_hparams(model_hparams).target_modality
-=======
     if problem_instance.was_reversed:
       problem_name += "_rev"
     metrics = problem_instance.eval_metric_fns(model_hparams)
@@ -753,7 +746,6 @@ def create_evaluation_metrics(problems, model_hparams):
       metrics = model_hparams.problem.eval_metric_fns(model_hparams)
 
     tm = problem_instance.get_hparams(model_hparams).modality["targets"]
->>>>>>> upstream/master
     if not isinstance(tm, dict):
       tm = {"targets": tm}
 

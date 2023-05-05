@@ -199,7 +199,6 @@ class T2TModel(base.Layer):
           input_vocab_size != target_vocab_size):
         log_info("Unsetting shared_embedding_and_softmax_weights.")
         hparams.shared_embedding_and_softmax_weights = 0
-<<<<<<< HEAD
       # Fathom
       # we can force sharing to be on
       # hparams.force_shared_embedding_and_softmax_weights
@@ -209,7 +208,6 @@ class T2TModel(base.Layer):
         hparams.shared_embedding_and_softmax_weights = True
         log_info("Forcing shared_embedding_and_softmax_weights to be on.")
       # End Fathom
-=======
 
       if hparams.hidden_size:
         hidden_size = hparams.hidden_size
@@ -237,7 +235,6 @@ class T2TModel(base.Layer):
             weights_fn = common_layers.weights_prepend_inputs_to_targets
             hparams.weights_fn[feature_name] = weights_fn
 
->>>>>>> upstream/master
     self._original_hparams = hparams
     self.set_mode(mode)
 
@@ -718,7 +715,6 @@ class T2TModel(base.Layer):
 
   def loss(self, logits, features):
     if isinstance(logits, dict):
-<<<<<<< HEAD
       if self._problem_hparams:
         target_modality = self._problem_hparams.target_modality
         # Fathom
@@ -736,8 +732,6 @@ class T2TModel(base.Layer):
         assert k in target_modality.keys(), (
             "The key %s of model_body's returned logits dict must be in "
             "problem_hparams.target_modality's dict." % k)
-=======
->>>>>>> upstream/master
       losses = {}
       for k, v in six.iteritems(logits):
         losses[k] = self._loss_single(
@@ -758,21 +752,6 @@ class T2TModel(base.Layer):
 
       return tf.add_n([n / d for n, d in losses.values()])
     else:
-<<<<<<< HEAD
-      if self._problem_hparams:
-        target_modality = self._problem_hparams.target_modality
-      else:
-        target_modality = None
-      if isinstance(target_modality, dict):
-        assert "targets" in target_modality, (
-            "model_body returned single logits so 'targets' must be a key "
-            "since problem_hparams.target_modality is a dict.")
-        target_modality = target_modality["targets"]
-
-      return self._loss_single(logits, target_modality, features["targets"])
-
-  def optimize(self, loss, num_async_replicas=1, use_tpu=False):
-=======
       return self._loss_single(
           logits,
           "targets",
@@ -780,7 +759,6 @@ class T2TModel(base.Layer):
           weights=features.get("targets_mask"))
 
   def optimize(self, loss, num_async_replicas=1, use_tpu=False, variables=None):
->>>>>>> upstream/master
     """Return a training op minimizing loss."""
     log_info("Base learning rate: %f", 
         self.hparams.learning_rate if 
@@ -1528,17 +1506,15 @@ class T2TModel(base.Layer):
     Returns:
       TPUEstimatorSpec if use tpu else EstimatorSpec
     """
-<<<<<<< HEAD
     if mode == tf.estimator.ModeKeys.TRAIN:
       _create_dummy_vars()
     # TODO: FIX!!!
     #hparams = copy.deepcopy(hparams)
     hparams = copy.copy(hparams)
-=======
-    if mode == tf_estimator.ModeKeys.TRAIN:
-      create_dummy_vars()
-    hparams = hparams_lib.copy_hparams(hparams)
->>>>>>> upstream/master
+    # Branko's note: seems like copy_hparams creates a new object vs a shallow copy
+    # if mode == tf_estimator.ModeKeys.TRAIN:
+    #   create_dummy_vars()
+    # hparams = hparams_lib.copy_hparams(hparams)
 
     # Instantiate model
     data_parallelism = None
@@ -1698,7 +1674,12 @@ class T2TModel(base.Layer):
     problem = hparams.problem
 
     if common_layers.is_xla_compiled():
-<<<<<<< HEAD
+      # Note: important to call this before remove_summaries()
+      if self.hparams.tpu_enable_host_call:
+        host_call = self.create_eval_host_call()
+      else:
+        host_call = None
+
       remove_summaries()
       # Fathom
       # is this a problem because our logits are dict by default????
@@ -1716,15 +1697,7 @@ class T2TModel(base.Layer):
             tf.estimator.ModeKeys.EVAL,
             eval_metrics=(eval_metrics_fn, logits),
             loss=loss)
-=======
-      # Note: important to call this before remove_summaries()
-      if self.hparams.tpu_enable_host_call:
-        host_call = self.create_eval_host_call()
->>>>>>> upstream/master
-      else:
-        host_call = None
 
-      remove_summaries()
 
       eval_metrics_fn = create_tpu_eval_metrics_fn(problem, hparams)
 
@@ -1804,10 +1777,6 @@ class T2TModel(base.Layer):
       else:
         predictions = {"predictions": logits}
 
-<<<<<<< HEAD
-      return tf.estimator.EstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
-=======
       evaluation_hooks = []
       # Create a SummarySaverHook
       eval_dir = os.path.join(
@@ -1823,7 +1792,6 @@ class T2TModel(base.Layer):
 
       return tf_estimator.EstimatorSpec(
           tf_estimator.ModeKeys.EVAL,
->>>>>>> upstream/master
           predictions=predictions,
           eval_metric_ops=eval_metrics,
           evaluation_hooks=evaluation_hooks,
@@ -2392,16 +2360,12 @@ def summarize_features(features, num_shards=1):
 
   with tf.name_scope("input_stats"):
     for (k, v) in sorted(six.iteritems(features)):
-<<<<<<< HEAD
       # Fathom
       # skipping example_id or nonpadding assignment will not work
       if k == 'example_id':
         continue
-      if isinstance(v, tf.Tensor) and v.get_shape().ndims > 1:
-=======
       if (isinstance(v, tf.Tensor) and (v.get_shape().ndims > 1) and
           (v.dtype != tf.string)):
->>>>>>> upstream/master
         tf.summary.scalar("%s_batch" % k, tf.shape(v)[0] // num_shards)
         tf.summary.scalar("%s_length" % k, tf.shape(v)[1])
         nonpadding = tf.to_float(tf.not_equal(v, 0))

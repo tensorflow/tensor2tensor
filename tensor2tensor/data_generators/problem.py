@@ -162,14 +162,10 @@ def preprocess_example_common(example, mode, hparams):
     else:
       example["targets"] = tf.concat(
           [example["inputs"], [0], example["targets"]], 0)
-<<<<<<< HEAD
   # TODO: We should maybe refactor packed problems to not use max_target_seq_len
   #   the way they currently do.
   #   See https://app.asana.com/0/823468737354222/1149459228825153
-  if hparams.max_target_seq_length > 0 and not hasattr(hparams, 'packed_length'):
-=======
-  if "targets" in example and hparams.max_target_seq_length > 0:
->>>>>>> upstream/master
+  if hparams.max_target_seq_length > 0 and "targets" in example and not hasattr(hparams, 'packed_length'):
     example["targets"] = example["targets"][:hparams.max_target_seq_length]
   if hparams.split_to_length:
     new_example = {}
@@ -382,7 +378,6 @@ class Problem(object):
     return metrics.METRICS_FNS
 
   def eval_metric_fns(self, model_hparams):
-<<<<<<< HEAD
     """
     Taken from
     https://github.com/tensorflow/tensor2tensor/blob/master/tensor2tensor/data_generators/problem.py#L360
@@ -394,10 +389,6 @@ class Problem(object):
     del model_hparams
     metric_names = self.eval_metrics()
 
-=======
-    del model_hparams
-    metric_names = self.eval_metrics()
->>>>>>> upstream/master
     if not all([m in self.all_metrics_fns for m in metric_names]):
       error_str = ("Unrecognized metric. Problem %s specified metrics "
                    "%s. Recognized metrics are %s.")
@@ -409,13 +400,10 @@ class Problem(object):
         for metric_name in metric_names
     }
 
-<<<<<<< HEAD
-=======
   def eval_hooks(self, features, logits, hparams):
     del features, logits, hparams
     return []
 
->>>>>>> upstream/master
   @property
   def task_id(self):
     if self._task_id == -1 and hasattr(self, "global_task_id"):
@@ -845,11 +833,7 @@ class Problem(object):
 
     return estimator_input_fn
 
-<<<<<<< HEAD
-  def _dataset_partition(self, mode, config, hvd=None):
-=======
-  def _dataset_partition(self, mode, config, params):
->>>>>>> upstream/master
+  def _dataset_partition(self, mode, config, params, hvd=None):
     """Which part of the training data to read.
 
     If there are multiple parallel calls to input_fn (multiple TPU hosts),
@@ -865,25 +849,18 @@ class Problem(object):
     Args:
       mode: tf.estimator.ModeKeys
       config: RunConfig
-<<<<<<< HEAD
-      hvd: horovod module if horovod is being used for multi gpu
-=======
       params: A dict that contains parameters.
->>>>>>> upstream/master
+      hvd: horovod module if horovod is being used for multi gpu
     Returns:
       partition_id: an integer
       num_partitions: an integer
     """
-<<<<<<< HEAD
     if hvd:
         if mode == tf.estimator.ModeKeys.TRAIN:
             return hvd.rank(), hvd.size()
         return 0, 1
 
     if mode != tf.estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
-=======
-    if mode != tf_estimator.ModeKeys.TRAIN or not hasattr(config, "tpu_config"):
->>>>>>> upstream/master
       # Reset in the case when using TPU but alternating TRAIN and EVAL.
       self._next_partition_id = 0
       return 0, 1
@@ -1019,14 +996,13 @@ class Problem(object):
     Returns:
       (features_dict<str name, Tensor feature>, Tensor targets)
     """
-<<<<<<< HEAD
     partition_id, num_partitions = self._dataset_partition(mode, config, hvd)
 
-    is_training = mode == tf.estimator.ModeKeys.TRAIN
+    is_training = mode == tf_estimator.ModeKeys.TRAIN
     if config and config.use_tpu:
       num_threads = 64
     else:
-      num_threads = cpu_count() if is_training else 1
+      num_threads = data_reader.cpu_count() if is_training else 1
 
     if config and hasattr(config,
                           "data_parallelism") and config.data_parallelism:
@@ -1039,14 +1015,6 @@ class Problem(object):
       return standardize_shapes(example, batch_size=batch_size)
 
     # Read and preprocess
-=======
-    partition_id, num_partitions = self._dataset_partition(mode, config, params)
-    is_training = mode == tf_estimator.ModeKeys.TRAIN
-    if config and config.use_tpu:
-      num_threads = 64
-    else:
-      num_threads = data_reader.cpu_count() if is_training else 1
->>>>>>> upstream/master
     data_dir = data_dir or (hasattr(hparams, "data_dir") and hparams.data_dir)
     dataset_kwargs = dataset_kwargs or {}
     dataset_kwargs.update({
@@ -1057,7 +1025,6 @@ class Problem(object):
         "partition_id": partition_id,
         "num_partitions": num_partitions,
     })
-<<<<<<< HEAD
 
     dataset = self.dataset(**dataset_kwargs)
     if (force_repeat or is_training) and not prevent_repeat:
@@ -1087,48 +1054,27 @@ class Problem(object):
             "Shapes are not fully defined. Assuming batch_size means tokens.")
         batch_size_means_tokens = True
 
+    # Branko's note: this was here but then removed by
+    # https://github.com/tensorflow/tensor2tensor/commit/e3d82d739fd95c6368a543b4a42653fa8721f463
     # Batching
-    if not batch_size_means_tokens:
-      # Batch size means examples per datashard.
-      if config and config.use_tpu:
-        # on TPU, we use params["batch_size"], which specifies the number of
-        # examples across all datashards
-        batch_size = params["batch_size"]
-        dataset = dataset.batch(batch_size, drop_remainder=True)
-      else:
-        batch_size = hparams.batch_size * num_shards
-        dataset = dataset.batch(batch_size)
-    else:
-      # Fathom
-      dataset = self.apply_batch_settings(dataset=dataset, hparams=hparams,
-                                          num_shards=num_shards,
-                                          num_threads=num_threads,
-                                          config=config, params=params,
-                                          is_training=is_training)
+    # if not batch_size_means_tokens:
+    #   # Batch size means examples per datashard.
+    #   if config and config.use_tpu:
+    #     # on TPU, we use params["batch_size"], which specifies the number of
+    #     # examples across all datashards
+    #     batch_size = params["batch_size"]
+    #     dataset = dataset.batch(batch_size, drop_remainder=True)
+    #   else:
+    #     batch_size = hparams.batch_size * num_shards
+    #     dataset = dataset.batch(batch_size)
+    # else:
+    #   # Fathom
+    #   dataset = self.apply_batch_settings(dataset=dataset, hparams=hparams,
+    #                                       num_shards=num_shards,
+    #                                       num_threads=num_threads,
+    #                                       config=config, params=params,
+    #                                       is_training=is_training)
 
-    dataset = dataset.map(define_shapes, num_parallel_calls=num_threads)
-
-    def prepare_for_output(example):
-      if not config or not config.use_tpu:
-        _summarize_features(example, num_shards)
-      if mode == tf.estimator.ModeKeys.PREDICT:
-        example["infer_targets"] = example.pop("targets")
-        return example
-      else:
-        return example, example["targets"]
-
-    dataset = dataset.map(prepare_for_output, num_parallel_calls=num_threads)
-    dataset = dataset.prefetch(2)
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-      # This is because of a bug in the Estimator that short-circuits prediction
-      # if it doesn't see a QueueRunner. DummyQueueRunner implements the
-      # minimal expected interface but does nothing.
-      tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS,
-                           data_reader.DummyQueueRunner())
-
-    return dataset
-=======
     return data_reader.input_fn(
         self.dataset(**dataset_kwargs),
         self.filepattern(data_dir, mode),
@@ -1143,7 +1089,6 @@ class Problem(object):
         config=config,
         force_repeat=force_repeat,
         prevent_repeat=prevent_repeat)
->>>>>>> upstream/master
 
   def _get_batching_scheme(self, hparams, num_shards):
     """Prepares batching scheme for bucketing by seq length.
@@ -1221,7 +1166,6 @@ class Problem(object):
     return tf_estimator.export.ServingInputReceiver(
         features=features, receiver_tensors=serialized_example)
 
-<<<<<<< HEAD
   def _pad_for_tpu(self, shapes_dict, hparams):
     """Pads unknown features' dimensions for TPU.
 
@@ -1260,8 +1204,6 @@ class Problem(object):
 
     return padded_shapes
 
-=======
->>>>>>> upstream/master
 
 class FeatureInfo(object):
   """Encapsulates information about a feature."""
@@ -1386,7 +1328,6 @@ def _default_hparams():
       target_space_id=SpaceID.GENERIC)
 
 
-<<<<<<< HEAD
 def _are_shapes_fully_defined(shapes_dict):
   for shape in shapes_dict.values():
     if not shape.is_fully_defined():
@@ -1467,8 +1408,6 @@ def pad_batch(features, batch_multiple):
   return padded_features
 
 
-=======
->>>>>>> upstream/master
 def problem_hparams_to_features(problem_hparams):
   input_space_id, target_space_id = 0, 0
   if problem_hparams:

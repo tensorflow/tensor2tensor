@@ -35,13 +35,9 @@ from tensor2tensor.utils import mlperf_log
 from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
-<<<<<<< HEAD
-import tensorflow as tf
 from tensorflow.python.training.session_run_hook import SessionRunHook, SessionRunArgs
-=======
 import tensorflow.compat.v1 as tf
 from tensorflow.compat.v1 import estimator as tf_estimator
->>>>>>> upstream/master
 
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
@@ -239,8 +235,8 @@ def create_run_config(model_name,
     if not master and cloud_tpu_name:
         # Update run_config to use cluster instead of master/evaluation_master
         # as we need the cluster spec to use Cloud Pods
-        tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(
-            cloud_tpu_name)
+        tpu_cluster_resolver = contrib.cluster_resolver().TPUClusterResolver(
+            tpu=cloud_tpu_name, zone=cloud_tpu_zone)
         run_config_args["cluster"] = tpu_cluster_resolver
         del run_config_args["master"]
         del run_config_args["evaluation_master"]
@@ -250,18 +246,7 @@ def create_run_config(model_name,
       run_config_args["master"] = os.environ[
           "KUBE_GOOGLE_CLOUD_TPU_ENDPOINTS"]
       run_config_args["evaluation_master"] = run_config_args["master"]
-<<<<<<< HEAD
     # END FATHOM
-=======
-    elif not master and cloud_tpu_name:
-      # Update run_config to use cluster instead of master/evaluation_master
-      # as we need the cluster spec to use Cloud Pods
-      tpu_cluster_resolver = contrib.cluster_resolver().TPUClusterResolver(
-          tpu=cloud_tpu_name, zone=cloud_tpu_zone)
-      run_config_args["cluster"] = tpu_cluster_resolver
-      del run_config_args["master"]
-      del run_config_args["evaluation_master"]
->>>>>>> upstream/master
   elif is_cloud_async_distributed():
     run_config_cls = tf_estimator.RunConfig
     del run_config_args["master"]
@@ -487,11 +472,7 @@ def create_hooks(use_tfdbg=False,
     assert FLAGS.schedule != 'continuous_train_and_eval'
     
     train_hooks.append(
-<<<<<<< HEAD
         FathomValidationMonitor(restart_after_eval=FLAGS.restart_after_eval,
-=======
-        contrib.learn().monitors.ValidationMonitor(
->>>>>>> upstream/master
             hooks=eval_hooks, **validation_monitor_kwargs))
 
   if use_early_stopping:
@@ -615,23 +596,16 @@ class T2TExperiment(object):
     hp.eval_dir_name = eval_dir_name
 
   def evaluate(self):
-<<<<<<< HEAD
     flags = tf.flags
     FLAGS = flags.FLAGS
-=======
     name = "eval"
     self._set_eval_dir_name("eval")
->>>>>>> upstream/master
     return self._estimator.evaluate(
         self._eval_spec.input_fn,
         steps=self._eval_spec.steps,
         hooks=self._eval_spec.hooks,
-<<<<<<< HEAD
         checkpoint_path=FLAGS.eval_checkpoint_path,
-    )
-=======
         name=name)
->>>>>>> upstream/master
 
   def evaluate_on_train_data(self):
     name = "eval_train"

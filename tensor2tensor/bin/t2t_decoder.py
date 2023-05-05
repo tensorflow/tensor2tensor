@@ -126,13 +126,15 @@ def decode(estimator, hparams, decode_hp):
         hparams,
         decode_hp,
         decode_to_file=FLAGS.decode_to_file,
-<<<<<<< HEAD
-        dataset_split=dataset_to_t2t_mode(FLAGS.dataset_split),
-        return_generator=FLAGS.fathom_output_predictions,
-        # save logs/summaries to a directory with the same name as decode_output_file
-        # in situations where we are calling decode without write permissions
-        # to the model directory
-        output_dir=os.path.splitext(FLAGS.decode_output_file)[0])
+        # Branko's note: this was here before, not sure if still needed
+        # dataset_split=dataset_to_t2t_mode(FLAGS.dataset_split),
+        # return_generator=FLAGS.fathom_output_predictions,
+        # # save logs/summaries to a directory with the same name as decode_output_file
+        # # in situations where we are calling decode without write permissions
+        # # to the model directory
+        # output_dir=os.path.splitext(FLAGS.decode_output_file)[0],
+        dataset_split = "test" if FLAGS.eval_use_test_set else None,
+        checkpoint_path = FLAGS.checkpoint_path)
 
     # Fathom
     if FLAGS.fathom_output_predictions:
@@ -147,11 +149,6 @@ def decode(estimator, hparams, decode_hp):
       problem.output_predictions(
           predictions=predictions,
           num_examples=FLAGS.num_examples)
-=======
-        dataset_split="test" if FLAGS.eval_use_test_set else None,
-        checkpoint_path=FLAGS.checkpoint_path)
->>>>>>> upstream/master
-
 
 def score_file(filename):
   """Score each line in a file and return the scores."""

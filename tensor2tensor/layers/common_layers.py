@@ -3511,14 +3511,7 @@ def sliced_gan_loss(input1,
 
     proj1 = get_sorted_projections(logits1)
     proj2 = get_sorted_projections(logits2)
-<<<<<<< HEAD
     return tf.reduce_mean(tf.square(proj1 - proj2))
-=======
-    dist = tf.reduce_mean(tf.squared_difference(proj1, proj2))
-    if return_logits:
-      return dist, logits1, logits2
-    return dist
->>>>>>> upstream/master
 
 
 def lrelu(input_, leak=0.2, name="lrelu"):
