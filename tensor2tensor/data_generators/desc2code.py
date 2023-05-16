@@ -150,7 +150,7 @@ class Desc2CodeProblem(text_problems.Text2TextProblem):
     len_samples = len(samples)
     split = len_samples // 25
     samples = samples[split:] if train else samples[:split]
-    tf.logging.info("Number of samples for {}: {}/{}".format(
+    tf.compat.v1.logging.info("Number of samples for {}: {}/{}".format(
         "train" if train else "dev",
         len(samples),
         len_samples
@@ -162,13 +162,13 @@ class Desc2CodeProblem(text_problems.Text2TextProblem):
       # Iterate over the coding samples
       for sample in samples:
         if get_source:
-          with tf.gfile.GFile(sample.desc_file, mode="r") as source_file:
+          with tf.io.gfile.GFile(sample.desc_file, mode="r") as source_file:
             source = source_file.read()
 
         if get_target:
           # Each challenge can have multiple implementations (or none)
           for code_file in sample.code_files:
-            with tf.gfile.GFile(code_file, mode="r") as target_file:
+            with tf.io.gfile.GFile(code_file, mode="r") as target_file:
               target = target_file.read()
               target = self.preprocess_target(target)
             yield source, target
@@ -255,19 +255,19 @@ def generator_samples(tmp_dir, pb_cst):
       filename=_DATASET_FILENAME,
       url=_DATASET_URL,
   )
-  tf.logging.info("Data downloaded in: {}".format(data_zip_path))
+  tf.compat.v1.logging.info("Data downloaded in: {}".format(data_zip_path))
 
   # Step2: Extract dataset
   # We could deduce _DATASET_PB_PATH from the zip file (instead of
   # hardcoded path)
   data_rootdir = os.path.join(tmp_dir, _DATASET_PB_PATH)
-  if not tf.gfile.Exists(data_rootdir):
+  if not tf.io.gfile.exists(data_rootdir):
     with zipfile.ZipFile(data_zip_path, "r") as corpus_zip:
       corpus_zip.extractall(tmp_dir)
     # We could remove the extracted __MACOSX folder
-    tf.logging.info("Data extracted in: {}".format(tmp_dir))
+    tf.compat.v1.logging.info("Data extracted in: {}".format(tmp_dir))
   else:
-    tf.logging.info("Data already extracted in: {}".format(tmp_dir))
+    tf.compat.v1.logging.info("Data already extracted in: {}".format(tmp_dir))
 
   # Step3: Extract the problems list on the extracted folder
   def contains_samples(subdir, dirs, files):  # pylint: disable=unused-argument
@@ -287,8 +287,8 @@ def generator_samples(tmp_dir, pb_cst):
     # As the dataset is noisy, the program deduce the language from the file
     # content.
     code_pattern = os.path.join(subdir, pb_cst.code_dir_name, "*.txt")
-    for f in tf.gfile.Glob(code_pattern):
-      with tf.gfile.GFile(f, mode="r") as target_file:
+    for f in tf.io.gfile.glob(code_pattern):
+      with tf.io.gfile.GFile(f, mode="r") as target_file:
         # Hack to filter C++/Java files. In theory some python comments could
         # make the file be considered as C++ but in practice the chance of
         # getting a false negative is low.
@@ -303,6 +303,6 @@ def generator_samples(tmp_dir, pb_cst):
   # The dataset contains problem from two different sources (CodeChef
   # and CodeForces). Due to the limited number of samples, all problems from
   # both sources are merged
-  for w in tf.gfile.Walk(data_rootdir):
+  for w in tf.io.gfile.walk(data_rootdir):
     if contains_samples(*w):
       yield next_sample(*w)

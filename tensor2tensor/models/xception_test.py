@@ -51,7 +51,7 @@ class XceptionTest(tf.test.TestCase):
       }
       model = xception.Xception(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (batch_size, 1, 1, 1, vocab_size))
 

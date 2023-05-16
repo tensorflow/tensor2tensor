@@ -32,7 +32,7 @@ class ImagenetTest(parameterized.TestCase, tf.test.TestCase):
       ("Area", "AREA"),
       ("Dilated", "DILATED"))
   def testImagenetMultiResolutionPreprocessExample(self, resize_method):
-    example = {"inputs": tf.random_uniform([64, 64, 3], minval=-1.)}
+    example = {"inputs": tf.random.uniform([64, 64, 3], minval=-1.)}
     mode = tf.estimator.ModeKeys.TRAIN
     hparams = tf.contrib.training.HParams(resolutions=[8, 16, 32])
     if resize_method is not None:

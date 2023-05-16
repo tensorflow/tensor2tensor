@@ -47,7 +47,7 @@ def add_delta_deltas(filterbanks, name=None):
       np.sum(delta_filter_stack**2, axis=0, keepdims=True))
 
   filterbanks = tf.nn.conv2d(
-      filterbanks, delta_filter_stack, [1, 1, 1, 1], "SAME", data_format="NHWC",
+      filterbanks, filters=delta_filter_stack, strides=[1, 1, 1, 1], padding="SAME", data_format="NHWC",
       name=name)
   return filterbanks
 
@@ -89,10 +89,10 @@ def compute_mel_filterbank_features(
   # simply doing sum(waveforms != 0, axis=-1) will not work correctly.
   wav_lens = tf.reduce_max(
       tf.expand_dims(tf.range(tf.shape(waveforms)[1]), 0) *
-      tf.to_int32(tf.not_equal(waveforms, 0.0)),
+      tf.cast(tf.not_equal(waveforms, 0.0), dtype=tf.int32),
       axis=-1) + 1
   if dither > 0:
-    waveforms += tf.random_normal(tf.shape(waveforms), stddev=dither)
+    waveforms += tf.random.normal(tf.shape(waveforms), stddev=dither)
   if preemphasis > 0:
     waveforms = waveforms[:, 1:] - preemphasis * waveforms[:, :-1]
     wav_lens -= 1
@@ -110,9 +110,9 @@ def compute_mel_filterbank_features(
       pad_end=True)
 
   stft_lens = (wav_lens + (frame_step - 1)) // frame_step
-  masks = tf.to_float(tf.less_equal(
+  masks = tf.cast(tf.less_equal(
       tf.expand_dims(tf.range(tf.shape(stfts)[1]), 0),
-      tf.expand_dims(stft_lens, 1)))
+      tf.expand_dims(stft_lens, 1)), dtype=tf.float32)
 
   # An energy spectrogram is the magnitude of the complex-valued STFT.
   # A float32 Tensor of shape [batch_size, ?, 257].
@@ -130,9 +130,9 @@ def compute_mel_filterbank_features(
   mel_spectrograms.set_shape(magnitude_spectrograms.shape[:-1].concatenate(
       linear_to_mel_weight_matrix.shape[-1:]))
 
-  log_mel_sgram = tf.log(tf.maximum(log_noise_floor, mel_spectrograms))
+  log_mel_sgram = tf.math.log(tf.maximum(log_noise_floor, mel_spectrograms))
 
   if apply_mask:
-    log_mel_sgram *= tf.expand_dims(tf.to_float(masks), -1)
+    log_mel_sgram *= tf.expand_dims(tf.cast(masks, dtype=tf.float32), -1)
 
   return tf.expand_dims(log_mel_sgram, -1, name="mel_sgrams")

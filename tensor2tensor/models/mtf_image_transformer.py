@@ -115,12 +115,12 @@ class MtfImageTransformer(mtf_model.MtfModel):
     positional_emb_rows_var = mtf.get_variable(
         mesh, "positional_emb_rows",
         mtf.Shape([self.max_length_dim, self.model_dim]),
-        initializer=tf.random_normal_initializer(),
+        initializer=tf.compat.v1.random_normal_initializer(),
         activation_dtype=self.activation_type)
     positional_emb_cols_var = mtf.get_variable(
         mesh, "positional_emb_cols",
         mtf.Shape([self.max_length_dim, self.model_dim]),
-        initializer=tf.random_normal_initializer(),
+        initializer=tf.compat.v1.random_normal_initializer(),
         activation_dtype=self.activation_type)
 
     targets_position_x = mtf.range(mesh, self.rows_dim, dtype=tf.int32)
@@ -138,12 +138,12 @@ class MtfImageTransformer(mtf_model.MtfModel):
 
   def mtf_model_fn(self, features, mesh):
     features = copy.copy(features)
-    tf.logging.info("features = %s" % features)
+    tf.compat.v1.logging.info("features = %s" % features)
     hparams = self._hparams
     activation_dtype = self.activation_type
 
     # We assume fixed vocab size for targets
-    targets = tf.to_int32(features["targets"])
+    targets = tf.cast(features["targets"], dtype=tf.int32)
 
     # Image preprocessing, reshape into a 1D sequence and shift right.
     length = hparams.img_len*hparams.img_len*hparams.num_channels
@@ -173,7 +173,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
     targets_embedding_var = mtf.get_variable(
         mesh, "targets_embedding",
         mtf.Shape([self.targets_vocab_dim, self.model_dim]),
-        initializer=tf.random_normal_initializer(),
+        initializer=tf.compat.v1.random_normal_initializer(),
         activation_dtype=activation_dtype)
 
     x = mtf.gather(targets_embedding_var,
@@ -185,7 +185,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
     # If conditional and input is given, add the input embedding to the target.
     # TODO(nikip): Verify conditional.
     if self.has_input and not hparams.unconditional:
-      inputs = tf.squeeze(tf.to_int32(features["inputs"]), [2, 3])
+      inputs = tf.squeeze(tf.cast(features["inputs"], dtype=tf.int32), [2, 3])
       inputs = import_to_batch_by_length(inputs, "inputs")
 
       # Input embeddings
@@ -201,7 +201,7 @@ class MtfImageTransformer(mtf_model.MtfModel):
     # [ self attention - ffn - residual + dropout] x n
     for layer in range(hparams.num_decoder_layers):
       layer_name = "decoder_layer_%d" % layer
-      with tf.variable_scope(layer_name):
+      with tf.compat.v1.variable_scope(layer_name):
         # Self attention layer
         x += layer_prepostprocess_dropout(
             mtf.layers.masked_local_attention_1d(

@@ -78,14 +78,14 @@ class YellowFinTest(tf.test.TestCase):
     x = tf.constant(np.ones([n_dim,], dtype=np.float32),
                     dtype=tf.float32)
     _ = tf.multiply(w, x) + b  # loss
-    tvars = tf.trainable_variables()
+    tvars = tf.compat.v1.trainable_variables()
 
-    w_grad_val = tf.placeholder(tf.float32, shape=(n_dim,))
-    b_grad_val = tf.placeholder(tf.float32, shape=(1,))
+    w_grad_val = tf.compat.v1.placeholder(tf.float32, shape=(n_dim,))
+    b_grad_val = tf.compat.v1.placeholder(tf.float32, shape=(1,))
     apply_op = opt.apply_gradients(zip([w_grad_val, b_grad_val], tvars))
 
-    init_op = tf.global_variables_initializer()
-    with tf.Session() as sess:
+    init_op = tf.compat.v1.global_variables_initializer()
+    with tf.compat.v1.Session() as sess:
       sess.run(init_op)
       target_h_max = 0.0
       target_h_min = 0.0
@@ -135,7 +135,7 @@ class YellowFinTest(tf.test.TestCase):
                     trainable=True)
     x = tf.constant(np.ones([n_dim,], dtype=np.float32), dtype=tf.float32)
     _ = tf.multiply(w, x) + b  # loss
-    tvars = tf.trainable_variables()
+    tvars = tf.compat.v1.trainable_variables()
 
     w_grad_val = tf.Variable(np.zeros([n_dim,]),
                              dtype=tf.float32,
@@ -145,8 +145,8 @@ class YellowFinTest(tf.test.TestCase):
                              trainable=False)
     apply_op = opt.apply_gradients(zip([w_grad_val, b_grad_val], tvars))
 
-    init_op = tf.global_variables_initializer()
-    with tf.Session() as sess:
+    init_op = tf.compat.v1.global_variables_initializer()
+    with tf.compat.v1.Session() as sess:
       sess.run(init_op)
       target_h_max = 0.0
       target_h_min = 0.0
@@ -158,9 +158,9 @@ class YellowFinTest(tf.test.TestCase):
       target_mu = 0.5
       for i in range(n_iter):
 
-        sess.run(tf.assign(w_grad_val, (i + 1) * np.ones([n_dim,],
+        sess.run(tf.compat.v1.assign(w_grad_val, (i + 1) * np.ones([n_dim,],
                                                          dtype=np.float32)))
-        sess.run(tf.assign(b_grad_val, (i + 1) * np.ones([1,],
+        sess.run(tf.compat.v1.assign(b_grad_val, (i + 1) * np.ones([1,],
                                                          dtype=np.float32)))
 
         res = sess.run([opt._curv_win,

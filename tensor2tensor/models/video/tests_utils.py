@@ -104,18 +104,18 @@ class BaseNextFrameTest(tf.test.TestCase):
   """Base helper class for next frame tests."""
 
   def RunModel(self, model, hparams, features):
-    with tf.Session() as session:
+    with tf.compat.v1.Session() as session:
       model = model(hparams, tf.estimator.ModeKeys.TRAIN)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     return res
 
   def InferModel(self, model, hparams, features):
-    with tf.Session() as session:
+    with tf.compat.v1.Session() as session:
       model = model(hparams, tf.estimator.ModeKeys.PREDICT)
       output = model.infer(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(output)
     return res
 

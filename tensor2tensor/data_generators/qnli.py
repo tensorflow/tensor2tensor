@@ -72,7 +72,7 @@ class QuestionNLI(text_problems.TextConcat2ClassProblem):
   def _maybe_download_corpora(self, tmp_dir):
     qnli_filename = "QNLI.zip"
     qnli_finalpath = os.path.join(tmp_dir, "QNLI")
-    if not tf.gfile.Exists(qnli_finalpath):
+    if not tf.io.gfile.exists(qnli_finalpath):
       zip_filepath = generator_utils.maybe_download(
           tmp_dir, qnli_filename, self._QNLI_URL)
       zip_ref = zipfile.ZipFile(zip_filepath, "r")
@@ -83,7 +83,7 @@ class QuestionNLI(text_problems.TextConcat2ClassProblem):
 
   def example_generator(self, filename):
     label_list = self.class_labels(data_dir=None)
-    for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
+    for idx, line in enumerate(tf.io.gfile.GFile(filename, "rb")):
       if idx == 0: continue  # skip header
       if six.PY2:
         line = unicode(line.strip(), "utf-8")

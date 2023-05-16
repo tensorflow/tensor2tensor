@@ -57,9 +57,9 @@ class TestProblem(problem_mod.Problem):
 
   def example_reading_spec(self):
     data_fields = {
-        "inputs": tf.VarLenFeature(tf.int64),
-        "targets": tf.VarLenFeature(tf.int64),
-        "floats": tf.VarLenFeature(tf.float32),
+        "inputs": tf.io.VarLenFeature(tf.int64),
+        "targets": tf.io.VarLenFeature(tf.int64),
+        "floats": tf.io.VarLenFeature(tf.float32),
     }
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
@@ -78,7 +78,7 @@ class DataReaderTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    tf.set_random_seed(1)
+    tf.compat.v1.set_random_seed(1)
     cls.problem = registry.problem("test_problem")
     cls.data_dir = tempfile.gettempdir()
     cls.filepatterns = generate_test_data(cls.problem, cls.data_dir)
@@ -87,7 +87,7 @@ class DataReaderTest(tf.test.TestCase):
   def tearDownClass(cls):
     # Clean up files
     for fp in cls.filepatterns:
-      files = tf.gfile.Glob(fp)
+      files = tf.io.gfile.glob(fp)
       for f in files:
         os.remove(f)
 
@@ -96,8 +96,8 @@ class DataReaderTest(tf.test.TestCase):
         tf.estimator.ModeKeys.TRAIN,
         data_dir=self.data_dir,
         shuffle_files=False)
-    examples = dataset.make_one_shot_iterator().get_next()
-    with tf.train.MonitoredSession() as sess:
+    examples = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
+    with tf.compat.v1.train.MonitoredSession() as sess:
       # Check that there are multiple examples that have the right fields of the
       # right type (lists of int/float).
       for _ in range(10):
@@ -115,8 +115,8 @@ class DataReaderTest(tf.test.TestCase):
         tf.estimator.ModeKeys.TRAIN,
         data_dir=self.data_dir,
         shuffle_files=False)
-    examples = dataset.make_one_shot_iterator().get_next()
-    with tf.train.MonitoredSession() as sess:
+    examples = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
+    with tf.compat.v1.train.MonitoredSession() as sess:
       ex_val = sess.run(examples)
       # problem.preprocess_example has been run
       self.assertAllClose([42.42], ex_val["new_field"])
@@ -129,8 +129,8 @@ class DataReaderTest(tf.test.TestCase):
         shuffle_files=False)
     dataset = dataset.filter(
         lambda ex: data_reader.example_valid_size(ex, 0, max_len))
-    examples = dataset.make_one_shot_iterator().get_next()
-    with tf.train.MonitoredSession() as sess:
+    examples = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
+    with tf.compat.v1.train.MonitoredSession() as sess:
       ex_lens = []
       for _ in range(max_len):
         ex_lens.append(len(sess.run(examples)["inputs"]))

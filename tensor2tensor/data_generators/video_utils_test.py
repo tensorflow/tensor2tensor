@@ -76,7 +76,7 @@ class VideoUtilsTest(tf.test.TestCase):
     # 10 input vids + 10 output vids + 10 frame-by-frame.
     self.assertEqual(len(summaries), 30)
     for summary in summaries:
-      self.assertTrue(isinstance(summary, tf.Summary.Value))
+      self.assertTrue(isinstance(summary, tf.compat.v1.Summary.Value))
 
 
 if __name__ == "__main__":

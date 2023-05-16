@@ -28,7 +28,7 @@ def weight(w, sparsity):
   """Weight-level magnitude pruning."""
   w_shape = common_layers.shape_list(w)
   k = int(np.prod(w_shape[:-1]))
-  count = tf.to_int32(k * sparsity)
+  count = tf.cast(k * sparsity, dtype=tf.int32)
   mask = common_layers.weight_targeting(w, count)
   return (1 - mask) * w
 
@@ -37,14 +37,14 @@ def weight(w, sparsity):
 def unit(w, sparsity):
   """Unit-level magnitude pruning."""
   w_shape = common_layers.shape_list(w)
-  count = tf.to_int32(w_shape[-1] * sparsity)
+  count = tf.cast(w_shape[-1] * sparsity, dtype=tf.int32)
   mask = common_layers.unit_targeting(w, count)
   return (1 - mask) * w
 
 
 def sparsify(sess, eval_model, pruning_strategy, pruning_params):
   """Prune the weights of a model and evaluate."""
-  weights = tf.trainable_variables()
+  weights = tf.compat.v1.trainable_variables()
 
   def should_prune(name):
     """Whether to prune a weight or not."""
@@ -60,21 +60,21 @@ def sparsify(sess, eval_model, pruning_strategy, pruning_params):
     return True
 
   weights = [w for w in weights if should_prune(w.name)]
-  tf.logging.info("Pruning weights: %s" % weights)
+  tf.compat.v1.logging.info("Pruning weights: %s" % weights)
   unpruned_weights = sess.run(weights)
 
   reset_op = tf.no_op()
   for w, ow in zip(weights, unpruned_weights):
-    op = tf.assign(w, ow)
+    op = tf.compat.v1.assign(w, ow)
     reset_op = tf.group(reset_op, op)
 
   for sparsity in pruning_params.sparsities:
     set_weights_op = tf.no_op()
     for w in weights:
-      op = tf.assign(w, pruning_strategy(w, sparsity))
+      op = tf.compat.v1.assign(w, pruning_strategy(w, sparsity))
       set_weights_op = tf.group(set_weights_op, op)
     sess.run(set_weights_op)
 
     acc = eval_model()
-    tf.logging.info("\tPruning to sparsity = %f: acc = %f" % (sparsity, acc))
+    tf.compat.v1.logging.info("\tPruning to sparsity = %f: acc = %f" % (sparsity, acc))
     sess.run(reset_op)

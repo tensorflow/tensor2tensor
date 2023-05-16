@@ -106,7 +106,7 @@ class ProgramSearchAlgolisp(text_problems.Text2TextProblem):
 
     # Sanity check.
     if url is None:
-      tf.logging.fatal("Unknown dataset_split passed: {}".format(dataset_split))
+      tf.compat.v1.logging.fatal("Unknown dataset_split passed: {}".format(dataset_split))
 
     # Download the data, if it doesn't already exist.
     return generator_utils.maybe_download(tmp_dir,

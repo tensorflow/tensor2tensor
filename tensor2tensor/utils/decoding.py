@@ -101,7 +101,7 @@ def log_decode_results(inputs,
       if vid.shape[-1] == 1:
         vid = np.squeeze(vid, axis=-1)
       save_video(vid, save_path_template)
-    tf.logging.info("Saving video: {}".format(prediction_idx))
+    tf.compat.v1.logging.info("Saving video: {}".format(prediction_idx))
     fix_and_save_video(inputs, "inputs")
     fix_and_save_video(outputs, "outputs")
     fix_and_save_video(targets, "targets")
@@ -124,7 +124,7 @@ def log_decode_results(inputs,
           inputs, skip_eos_postprocess))
 
     if log_results and not is_video:
-      tf.logging.info("Inference results INPUT: %s" % decoded_inputs)
+      tf.compat.v1.logging.info("Inference results INPUT: %s" % decoded_inputs)
 
   decoded_targets = None
   decoded_outputs = None
@@ -139,9 +139,9 @@ def log_decode_results(inputs,
       decoded_targets = targets_vocab.decode(_save_until_eos(
           targets, skip_eos_postprocess))
   if not is_video:
-    tf.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
+    tf.compat.v1.logging.info("Inference results OUTPUT: %s" % decoded_outputs)
   if targets is not None and log_results and not is_video:
-    tf.logging.info("Inference results TARGET: %s" % decoded_targets)
+    tf.compat.v1.logging.info("Inference results TARGET: %s" % decoded_targets)
   return decoded_inputs, decoded_outputs, decoded_targets
 
 
@@ -171,7 +171,7 @@ def decode_from_dataset(estimator,
       return_generator: if True, return the predictions generator
                         directly and do not write to file
   """
-  tf.logging.info("Performing local inference from dataset for %s.",
+  tf.compat.v1.logging.info("Performing local inference from dataset for %s.",
                   str(problem_name))
   # We assume that worker_id corresponds to shard number.
   shard = decode_hp.shard_id if decode_hp.shards > 1 else None
@@ -182,7 +182,7 @@ def decode_from_dataset(estimator,
   #output_dir = os.path.join(estimator.model_dir, "decode")
   if not output_dir:
     output_dir = os.path.join(estimator.model_dir, "decode")
-  tf.gfile.MakeDirs(output_dir)
+  tf.io.gfile.makedirs(output_dir)
 
   # If decode_hp.batch_size is specified, use a fixed batch size
   if decode_hp.batch_size:
@@ -225,12 +225,12 @@ def decode_from_dataset(estimator,
 
   predictions, output_dirs = [], []
   for decode_id in range(decode_hp.num_decodes):
-    tf.logging.info("Decoding {}".format(decode_id))
+    tf.compat.v1.logging.info("Decoding {}".format(decode_id))
 
     # Create decode directory if not in-memory decoding.
     if not decode_hp.decode_in_memory:
       output_dir = os.path.join(estimator.model_dir, "decode_%05d" % decode_id)
-      tf.gfile.MakeDirs(output_dir)
+      tf.io.gfile.makedirs(output_dir)
       output_dirs.append(output_dir)
 
     result = decode_once(estimator,
@@ -288,8 +288,8 @@ def decode_once(estimator,
     parts[-1] = "targets"
     target_filepath = ".".join(parts)
 
-    output_file = tf.gfile.Open(output_filepath, "w")
-    target_file = tf.gfile.Open(target_filepath, "w")
+    output_file = tf.io.gfile.GFile(output_filepath, "w")
+    target_file = tf.io.gfile.GFile(target_filepath, "w")
 
   problem_hparams = hparams.problem_hparams
   # Inputs vocabulary is set to targets if there are no inputs in the problem,
@@ -310,7 +310,7 @@ def decode_once(estimator,
     if decode_hp.return_beams:
       output_beams = np.split(outputs, decode_hp.beam_size, axis=0)
       for i, beam in enumerate(output_beams):
-        tf.logging.info("BEAM %d:" % i)
+        tf.compat.v1.logging.info("BEAM %d:" % i)
         decoded = log_decode_results(
             inputs,
             beam,
@@ -387,7 +387,7 @@ def decode_from_file(estimator,
   """Compute predictions on entries in filename and write them out."""
   if not decode_hp.batch_size:
     decode_hp.batch_size = 32
-    tf.logging.info(
+    tf.compat.v1.logging.info(
         "decode_hp.batch_size not specified; default=%d" % decode_hp.batch_size)
 
   # Inputs vocabulary is set to targets if there are no inputs in the problem,
@@ -398,7 +398,7 @@ def decode_from_file(estimator,
   inputs_vocab = p_hp.vocabulary[inputs_vocab_key]
   targets_vocab = p_hp.vocabulary["targets"]
   problem_name = FLAGS.problem
-  tf.logging.info("Performing decoding from a file.")
+  tf.compat.v1.logging.info("Performing decoding from a file.")
   sorted_inputs, sorted_keys = _get_sorted_inputs(filename, decode_hp.shards,
                                                   decode_hp.delimiter)
   num_decode_batches = (len(sorted_inputs) - 1) // decode_hp.batch_size + 1
@@ -437,7 +437,7 @@ def decode_from_file(estimator,
       if "scores" in result:
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(output_beams):
-        tf.logging.info("BEAM %d:" % k)
+        tf.compat.v1.logging.info("BEAM %d:" % k)
         score = scores and scores[k]
         _, decoded_outputs, _ = log_decode_results(
             result["inputs"],
@@ -469,8 +469,8 @@ def decode_from_file(estimator,
       decodes.append(decoded_outputs)
     total_time_per_step += elapsed_time
     total_cnt += result["outputs"].shape[-1]
-  tf.logging.info("Elapsed Time: %5.5f" % (time.time() - start_time))
-  tf.logging.info("Averaged Single Token Generation Time: %5.7f" %
+  tf.compat.v1.logging.info("Elapsed Time: %5.5f" % (time.time() - start_time))
+  tf.compat.v1.logging.info("Averaged Single Token Generation Time: %5.7f" %
                   (total_time_per_step / total_cnt))
 
   # Reversing the decoded inputs and outputs because they were reversed in
@@ -483,15 +483,15 @@ def decode_from_file(estimator,
   decode_filename = decode_to_file if decode_to_file else filename
   if not decode_to_file:
     decode_filename = _decode_filename(decode_filename, problem_name, decode_hp)
-  tf.logging.info("Writing decodes into %s" % decode_filename)
-  outfile = tf.gfile.Open(decode_filename, "w")
+  tf.compat.v1.logging.info("Writing decodes into %s" % decode_filename)
+  outfile = tf.io.gfile.GFile(decode_filename, "w")
   for index in range(len(sorted_inputs)):
     outfile.write("%s%s" % (decodes[sorted_keys[index]], decode_hp.delimiter))
   outfile.flush()
   outfile.close()
 
   output_dir = os.path.join(estimator.model_dir, "decode")
-  tf.gfile.MakeDirs(output_dir)
+  tf.io.gfile.makedirs(output_dir)
 
   run_postdecode_hooks(DecodeHookArgs(
       estimator=estimator,
@@ -534,7 +534,7 @@ def _decode_filename(base_filename, problem_name, decode_hp):
 def make_input_fn_from_generator(gen):
   """Use py_func to yield elements from the given generator."""
   first_ex = six.next(gen)
-  flattened = tf.contrib.framework.nest.flatten(first_ex)
+  flattened = tf.nest.flatten(first_ex)
   types = [t.dtype for t in flattened]
   shapes = [[None] * len(t.shape) for t in flattened]
   first_ex_list = [first_ex]
@@ -544,12 +544,12 @@ def make_input_fn_from_generator(gen):
       example = first_ex_list.pop()
     else:
       example = six.next(gen)
-    return tf.contrib.framework.nest.flatten(example)
+    return tf.nest.flatten(example)
 
   def input_fn():
-    flat_example = tf.py_func(py_func, [], types)
+    flat_example = tf.compat.v1.py_func(py_func, [], types)
     _ = [t.set_shape(shape) for t, shape in zip(flat_example, shapes)]
-    example = tf.contrib.framework.nest.pack_sequence_as(first_ex, flat_example)
+    example = tf.nest.pack_sequence_as(first_ex, flat_example)
     return example
 
   return input_fn
@@ -581,18 +581,18 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
       if "scores" in result:
         scores = np.split(result["scores"], decode_hp.beam_size, axis=0)
       for k, beam in enumerate(beams):
-        tf.logging.info("BEAM %d:" % k)
+        tf.compat.v1.logging.info("BEAM %d:" % k)
         beam_string = targets_vocab.decode(_save_until_eos(
             beam, skip_eos_postprocess))
         if scores is not None:
-          tf.logging.info("\"%s\"\tScore:%f" % (beam_string, scores[k]))
+          tf.compat.v1.logging.info("\"%s\"\tScore:%f" % (beam_string, scores[k]))
         else:
-          tf.logging.info("\"%s\"" % beam_string)
+          tf.compat.v1.logging.info("\"%s\"" % beam_string)
     else:
       if decode_hp.identity_output:
-        tf.logging.info(" ".join(map(str, result["outputs"].flatten())))
+        tf.compat.v1.logging.info(" ".join(map(str, result["outputs"].flatten())))
       else:
-        tf.logging.info(
+        tf.compat.v1.logging.info(
             targets_vocab.decode(_save_until_eos(
                 result["outputs"], skip_eos_postprocess)))
 
@@ -600,12 +600,12 @@ def decode_interactively(estimator, hparams, decode_hp, checkpoint_path=None):
 def _decode_batch_input_fn(num_decode_batches, sorted_inputs, vocabulary,
                            batch_size, max_input_size):
   """Generator to produce batches of inputs."""
-  tf.logging.info(" batch %d" % num_decode_batches)
+  tf.compat.v1.logging.info(" batch %d" % num_decode_batches)
   # First reverse all the input sentences so that if you're going to get OOMs,
   # you'll see it in the first batch
   sorted_inputs.reverse()
   for b in range(num_decode_batches):
-    tf.logging.info("Decoding batch %d" % b)
+    tf.compat.v1.logging.info("Decoding batch %d" % b)
     batch_length = 0
     batch_inputs = []
     for inputs in sorted_inputs[b * batch_size:(b + 1) * batch_size]:
@@ -715,14 +715,14 @@ def save_video(video, save_path_template):
   try:
     from PIL import Image  # pylint: disable=g-import-not-at-top
   except ImportError as e:
-    tf.logging.warning(
+    tf.compat.v1.logging.warning(
         "Showing and saving an image requires PIL library to be "
         "installed: %s", e)
     raise NotImplementedError("Image display and save not implemented.")
 
   for i, frame in enumerate(video):
     save_path = save_path_template.format(i)
-    with tf.gfile.Open(save_path, "wb") as sp:
+    with tf.io.gfile.GFile(save_path, "wb") as sp:
       Image.fromarray(np.uint8(frame)).save(sp)
 
 
@@ -731,12 +731,12 @@ def show_and_save_image(img, save_path):
   try:
     import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
   except ImportError as e:
-    tf.logging.warning(
+    tf.compat.v1.logging.warning(
         "Showing and saving an image requires matplotlib to be "
         "installed: %s", e)
     raise NotImplementedError("Image display and save not implemented.")
   plt.imshow(img)
-  with tf.gfile.Open(save_path, "wb") as sp:
+  with tf.io.gfile.GFile(save_path, "wb") as sp:
     plt.savefig(sp)
 
 
@@ -753,14 +753,14 @@ def _get_sorted_inputs(filename, num_shards=1, delimiter="\n"):
     a sorted list of inputs
 
   """
-  tf.logging.info("Getting sorted inputs")
+  tf.compat.v1.logging.info("Getting sorted inputs")
   # read file and sort inputs according them according to input length.
   if num_shards > 1:
     decode_filename = filename + ("%.2d" % FLAGS.worker_id)
   else:
     decode_filename = filename
 
-  with tf.gfile.Open(decode_filename) as f:
+  with tf.io.gfile.GFile(decode_filename) as f:
     text = f.read()
     records = text.split(delimiter)
     inputs = [record.strip() for record in records]
@@ -806,18 +806,18 @@ def _interactive_input_tensor_to_features_dict(feature_map, hparams):
 
   x = inputs
   if input_is_image:
-    x = tf.image.resize_images(x, [299, 299])
+    x = tf.image.resize(x, [299, 299])
     x = tf.reshape(x, [1, 299, 299, -1])
-    x = tf.to_int32(x)
+    x = tf.cast(x, dtype=tf.int32)
   else:
     # Remove the batch dimension.
     num_samples = x[0]
     length = x[2]
-    x = tf.slice(x, [3], tf.to_int32([length]))
+    x = tf.slice(x, [3], tf.cast([length], dtype=tf.int32))
     x = tf.reshape(x, [1, -1, 1, 1])
     # Transform into a batch of size num_samples to get that many random
     # decodes.
-    x = tf.tile(x, tf.to_int32([num_samples, 1, 1, 1]))
+    x = tf.tile(x, tf.cast([num_samples, 1, 1, 1], dtype=tf.int32))
 
   p_hparams = hparams.problem_hparams
   input_space_id = tf.constant(p_hparams.input_space_id)
@@ -849,7 +849,7 @@ def _decode_input_tensor_to_features_dict(feature_map, hparams):
   p_hparams = hparams.problem_hparams
   # Add a third empty dimension
   x = tf.expand_dims(x, axis=[2])
-  x = tf.to_int32(x)
+  x = tf.cast(x, dtype=tf.int32)
   input_space_id = tf.constant(p_hparams.input_space_id)
   target_space_id = tf.constant(p_hparams.target_space_id)
 
@@ -885,23 +885,23 @@ def run_postdecode_hooks(decode_hook_args, dataset_split):
     return
   global_step = latest_checkpoint_step(decode_hook_args.estimator.model_dir)
   if global_step is None:
-    tf.logging.info(
+    tf.compat.v1.logging.info(
         "Skipping decode hooks because no checkpoint yet available.")
     return
-  tf.logging.info("Running decode hooks.")
+  tf.compat.v1.logging.info("Running decode hooks.")
   parent_dir = os.path.join(decode_hook_args.output_dirs[0], os.pardir)
   child_dir = "decode"
   if dataset_split is not None:
     child_dir += "_{}".format(dataset_split)
   final_dir = os.path.join(parent_dir, child_dir)
-  summary_writer = tf.summary.FileWriter(final_dir)
+  summary_writer = tf.compat.v1.summary.FileWriter(final_dir)
 
   for hook in hooks:
     # Isolate each hook in case it creates TF ops
     with tf.Graph().as_default():
       summaries = hook(decode_hook_args)
     if summaries:
-      summary = tf.Summary(value=list(summaries))
+      summary = tf.compat.v1.Summary(value=list(summaries))
       summary_writer.add_summary(summary, global_step)
   summary_writer.close()
-  tf.logging.info("Decode hooks done.")
+  tf.compat.v1.logging.info("Decode hooks done.")

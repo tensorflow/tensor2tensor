@@ -72,9 +72,9 @@ def export_module_spec_with_checkpoint(module_spec,
     assign_map = {
         scope_prefix + name: value for name, value in m.variable_map.items()
     }
-    tf.train.init_from_checkpoint(checkpoint_path, assign_map)
-    init_op = tf.initializers.global_variables()
-    with tf.Session() as session:
+    tf.compat.v1.train.init_from_checkpoint(checkpoint_path, assign_map)
+    init_op = tf.compat.v1.initializers.global_variables()
+    with tf.compat.v1.Session() as session:
       session.run(init_op)
       m.export(export_path, session)
 
@@ -119,7 +119,7 @@ def export_as_tfhub_module(model_name,
 
   # TFHub doesn't support LOSSES collections.
   module_spec = hub.create_module_spec(
-      hub_module_fn, drop_collections=[tf.GraphKeys.LOSSES])
+      hub_module_fn, drop_collections=[tf.compat.v1.GraphKeys.LOSSES])
   # Loads the weights from the checkpoint using the model above
   # and saves it in the export_path.
   export_module_spec_with_checkpoint(
@@ -130,7 +130,7 @@ def export_as_tfhub_module(model_name,
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
@@ -165,5 +165,5 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

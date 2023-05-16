@@ -90,12 +90,12 @@ def _ppo_training_epochs(hparams, epoch, is_final_epoch, real_env_training):
 
 def setup_directories(base_dir, subdirs):
   base_dir = os.path.expanduser(base_dir)
-  tf.gfile.MakeDirs(base_dir)
+  tf.io.gfile.makedirs(base_dir)
 
   all_dirs = {}
   for subdir in subdirs:
     dir_name = os.path.join(base_dir, subdir)
-    tf.gfile.MakeDirs(dir_name)
+    tf.io.gfile.makedirs(dir_name)
     all_dirs[subdir] = dir_name
   return all_dirs
 
@@ -109,7 +109,7 @@ def make_relative_timing_fn():
     return str(datetime.timedelta(seconds=time_delta))
 
   def log_relative_time():
-    tf.logging.info("Timing: %s", format_relative_time())
+    tf.compat.v1.logging.info("Timing: %s", format_relative_time())
 
   return log_relative_time
 
@@ -118,7 +118,7 @@ def make_log_fn(epoch, log_relative_time_fn):
 
   def log(msg, *args):
     msg %= args
-    tf.logging.info("%s Epoch %d: %s", ">>>>>>>", epoch, msg)
+    tf.compat.v1.logging.info("%s Epoch %d: %s", ">>>>>>>", epoch, msg)
     log_relative_time_fn()
 
   return log
@@ -322,7 +322,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   # We could set learning_rate=0 if this flag == False.
   assert hparams.gather_ppo_real_env_data
   ppo_model_dir = directories["ppo"]
-  tf.logging.info("Initial training of PPO in real environment.")
+  tf.compat.v1.logging.info("Initial training of PPO in real environment.")
   ppo_event_dir = os.path.join(directories["world_model"],
                                "ppo_summaries/initial")
   train_agent_real_env(
@@ -330,16 +330,16 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
       ppo_event_dir, data_dir,
       hparams, epoch=epoch, is_final_epoch=False)
   mean_unclipped_reward = eval_reward(env, clipped=False)
-  tf.logging.info("Mean reward (initial): {}".format(mean_unclipped_reward))
+  tf.compat.v1.logging.info("Mean reward (initial): {}".format(mean_unclipped_reward))
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
                                         "eval_metrics_event_dir")
-  eval_metrics_writer = tf.summary.FileWriter(eval_metrics_event_dir)
+  eval_metrics_writer = tf.compat.v1.summary.FileWriter(eval_metrics_event_dir)
 
-  mean_unclipped_reward_summary = tf.Summary()
+  mean_unclipped_reward_summary = tf.compat.v1.Summary()
   mean_unclipped_reward_summary.value.add(tag="mean_unclipped_reward",
                                           simple_value=None)
-  mean_clipped_reward_summary = tf.Summary()
+  mean_clipped_reward_summary = tf.compat.v1.Summary()
   mean_clipped_reward_summary.value.add(tag="mean_clipped_reward",
                                         simple_value=None)
 
@@ -351,7 +351,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
   for epoch in range(hparams.epochs):
     epoch_data_dir = os.path.join(directories["data"], str(epoch))
-    tf.gfile.MakeDirs(epoch_data_dir)
+    tf.io.gfile.makedirs(epoch_data_dir)
     env.generate_data(epoch_data_dir, directories["tmp"])
     epoch_data_dirs.append(epoch_data_dir)
 
@@ -417,5 +417,5 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

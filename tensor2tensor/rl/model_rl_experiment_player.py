@@ -95,11 +95,11 @@ class DebugBatchEnv(Env):
         dtype=np.uint8)
     self._tmp = 1
     self.res = None
-    self.sess = sess if sess is not None else tf.Session()
+    self.sess = sess if sess is not None else tf.compat.v1.Session()
     self._prepare_networks(hparams, self.sess)
 
   def _prepare_networks(self, hparams, sess):
-    self.action = tf.placeholder(shape=(1,), dtype=tf.int32)
+    self.action = tf.compat.v1.placeholder(shape=(1,), dtype=tf.int32)
     batch_env = batch_env_factory(
         hparams.environment_spec, hparams.num_agents,
         initial_frame_chooser=hparams.initial_frame_chooser)
@@ -244,7 +244,7 @@ def main(_):
     simulated_problem_name = ("gym_simulated_discrete_problem_with_agent_on_%s"
                               % game_with_mode)
     if simulated_problem_name not in registry.list_problems():
-      tf.logging.info("Game Problem %s not found; dynamically registering",
+      tf.compat.v1.logging.info("Game Problem %s not found; dynamically registering",
                       simulated_problem_name)
       gym_problems_specs.create_problems_for_game(hparams.game,
                                                   game_mode="Deterministic-v4")
@@ -273,18 +273,18 @@ def main(_):
       "output_dir": world_model_dir,
       "data_dir": epoch_data_dir,
   }):
-    sess = tf.Session()
+    sess = tf.compat.v1.Session()
     env = DebugBatchEnv(batch_env_hparams, sess)
-    sess.run(tf.global_variables_initializer())
+    sess.run(tf.compat.v1.global_variables_initializer())
     env.initialize()
 
-    env_model_loader = tf.train.Saver(
-        tf.global_variables("next_frame*"))
+    env_model_loader = tf.compat.v1.train.Saver(
+        tf.compat.v1.global_variables("next_frame*"))
     trainer_lib.restore_checkpoint(world_model_dir, env_model_loader, sess,
                                    must_restore=True)
 
-    model_saver = tf.train.Saver(
-        tf.global_variables(".*network_parameters.*"))
+    model_saver = tf.compat.v1.train.Saver(
+        tf.compat.v1.global_variables(".*network_parameters.*"))
     trainer_lib.restore_checkpoint(ppo_model_dir, model_saver, sess)
 
     key_mapping = gym_problem.env.env.get_keys_to_action()
@@ -297,5 +297,5 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

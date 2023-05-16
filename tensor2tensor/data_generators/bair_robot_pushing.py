@@ -89,7 +89,7 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
   def extra_reading_spec(self):
     """Additional data fields to store on disk and their decoders."""
     data_fields = {
-        "frame_number": tf.FixedLenFeature([1], tf.int64),
+        "frame_number": tf.io.FixedLenFeature([1], tf.int64),
     }
     decoders = {
         "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(
@@ -113,7 +113,7 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
 
     for f in filenames:
       print("Parsing ", f)
-      for serialized_example in tf.python_io.tf_record_iterator(f):
+      for serialized_example in tf.compat.v1.python_io.tf_record_iterator(f):
         x = tf.train.Example()
         x.ParseFromString(serialized_example)
         # there are 4 features per frame
@@ -150,7 +150,7 @@ class VideoBairRobotPushing(video_utils.VideoProblem):
     else:
       base_dir = os.path.join(tmp_dir, "softmotion30_44k/test/*")
 
-    filenames = tf.gfile.Glob(base_dir)
+    filenames = tf.io.gfile.glob(base_dir)
     for frame_number, frame, state, action in self.parse_frames(filenames):
       yield {
           "frame_number": [frame_number],
@@ -168,8 +168,8 @@ class VideoBairRobotPushingWithActions(VideoBairRobotPushing):
   def extra_reading_spec(self):
     """Additional data fields to store on disk and their decoders."""
     data_fields = {
-        "frame_number": tf.FixedLenFeature([1], tf.int64),
-        "action": tf.FixedLenFeature([4], tf.float32),
+        "frame_number": tf.io.FixedLenFeature([1], tf.int64),
+        "action": tf.io.FixedLenFeature([4], tf.float32),
     }
     decoders = {
         "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(

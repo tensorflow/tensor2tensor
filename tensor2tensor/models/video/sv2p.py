@@ -164,7 +164,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
     """Builds a reward prediction network."""
     conv_size = self.tinyify([32, 32, 16, 8])
 
-    with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope("reward_pred", reuse=tf.compat.v1.AUTO_REUSE):
       x = tf.concat(input_images, axis=3)
       x = tfcl.layer_norm(x)
 
@@ -214,13 +214,13 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
     lstm_size = self.tinyify([32, 32, 64, 64, 128, 64, 32])
     conv_size = self.tinyify([32])
 
-    with tf.variable_scope("main", reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope("main", reuse=tf.compat.v1.AUTO_REUSE):
       hidden5, skips, layer_id = self.bottom_part_tower(
           input_image, input_reward, action, latent,
           lstm_state, lstm_size, conv_size, concat_latent=concat_latent)
       enc0, enc1 = skips
 
-      with tf.variable_scope("upsample1", reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope("upsample1", reuse=tf.compat.v1.AUTO_REUSE):
         enc4 = common_layers.cyclegan_upsample(
             hidden5, num_outputs=hidden5.shape.as_list()[-1],
             stride=[2, 2], method=upsample_method)
@@ -238,7 +238,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
       layer_id += 1
 
-      with tf.variable_scope("upsample2", reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope("upsample2", reuse=tf.compat.v1.AUTO_REUSE):
         enc5 = common_layers.cyclegan_upsample(
             hidden6, num_outputs=hidden6.shape.as_list()[-1],
             stride=[2, 2], method=upsample_method)
@@ -256,7 +256,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       # Skip connection.
       hidden7 = tf.concat(axis=3, values=[hidden7, enc0])  # both 32x32
 
-      with tf.variable_scope("upsample3", reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope("upsample3", reuse=tf.compat.v1.AUTO_REUSE):
         enc6 = common_layers.cyclegan_upsample(
             hidden7, num_outputs=hidden7.shape.as_list()[-1],
             stride=[2, 2], method=upsample_method)
@@ -322,7 +322,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
 
       # Map to softmax digits
       if self.is_per_pixel_softmax:
-        output = tf.layers.dense(
+        output = tf.compat.v1.layers.dense(
             output, self.hparams.problem.num_channels * 256, name="logits")
 
       return output, lstm_state
@@ -376,20 +376,20 @@ class NextFrameSv2pDiscrete(NextFrameSv2p):
     batch_size = tower_output_shape[0]
 
     if not self.is_training:
-      rand = tf.random_uniform([batch_size, hparams.bottleneck_bits])
-      d = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+      rand = tf.random.uniform([batch_size, hparams.bottleneck_bits])
+      d = 2.0 * tf.cast(tf.less(0.5, rand), dtype=tf.float32) - 1.0
     else:
       x = tfl.flatten(tower_output)
       x = tfl.dense(x, hparams.bottleneck_bits, name="bits_enc")
       x_shape = common_layers.shape_list(x)
-      x += tf.truncated_normal(x_shape, mean=0.0, stddev=0.2)
+      x += tf.random.truncated_normal(x_shape, mean=0.0, stddev=0.2)
       x = tf.tanh(x)
-      noise = tf.random_uniform(x_shape)
-      noise = 2.0 * tf.to_float(tf.less(hparams.bottleneck_noise, noise)) - 1.0
+      noise = tf.random.uniform(x_shape)
+      noise = 2.0 * tf.cast(tf.less(hparams.bottleneck_noise, noise), dtype=tf.float32) - 1.0
       x *= noise
-      d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
+      d = x + tf.stop_gradient(2.0 * tf.cast(tf.less(0.0, x), dtype=tf.float32) - 1.0 - x)
       p = common_layers.inverse_lin_decay(hparams.discrete_warmup_steps)
-      d = tf.where(tf.less(tf.random_uniform([batch_size]), p), d, x)
+      d = tf.compat.v1.where(tf.less(tf.random.uniform([batch_size]), p), d, x)
 
     decoded_bits = common_video.encode_to_shape(
         d, tower_output_shape, "bits_dec")
@@ -412,13 +412,13 @@ class NextFrameSv2pLegacy(NextFrameSv2p):
     if self.is_per_pixel_softmax:
       frames_pd_shape = common_layers.shape_list(frames_pd)
       frames_pd = tf.reshape(frames_pd, [-1, 256])
-      frames_pd = tf.to_float(tf.argmax(frames_pd, axis=-1))
+      frames_pd = tf.cast(tf.argmax(frames_pd, axis=-1), dtype=tf.float32)
       frames_pd = tf.reshape(frames_pd, frames_pd_shape[:-1] + [3])
 
     frames_gd = concat_on_y_axis(frames_gd)
     frames_pd = concat_on_y_axis(frames_pd)
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=2)
-    tf.summary.image("full_video", side_by_side_video)
+    tf.compat.v1.summary.image("full_video", side_by_side_video)
 
   def get_input_if_exists(self, features, key, batch_size, num_frames):
     if key in features:
@@ -559,7 +559,7 @@ class NextFrameSv2pLegacy(NextFrameSv2p):
       x = tf.reshape(x, x_shape[:-1])
     else:
       x = tf.squeeze(x, axis=-1)
-      x = tf.to_int64(tf.round(x))
+      x = tf.cast(tf.round(x), dtype=tf.int64)
     output["targets"] = x
     if self.hparams.reward_prediction:
       output["target_reward"] = tf.argmax(output["target_reward"], axis=-1)

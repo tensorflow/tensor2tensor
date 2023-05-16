@@ -46,9 +46,9 @@ def resize_video_frames(images, size):
   resized_images = []
   for image in images:
     resized_images.append(
-        tf.to_int64(
-            tf.image.resize_images(image, [size, size],
-                                   tf.image.ResizeMethod.BILINEAR)))
+        tf.cast(
+            tf.image.resize(image, [size, size],
+                                   tf.image.ResizeMethod.BILINEAR), dtype=tf.int64))
   return resized_images
 
 
@@ -126,7 +126,7 @@ def summarize_video_metrics(hook_args):
   for name, array in six.iteritems(metrics_results):
     for ind, val in enumerate(array):
       tag = "metric_{}/{}".format(name, ind)
-      summary_values.append(tf.Summary.Value(tag=tag, simple_value=val))
+      summary_values.append(tf.compat.v1.Summary.Value(tag=tag, simple_value=val))
   return summary_values
 
 
@@ -217,7 +217,7 @@ class VideoProblem(problem.Problem):
   def preprocess_example(self, example, mode, hparams):
     """Runtime preprocessing, e.g., resize example["frame"]."""
     if hparams.preprocess_resize_frames is not None:
-      example["frame"] = tf.image.resize_images(
+      example["frame"] = tf.image.resize(
           example["frame"], hparams.preprocess_resize_frames,
           tf.image.ResizeMethod.BILINEAR)
     return example
@@ -248,8 +248,8 @@ class VideoProblem(problem.Problem):
     extra_data_fields, extra_data_items_to_decoders = self.extra_reading_spec
 
     data_fields = {
-        "image/encoded": tf.FixedLenFeature((), tf.string),
-        "image/format": tf.FixedLenFeature((), tf.string),
+        "image/encoded": tf.io.FixedLenFeature((), tf.string),
+        "image/format": tf.io.FixedLenFeature((), tf.string),
     }
     data_fields.update(extra_data_fields)
 
@@ -267,7 +267,7 @@ class VideoProblem(problem.Problem):
 
   def serving_input_fn(self, hparams):
     """For serving/predict, assume that only video frames are provided."""
-    video_input_frames = tf.placeholder(
+    video_input_frames = tf.compat.v1.placeholder(
         dtype=tf.float32,
         shape=[
             None, hparams.video_num_input_frames, self.frame_width,
@@ -359,7 +359,7 @@ class VideoProblem(problem.Problem):
             not_broken = tf.logical_and(not_broken, tf.equal(
                 frame_numbers[0], 0))
         else:
-          tf.logging.warning("use_not_breaking_batching is True but "
+          tf.compat.v1.logging.warning("use_not_breaking_batching is True but "
                              "no frame_number is in the dataset.")
 
         features = {}
@@ -383,7 +383,7 @@ class VideoProblem(problem.Problem):
     # We jump by a random position at the beginning to add variety.
     if (self.random_skip and self.settable_random_skip and interleave and
         mode == tf.estimator.ModeKeys.TRAIN):
-      random_skip = tf.random_uniform([], maxval=num_frames, dtype=tf.int64)
+      random_skip = tf.random.uniform([], maxval=num_frames, dtype=tf.int64)
       preprocessed_dataset = preprocessed_dataset.skip(random_skip)
     if (self.use_not_breaking_batching and
         self.settable_use_not_breaking_batching):
@@ -457,9 +457,9 @@ class VideoProblem(problem.Problem):
     writer = None
 
     with tf.Graph().as_default():
-      image_t = tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
+      image_t = tf.compat.v1.placeholder(dtype=tf.uint8, shape=(None, None, None))
       encoded_image_t = tf.image.encode_png(image_t)
-      with tf.Session() as sess:
+      with tf.compat.v1.Session() as sess:
         for features in self.generate_samples(data_dir, tmp_dir, dataset_split):
           unencoded_frame = features.pop("frame")
           self.validate_frame(unencoded_frame)
@@ -481,8 +481,8 @@ class VideoProblem(problem.Problem):
           if self.debug_dump_frames_path:
             # Defer creating debug writer until we know debug_dump_frames_path.
             if writer is None:
-              if not tf.gfile.Exists(self.debug_dump_frames_path):
-                tf.gfile.MkDir(self.debug_dump_frames_path)
+              if not tf.io.gfile.exists(self.debug_dump_frames_path):
+                tf.io.gfile.mkdir(self.debug_dump_frames_path)
               writer = debug_video_writer_factory(self.debug_dump_frames_path)
             img = unencoded_debug if has_debug_image else unencoded_frame
             encoded_img = encoded_debug if has_debug_image else encoded_frame
@@ -534,8 +534,8 @@ class VideoProblemOld(problem.Problem):
 
   def example_reading_spec(self):
     data_fields = {
-        "image/encoded": tf.FixedLenFeature((), tf.string),
-        "image/format": tf.FixedLenFeature((), tf.string),
+        "image/encoded": tf.io.FixedLenFeature((), tf.string),
+        "image/format": tf.io.FixedLenFeature((), tf.string),
     }
 
     data_items_to_decoders = {
@@ -597,7 +597,7 @@ class Video2ClassProblem(VideoProblemOld):
     label_key = "image/class/label"
     data_fields, data_items_to_decoders = (
         super(Video2ClassProblem, self).example_reading_spec())
-    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+    data_fields[label_key] = tf.io.FixedLenFeature((1,), tf.int64)
     data_items_to_decoders[
         "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
     return data_fields, data_items_to_decoders

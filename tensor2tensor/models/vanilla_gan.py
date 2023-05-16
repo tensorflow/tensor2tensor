@@ -37,14 +37,14 @@ def lrelu(input_, leak=0.2, name="lrelu"):
 def deconv2d(
     input_, output_shape, k_h, k_w, d_h, d_w, stddev=0.02, name="deconv2d"):
   """Deconvolution layer."""
-  with tf.variable_scope(name):
-    w = tf.get_variable(
+  with tf.compat.v1.variable_scope(name):
+    w = tf.compat.v1.get_variable(
         "w", [k_h, k_w, output_shape[-1], input_.get_shape()[-1]],
-        initializer=tf.random_normal_initializer(stddev=stddev))
+        initializer=tf.compat.v1.random_normal_initializer(stddev=stddev))
     deconv = tf.nn.conv2d_transpose(
         input_, w, output_shape=output_shape, strides=[1, d_h, d_w, 1])
-    biases = tf.get_variable(
-        "biases", [output_shape[-1]], initializer=tf.constant_initializer(0.0))
+    biases = tf.compat.v1.get_variable(
+        "biases", [output_shape[-1]], initializer=tf.compat.v1.constant_initializer(0.0))
     return tf.reshape(tf.nn.bias_add(deconv, biases), deconv.get_shape())
 
 
@@ -67,27 +67,27 @@ class AbstractGAN(t2t_model.T2TModel):
       out_logit: the output logits (before sigmoid).
     """
     hparams = self.hparams
-    with tf.variable_scope(
+    with tf.compat.v1.variable_scope(
         "discriminator", reuse=reuse,
-        initializer=tf.random_normal_initializer(stddev=0.02)):
+        initializer=tf.compat.v1.random_normal_initializer(stddev=0.02)):
       batch_size, height, width = common_layers.shape_list(x)[:3]
       # Mapping x from [bs, h, w, c] to [bs, 1]
-      net = tf.layers.conv2d(x, 64, (4, 4), strides=(2, 2),
+      net = tf.compat.v1.layers.conv2d(x, 64, (4, 4), strides=(2, 2),
                              padding="SAME", name="d_conv1")
       # [bs, h/2, w/2, 64]
       net = lrelu(net)
-      net = tf.layers.conv2d(net, 128, (4, 4), strides=(2, 2),
+      net = tf.compat.v1.layers.conv2d(net, 128, (4, 4), strides=(2, 2),
                              padding="SAME", name="d_conv2")
       # [bs, h/4, w/4, 128]
       if hparams.discriminator_batchnorm:
-        net = tf.layers.batch_normalization(net, training=is_training,
+        net = tf.compat.v1.layers.batch_normalization(net, training=is_training,
                                             momentum=0.999, name="d_bn2")
       net = lrelu(net)
       size = height * width
       net = tf.reshape(net, [batch_size, size * 8])  # [bs, h * w * 8]
-      net = tf.layers.dense(net, 1024, name="d_fc3")  # [bs, 1024]
+      net = tf.compat.v1.layers.dense(net, 1024, name="d_fc3")  # [bs, 1024]
       if hparams.discriminator_batchnorm:
-        net = tf.layers.batch_normalization(net, training=is_training,
+        net = tf.compat.v1.layers.batch_normalization(net, training=is_training,
                                             momentum=0.999, name="d_bn3")
       net = lrelu(net)
       return net
@@ -97,22 +97,22 @@ class AbstractGAN(t2t_model.T2TModel):
     hparams = self.hparams
     height, width, c_dim = out_shape
     batch_size = hparams.batch_size
-    with tf.variable_scope(
+    with tf.compat.v1.variable_scope(
         "generator",
-        initializer=tf.random_normal_initializer(stddev=0.02)):
-      net = tf.layers.dense(z, 1024, name="g_fc1")
-      net = tf.layers.batch_normalization(net, training=is_training,
+        initializer=tf.compat.v1.random_normal_initializer(stddev=0.02)):
+      net = tf.compat.v1.layers.dense(z, 1024, name="g_fc1")
+      net = tf.compat.v1.layers.batch_normalization(net, training=is_training,
                                           momentum=0.999, name="g_bn1")
       net = lrelu(net)
-      net = tf.layers.dense(net, 128 * (height // 4) * (width // 4),
+      net = tf.compat.v1.layers.dense(net, 128 * (height // 4) * (width // 4),
                             name="g_fc2")
-      net = tf.layers.batch_normalization(net, training=is_training,
+      net = tf.compat.v1.layers.batch_normalization(net, training=is_training,
                                           momentum=0.999, name="g_bn2")
       net = lrelu(net)
       net = tf.reshape(net, [batch_size, height // 4, width // 4, 128])
       net = deconv2d(net, [batch_size, height // 2, width // 2, 64],
                      4, 4, 2, 2, name="g_dc3")
-      net = tf.layers.batch_normalization(net, training=is_training,
+      net = tf.compat.v1.layers.batch_normalization(net, training=is_training,
                                           momentum=0.999, name="g_bn3")
       net = lrelu(net)
       net = deconv2d(net, [batch_size, height, width, c_dim],
@@ -138,10 +138,10 @@ class AbstractGAN(t2t_model.T2TModel):
     is_training = self.hparams.mode == tf.estimator.ModeKeys.TRAIN
 
     # Input images.
-    inputs = tf.to_float(features["targets_raw"])
+    inputs = tf.cast(features["targets_raw"], dtype=tf.float32)
 
     # Noise vector.
-    z = tf.random_uniform([self.hparams.batch_size,
+    z = tf.random.uniform([self.hparams.batch_size,
                            self.hparams.bottleneck_bits],
                           minval=-1, maxval=1, name="z")
 
@@ -153,7 +153,7 @@ class AbstractGAN(t2t_model.T2TModel):
 
     summary_g_image = tf.reshape(
         g[0, :], [1] + common_layers.shape_list(inputs)[1:])
-    tf.summary.image("generated", summary_g_image, max_outputs=1)
+    tf.compat.v1.summary.image("generated", summary_g_image, max_outputs=1)
 
     if is_training:  # Returns an dummy output and the losses dictionary.
       return tf.zeros_like(inputs), losses
@@ -186,9 +186,9 @@ class SlicedGan(AbstractGAN):
     except AttributeError:
       num_channels = 1
 
-    with tf.variable_scope("body/vanilla_gan", reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope("body/vanilla_gan", reuse=tf.compat.v1.AUTO_REUSE):
       hparams = self.hparams
-      z = tf.random_uniform([hparams.batch_size, hparams.bottleneck_bits],
+      z = tf.random.uniform([hparams.batch_size, hparams.bottleneck_bits],
                             minval=-1, maxval=1, name="z")
       out_shape = (hparams.sample_height, hparams.sample_width, num_channels)
       g_sample = self.generator(z, False, out_shape)

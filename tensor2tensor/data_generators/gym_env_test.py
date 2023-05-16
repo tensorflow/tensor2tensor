@@ -67,7 +67,7 @@ class GymEnvTest(tf.test.TestCase):
   splits = (problem.DatasetSplit.TRAIN, problem.DatasetSplit.EVAL)
 
   def setUp(self):
-    self.out_dir = tf.test.get_temp_dir()
+    self.out_dir = tf.compat.v1.test.get_temp_dir()
     shutil.rmtree(self.out_dir)
     os.mkdir(self.out_dir)
 
@@ -134,7 +134,7 @@ class GymEnvTest(tf.test.TestCase):
     self.assertTrue(filenames)
     for filename in filenames:
       path = os.path.join(self.out_dir, filename)
-      records = list(tf.python_io.tf_record_iterator(path))
+      records = list(tf.compat.v1.python_io.tf_record_iterator(path))
       self.assertTrue(records)
 
   def test_shards_per_epoch(self):
@@ -159,7 +159,7 @@ class GymEnvTest(tf.test.TestCase):
         ).features.feature["frame_number"].int64_list.value[0]
         for (_, paths) in env.splits_and_paths(self.out_dir)
         for path in paths
-        for record in tf.python_io.tf_record_iterator(path)
+        for record in tf.compat.v1.python_io.tf_record_iterator(path)
     ]
     last_frame_number = -1
     for frame_number in frame_numbers:

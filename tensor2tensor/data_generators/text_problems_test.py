@@ -56,7 +56,7 @@ class TextProblems(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    cls.tmp_dir = tf.test.get_temp_dir()
+    cls.tmp_dir = tf.compat.v1.test.get_temp_dir()
     shutil.rmtree(cls.tmp_dir)
     os.mkdir(cls.tmp_dir)
 
@@ -80,18 +80,18 @@ class TextProblems(tf.test.TestCase):
                                             cls.labels_str_file)]
 
     for lines, filename in data:
-      with tf.gfile.Open(filename, "w") as f:
+      with tf.io.gfile.GFile(filename, "w") as f:
         for line in lines:
           f.write(str(line))
           f.write("\n")
 
     cls.tabbed_file = os.path.join(cls.tmp_dir, "tabbed.train.txt")
-    with tf.gfile.Open(cls.tabbed_file, "w") as f:
+    with tf.io.gfile.GFile(cls.tabbed_file, "w") as f:
       for inputs, targets in zip(cls.inputs, cls.targets):
         f.write("%s\t%s\n" % (inputs, targets))
 
-    tf.gfile.Copy(cls.inputs_file, os.path.join(cls.tmp_dir, "inputs.eval.txt"))
-    tf.gfile.Copy(cls.targets_file, os.path.join(cls.tmp_dir,
+    tf.io.gfile.copy(cls.inputs_file, os.path.join(cls.tmp_dir, "inputs.eval.txt"))
+    tf.io.gfile.copy(cls.targets_file, os.path.join(cls.tmp_dir,
                                                  "targets.eval.txt"))
 
   def testTxtLineIterator(self):
@@ -151,12 +151,12 @@ class TextProblems(tf.test.TestCase):
     vocab_file = os.path.join(self.tmp_dir, "vocab.test1.3.subwords")
     train_file = os.path.join(self.tmp_dir, "test1-train-00000-of-00001")
     eval_file = os.path.join(self.tmp_dir, "test1-dev-00000-of-00001")
-    self.assertTrue(tf.gfile.Exists(vocab_file))
-    self.assertTrue(tf.gfile.Exists(train_file))
-    self.assertTrue(tf.gfile.Exists(eval_file))
+    self.assertTrue(tf.io.gfile.exists(vocab_file))
+    self.assertTrue(tf.io.gfile.exists(train_file))
+    self.assertTrue(tf.io.gfile.exists(eval_file))
 
     dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, self.tmp_dir)
-    features = dataset.make_one_shot_iterator().get_next()
+    features = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
 
     examples = []
     exhausted = False
@@ -195,7 +195,7 @@ class FakeDistributedProblem(text_problems.DistributedText2TextProblem):
     # Read all lines from all the input_files and return the same word as input
     # and target.
     for input_file in input_files:
-      with tf.gfile.Open(input_file, "r") as f:
+      with tf.io.gfile.GFile(input_file, "r") as f:
         for line in f.read().strip().split("\n"):
           yield {"inputs": line.strip(), "targets": line.strip()}
 
@@ -226,7 +226,7 @@ class FakeDistributedProblem(text_problems.DistributedText2TextProblem):
   @classmethod
   def setup_for_test(cls):
     # First setup the temp train, dev, test files and then call the ctor.
-    cls.tmp_dir = tf.test.get_temp_dir()
+    cls.tmp_dir = tf.compat.v1.test.get_temp_dir()
     shutil.rmtree(cls.tmp_dir)
     os.mkdir(cls.tmp_dir)
 
@@ -237,15 +237,15 @@ class FakeDistributedProblem(text_problems.DistributedText2TextProblem):
     cls.train_files, cls.dev_files, cls.test_files = [], [], []
     for i in range(25):
       cls.train_files.append(train_pattern % i)
-      with tf.gfile.Open(cls.train_files[-1], "w") as f:
+      with tf.io.gfile.GFile(cls.train_files[-1], "w") as f:
         f.write("train_%d\n" % i)
     for i in range(5):
       cls.dev_files.append(dev_pattern % i)
-      with tf.gfile.Open(cls.dev_files[-1], "w") as f:
+      with tf.io.gfile.GFile(cls.dev_files[-1], "w") as f:
         f.write("dev_%d\n" % i)
     for i in range(11):
       cls.test_files.append(test_pattern % i)
-      with tf.gfile.Open(cls.test_files[-1], "w") as f:
+      with tf.io.gfile.GFile(cls.test_files[-1], "w") as f:
         f.write("test_%d\n" % i)
 
 

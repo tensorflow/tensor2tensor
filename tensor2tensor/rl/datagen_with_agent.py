@@ -40,8 +40,8 @@ flags.DEFINE_boolean("eval", False, "Whether to run in eval mode.")
 
 def main(_):
 
-  tf.gfile.MakeDirs(FLAGS.data_dir)
-  tf.gfile.MakeDirs(FLAGS.tmp_dir)
+  tf.io.gfile.makedirs(FLAGS.data_dir)
+  tf.io.gfile.makedirs(FLAGS.tmp_dir)
 
   # Create problem if not already defined
   problem_name = "gym_discrete_problem_with_agent_on_%s" % FLAGS.game
@@ -49,7 +49,7 @@ def main(_):
     gym_problems_specs.create_problems_for_game(FLAGS.game)
 
   # Generate
-  tf.logging.info("Running %s environment for %d steps for trajectories.",
+  tf.compat.v1.logging.info("Running %s environment for %d steps for trajectories.",
                   FLAGS.game, FLAGS.num_env_steps)
   problem = registry.problem(problem_name)
   problem.settable_num_steps = FLAGS.num_env_steps
@@ -60,10 +60,10 @@ def main(_):
   if problem.statistics.number_of_dones:
     mean_reward = (problem.statistics.sum_of_rewards /
                    problem.statistics.number_of_dones)
-    tf.logging.info("Mean reward: %.2f, Num dones: %d",
+    tf.compat.v1.logging.info("Mean reward: %.2f, Num dones: %d",
                     mean_reward,
                     problem.statistics.number_of_dones)
 
 
 if __name__ == "__main__":
-  tf.app.run(main)
+  tf.compat.v1.app.run(main)

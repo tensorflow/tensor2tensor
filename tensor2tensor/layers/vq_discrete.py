@@ -38,22 +38,22 @@ class DiscreteBottleneck(object):
     self.hparams.block_v_size = 2**(
         self.hparams.z_size_per_residual / self.hparams.num_blocks)
     self.hparams.block_v_size = int(self.hparams.block_v_size)
-    self.means = tf.get_variable(
+    self.means = tf.compat.v1.get_variable(
         name="means",
         shape=[
             self.hparams.num_blocks, self.hparams.block_v_size,
             self.hparams.block_dim
         ],
-        initializer=tf.initializers.variance_scaling(distribution="uniform"))
+        initializer=tf.compat.v1.initializers.variance_scaling(distribution="uniform"))
 
     # Create the shadow variables if we are using EMA
     if self.hparams.ema:
-      self.ema_count = tf.get_variable(
+      self.ema_count = tf.compat.v1.get_variable(
           "ema_count", [self.hparams.num_blocks, self.hparams.block_v_size],
-          initializer=tf.constant_initializer(0),
+          initializer=tf.compat.v1.constant_initializer(0),
           trainable=False)
-      with tf.colocate_with(self.means):
-        self.ema_means = tf.get_variable(
+      with tf.compat.v1.colocate_with(self.means):
+        self.ema_means = tf.compat.v1.get_variable(
             "ema_means",
             initializer=self.means.initialized_value(),
             trainable=False)
@@ -82,8 +82,8 @@ class DiscreteBottleneck(object):
     Returns:
       Tensor with nearest element in mean encoded in one-hot notation.
     """
-    x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keep_dims=True)
-    means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keep_dims=True)
+    x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
+    means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
     scalar_prod = tf.matmul(
         tf.transpose(x, perm=[1, 0, 2]), tf.transpose(means, perm=[0, 2, 1]))
     scalar_prod = tf.transpose(scalar_prod, perm=[1, 0, 2])
@@ -93,7 +93,7 @@ class DiscreteBottleneck(object):
     if self.hparams.soft_em:
       nearest_idx = tf.stack(
           [
-              tf.multinomial(
+              tf.random.categorical(
                   -dist[:, i, :], num_samples=self.hparams.num_samples)
               for i in range(self.hparams.num_blocks)
           ],
@@ -105,7 +105,7 @@ class DiscreteBottleneck(object):
         _, top_k_idx = tf.nn.top_k(-dist, k=self.hparams.random_top_k)
         nearest_idx = tf.gather(
             top_k_idx,
-            tf.random_uniform(
+            tf.random.uniform(
                 [1],
                 minval=0,
                 maxval=self.hparams.random_top_k - 1,
@@ -155,12 +155,12 @@ class DiscreteBottleneck(object):
     Returns:
         Integer representation of this number.
     """
-    x_l = tf.stop_gradient(tf.to_int32(tf.reshape(x_bit, [-1, num_bits])))
+    x_l = tf.stop_gradient(tf.cast(tf.reshape(x_bit, [-1, num_bits]), dtype=tf.int32))
     x_labels = []
     for i in range(num_bits):
-      x_labels.append(x_l[:, i] * tf.to_int32(base)**tf.to_int32(i))
+      x_labels.append(x_l[:, i] * tf.cast(base, dtype=tf.int32)**tf.cast(i, dtype=tf.int32))
     res = sum(x_labels)
-    return tf.to_int32(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]))
+    return tf.cast(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]), dtype=tf.int32)
 
   def int_to_bit(self, x_int, num_bits, base=2):
     """Turn x_int representing numbers into a bitwise (lower-endian) tensor.
@@ -174,15 +174,15 @@ class DiscreteBottleneck(object):
     Returns:
         Corresponding number expressed in base.
     """
-    x_l = tf.to_int32(tf.expand_dims(x_int, axis=-1))
+    x_l = tf.cast(tf.expand_dims(x_int, axis=-1), dtype=tf.int32)
     x_labels = []
     for i in range(num_bits):
       x_labels.append(
-          tf.floormod(
-              tf.floordiv(tf.to_int32(x_l),
-                          tf.to_int32(base)**i), tf.to_int32(base)))
+          tf.math.floormod(
+              tf.math.floordiv(tf.cast(x_l, dtype=tf.int32),
+                          tf.cast(base, dtype=tf.int32)**i), tf.cast(base, dtype=tf.int32)))
     res = tf.concat(x_labels, axis=-1)
-    return tf.to_float(res)
+    return tf.cast(res, dtype=tf.float32)
 
   def embed(self, x):
     """Embedding function that takes discrete latent and returns embedding.
@@ -202,7 +202,7 @@ class DiscreteBottleneck(object):
     new_shape = shape
     new_shape.append(self.hparams.num_blocks)
     new_shape.append(int(self.hparams.z_size / self.hparams.num_blocks))
-    c = tf.to_int32(tf.reshape(c, shape=new_shape))
+    c = tf.cast(tf.reshape(c, shape=new_shape), dtype=tf.int32)
     h1_shape = shape_x
     h1_shape.append(self.hparams.hidden_size)
     h1 = tf.zeros(dtype=tf.float32, shape=h1_shape)
@@ -215,8 +215,8 @@ class DiscreteBottleneck(object):
     h1 = tf.transpose(h1, perm=[1, 0, 2])
     h1 = tf.reshape(h1, shape=h1_shape)
     h1_shape[0] = self.hparams.batch_size
-    h2 = tf.layers.dense(tf.nn.relu(h1), self.hparams.filter_size, name="vch2")
-    res = tf.layers.dense(
+    h2 = tf.compat.v1.layers.dense(tf.nn.relu(h1), self.hparams.filter_size, name="vch2")
+    res = tf.compat.v1.layers.dense(
         tf.nn.relu(h2), self.hparams.hidden_size, name="vcfin")
     return res
 
@@ -245,7 +245,7 @@ class DiscreteBottleneck(object):
         x_reshaped, self.means)
 
     if self.hparams.ema:
-      tf.logging.info("Using EMA with beta = {}".format(self.hparams.beta))
+      tf.compat.v1.logging.info("Using EMA with beta = {}".format(self.hparams.beta))
       updated_ema_count = \
           moving_averages.assign_moving_average(
               self.ema_count,
@@ -266,14 +266,14 @@ class DiscreteBottleneck(object):
           moving_averages.assign_moving_average(
               self.ema_means, dw, self.hparams.decay,
               zero_debias=False)
-      n = tf.reduce_sum(updated_ema_count, axis=-1, keep_dims=True)
+      n = tf.reduce_sum(updated_ema_count, axis=-1, keepdims=True)
       updated_ema_count = ((updated_ema_count + self.hparams.epsilon) / (
           n + 2**self.hparams.z_size * self.hparams.epsilon) * n)
       updated_ema_means = updated_ema_means / tf.expand_dims(
           updated_ema_count, axis=-1)
 
       with tf.control_dependencies([e_loss]):
-        update_means = tf.assign(self.means, updated_ema_means)
+        update_means = tf.compat.v1.assign(self.means, updated_ema_means)
         with tf.control_dependencies([update_means]):
           loss += self.hparams.beta * e_loss
     else:
@@ -287,7 +287,7 @@ class DiscreteBottleneck(object):
     num_bits = int(self.hparams.z_size // self.hparams.num_blocks)
     x_means_bits = self.int_to_bit(x_means_idx, num_bits=num_bits, base=2)
     x_discrete = self.bit_to_int(
-        tf.to_int32(x_means_bits), num_bits=self.hparams.z_size, base=2)
+        tf.cast(x_means_bits, dtype=tf.int32), num_bits=self.hparams.z_size, base=2)
 
     # Reshape x_discrete
     shape_x = common_layers.shape_list(x)
@@ -296,8 +296,8 @@ class DiscreteBottleneck(object):
     x_means = tf.reshape(x_means, shape=shape_x)
     h1 = x + tf.stop_gradient(x_means - x)
 
-    h2 = tf.layers.dense(tf.nn.relu(h1), self.hparams.filter_size, name="vch2")
-    res = tf.layers.dense(
+    h2 = tf.compat.v1.layers.dense(tf.nn.relu(h1), self.hparams.filter_size, name="vch2")
+    res = tf.compat.v1.layers.dense(
         tf.nn.relu(h2), self.hparams.hidden_size, name="vcfin")
     embed_fn = partial(self.embed)
     return {

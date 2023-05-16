@@ -30,29 +30,29 @@ import tensorflow as tf
 
 def residual_dilated_conv(x, repeat, padding, name, hparams):
   """A stack of convolution blocks with residual connections."""
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     k = (hparams.kernel_height, hparams.kernel_width)
     dilations_and_kernels = [((2**i, 1), k)
                              for i in range(hparams.num_hidden_layers)]
     for i in range(repeat):
-      with tf.variable_scope("repeat_%d" % i):
+      with tf.compat.v1.variable_scope("repeat_%d" % i):
         y = common_layers.conv_block(
             common_layers.layer_norm(x, hparams.hidden_size, name="lnorm"),
             hparams.hidden_size,
             dilations_and_kernels,
             padding=padding,
             name="residual_conv")
-        y = tf.nn.dropout(y, 1.0 - hparams.dropout)
+        y = tf.nn.dropout(y, rate=1 - (1.0 - hparams.dropout))
         x += y
     return x
 
 
 def bytenet_internal(inputs, targets, hparams):
   """ByteNet, main step used for training."""
-  with tf.variable_scope("bytenet"):
+  with tf.compat.v1.variable_scope("bytenet"):
     # Flatten inputs and extend length by 50%.
     inputs = tf.expand_dims(common_layers.flatten4d3d(inputs), axis=2)
-    extend_length = tf.to_int32(0.5 * tf.to_float(tf.shape(inputs)[1]))
+    extend_length = tf.cast(0.5 * tf.cast(tf.shape(inputs)[1], dtype=tf.float32), dtype=tf.int32)
     inputs_shape = inputs.shape.as_list()
     inputs = tf.pad(inputs, [[0, 0], [0, extend_length], [0, 0], [0, 0]])
     inputs_shape[1] = None

@@ -59,12 +59,12 @@ FLAGS = flags.FLAGS
 
 def setup_directories(base_dir, subdirs):
   base_dir = os.path.expanduser(base_dir)
-  tf.gfile.MakeDirs(base_dir)
+  tf.io.gfile.makedirs(base_dir)
 
   all_dirs = {}
   for subdir in subdirs:
     dir_name = os.path.join(base_dir, subdir)
-    tf.gfile.MakeDirs(dir_name)
+    tf.io.gfile.makedirs(dir_name)
     all_dirs[subdir] = dir_name
   return all_dirs
 
@@ -78,7 +78,7 @@ def make_relative_timing_fn():
     return str(datetime.timedelta(seconds=time_delta))
 
   def log_relative_time():
-    tf.logging.info("Timing: %s", format_relative_time())
+    tf.compat.v1.logging.info("Timing: %s", format_relative_time())
 
   return log_relative_time
 
@@ -98,7 +98,7 @@ def generate_real_env_data(problem_name, agent_policy_path, hparams, data_dir,
                            tmp_dir, autoencoder_path=None, eval_phase=False,
                            real_reward=False):
   """Run the agent against the real environment and return mean reward."""
-  tf.gfile.MakeDirs(data_dir)
+  tf.io.gfile.makedirs(data_dir)
   with temporary_flags({
       "problem": problem_name,
       "agent_policy_path": agent_policy_path,
@@ -127,7 +127,7 @@ def make_log_fn(epoch, log_relative_time_fn):
 
   def log(msg, *args):
     msg %= args
-    tf.logging.info("%s Epoch %d: %s", ">>>>>>>", epoch, msg)
+    tf.compat.v1.logging.info("%s Epoch %d: %s", ">>>>>>>", epoch, msg)
     log_relative_time_fn()
 
   return log
@@ -232,9 +232,9 @@ def ppo_data_dumper(observ, reward, done, action):
   if gym_problems.frame_dumper_use_disk:
     # np.savez_compressed can't create a tf.gfile, so we need to create it
     # beforehand.
-    with tf.gfile.Open(file_path, mode="wb+") as gfile:
+    with tf.io.gfile.GFile(file_path, mode="wb+") as gfile:
       gfile.write("1")
-    with tf.gfile.Open(file_path, mode="wb+") as gfile:
+    with tf.io.gfile.GFile(file_path, mode="wb+") as gfile:
       np.savez_compressed(
           gfile, observ=observ, reward=reward, done=done, action=action)
   else:
@@ -278,7 +278,7 @@ def train_agent_real_env(
 
     ppo_data_dumper_counter = 0
     dumper_path = os.path.join(epoch_data_dir, "dumper")
-    tf.gfile.MakeDirs(dumper_path)
+    tf.io.gfile.makedirs(dumper_path)
     dumper_spec = [PyFuncWrapper, {"process_fun": ppo_data_dumper}]
     environment_spec.wrappers.insert(2, dumper_spec)
 
@@ -319,8 +319,8 @@ def evaluate_world_model(simulated_problem_name, problem_name, hparams,
   ]
   old_path = os.path.join(epoch_data_dir, "debug_frames_sim")
   new_path = os.path.join(epoch_data_dir, "debug_frames_sim_eval")
-  if not tf.gfile.Exists(new_path):
-    tf.gfile.Rename(old_path, new_path)
+  if not tf.io.gfile.exists(new_path):
+    tf.io.gfile.rename(old_path, new_path)
   return model_reward_accuracy
 
 
@@ -350,7 +350,7 @@ def encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
   """Encode all frames in dataset with model and write them out to out_files."""
   batch_size = 8
   dataset = dataset.batch(batch_size)
-  examples = dataset.make_one_shot_iterator().get_next()
+  examples = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
   images = examples.pop("frame")
   images = tf.cast(images, tf.int32)
 
@@ -367,8 +367,8 @@ def encode_dataset(model, dataset, problem, ae_hparams, autoencoder_path,
   pngs = tf.map_fn(tf.image.encode_png, encoded, dtype=tf.string,
                    back_prop=False)
 
-  with tf.Session() as sess:
-    autoencoder_saver = tf.train.Saver(tf.global_variables("autoencoder.*"))
+  with tf.compat.v1.Session() as sess:
+    autoencoder_saver = tf.compat.v1.train.Saver(tf.compat.v1.global_variables("autoencoder.*"))
     trainer_lib.restore_checkpoint(autoencoder_path, autoencoder_saver, sess,
                                    must_restore=True)
 
@@ -416,11 +416,11 @@ def encode_env_frames(problem_name, ae_problem_name, ae_hparams_set,
     skip_train = False
     skip_eval = False
     for path in ae_training_paths:
-      if tf.gfile.Exists(path):
+      if tf.io.gfile.exists(path):
         skip_train = True
         break
     for path in ae_eval_paths:
-      if tf.gfile.Exists(path):
+      if tf.io.gfile.exists(path):
         skip_eval = True
         break
 
@@ -482,7 +482,7 @@ def setup_problems(hparams, using_autoencoder=False):
     game_problems_kwargs["resize_height_factor"] = hparams.resize_height_factor
     game_problems_kwargs["resize_width_factor"] = hparams.resize_width_factor
     game_problems_kwargs["grayscale"] = hparams.grayscale
-    tf.logging.info("Game Problem %s not found; dynamically registering",
+    tf.compat.v1.logging.info("Game Problem %s not found; dynamically registering",
                     problem_name)
     gym_problems_specs.create_problems_for_game(
         hparams.game, game_mode="Deterministic-v4", **game_problems_kwargs)
@@ -523,7 +523,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
   # Collect data from the real environment with PPO or random policy.
   if hparams.gather_ppo_real_env_data:
     ppo_model_dir = directories["ppo"]
-    tf.logging.info("Initial training of PPO in real environment.")
+    tf.compat.v1.logging.info("Initial training of PPO in real environment.")
     ppo_event_dir = os.path.join(directories["world_model"],
                                  "ppo_summaries/initial")
     train_agent_real_env(
@@ -531,25 +531,25 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
         ppo_event_dir, directories["world_model"], data_dir,
         hparams, epoch=-1, is_final_epoch=False)
 
-  tf.logging.info("Generating real environment data with %s policy",
+  tf.compat.v1.logging.info("Generating real environment data with %s policy",
                   "PPO" if hparams.gather_ppo_real_env_data else "random")
   mean_reward = generate_real_env_data(
       problem_name, ppo_model_dir, hparams, data_dir, directories["tmp"])
-  tf.logging.info("Mean reward (random): {}".format(mean_reward))
+  tf.compat.v1.logging.info("Mean reward (random): {}".format(mean_reward))
 
   eval_metrics_event_dir = os.path.join(directories["world_model"],
                                         "eval_metrics_event_dir")
-  eval_metrics_writer = tf.summary.FileWriter(eval_metrics_event_dir)
-  model_reward_accuracy_summary = tf.Summary()
+  eval_metrics_writer = tf.compat.v1.summary.FileWriter(eval_metrics_event_dir)
+  model_reward_accuracy_summary = tf.compat.v1.Summary()
   for frac in hparams.eval_rollout_fractions:
     model_reward_accuracy_summary.value.add(
         tag="model_reward_accuracy_{}".format(frac),
         simple_value=None
     )
-  mean_reward_summary = tf.Summary()
+  mean_reward_summary = tf.compat.v1.Summary()
   mean_reward_summary.value.add(tag="mean_reward",
                                 simple_value=None)
-  mean_reward_gen_summary = tf.Summary()
+  mean_reward_gen_summary = tf.compat.v1.Summary()
   mean_reward_gen_summary.value.add(tag="mean_reward_during_generation",
                                     simple_value=None)
 
@@ -559,7 +559,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
     # Combine all previously collected environment data
     epoch_data_dir = os.path.join(directories["data"], str(epoch))
-    tf.gfile.MakeDirs(epoch_data_dir)
+    tf.io.gfile.makedirs(epoch_data_dir)
     # Because the data is being combined in every iteration, we only need to
     # copy from the previous directory.
     combine_training_data(registry.problem(problem_name),
@@ -669,7 +669,7 @@ def training_loop(hparams, output_dir, report_fn=None, report_metric=None):
 
 
 def extract_game_name(data_dir):
-  files = tf.gfile.ListDirectory(data_dir)
+  files = tf.io.gfile.listdir(data_dir)
   matches = [re.findall(r"on_(.*)_deterministic", f) for f in files]
   non_empty_matches = [m for m in matches if m]
   return non_empty_matches[0][0]
@@ -683,28 +683,28 @@ def compute_final_evaluation_on_real_environments(hparams, job_results_dir,
         FLAGS.eval_results_dir,
         "result_{}.txt".format(
             os.path.basename(os.path.normpath(job_results_dir))))
-  directories = tf.gfile.ListDirectory(job_results_dir)
+  directories = tf.io.gfile.listdir(job_results_dir)
   results = {}
   tmp_dir = os.path.join(FLAGS.eval_results_dir, "eval_tmp")
-  if tf.gfile.Exists(tmp_dir):
-    tf.gfile.DeleteRecursively(tmp_dir)
+  if tf.io.gfile.exists(tmp_dir):
+    tf.io.gfile.rmtree(tmp_dir)
   for directory in directories:
     ppo_model_dir = os.path.join(job_results_dir, directory, "ppo")
     data_dir = os.path.join(job_results_dir, directory, "data/initial")
     hparams.game = extract_game_name(data_dir)
     problem_name, _, _, _ = setup_problems(hparams)
 
-    tf.logging.info("Evaluating in real environment game %s." % hparams.game)
+    tf.compat.v1.logging.info("Evaluating in real environment game %s." % hparams.game)
     try:
       mean_reward = int(generate_real_env_data(
           problem_name, ppo_model_dir, hparams,
           os.path.join(tmp_dir, directory),
           "/tmp", autoencoder_path=None,
           eval_phase=True, real_reward=True))
-      tf.logging.info(
+      tf.compat.v1.logging.info(
           "Mean eval reward on {}: {}".format(hparams.game, mean_reward))
     except AttributeError:
-      tf.logging.info("No PPO model for: {}".format(ppo_model_dir))
+      tf.compat.v1.logging.info("No PPO model for: {}".format(ppo_model_dir))
       mean_reward = None
     game_results = results.get(hparams.game, [])
     game_results.append(mean_reward)
@@ -724,10 +724,10 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
   for i, data_dir in enumerate(old_data_dirs):
     suffix = os.path.basename(data_dir)
     # Glob train files in old data_dir
-    old_train_files = tf.gfile.Glob(
+    old_train_files = tf.io.gfile.glob(
         problem.filepattern(data_dir, tf.estimator.ModeKeys.TRAIN))
     if (i + 1) == len(old_data_dirs) and copy_last_eval_set:
-      old_train_files += tf.gfile.Glob(
+      old_train_files += tf.io.gfile.glob(
           problem.filepattern(data_dir, tf.estimator.ModeKeys.EVAL))
     for fname in old_train_files:
       # Move them to the new data_dir with a suffix
@@ -735,8 +735,8 @@ def combine_training_data(problem, final_data_dir, old_data_dirs,
       # should be fine.
       new_fname = os.path.join(final_data_dir,
                                os.path.basename(fname) + "." + suffix)
-      if not tf.gfile.Exists(new_fname):
-        tf.gfile.Copy(fname, new_fname)
+      if not tf.io.gfile.exists(new_fname):
+        tf.io.gfile.copy(fname, new_fname)
 
 
 def main(_):
@@ -748,5 +748,5 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

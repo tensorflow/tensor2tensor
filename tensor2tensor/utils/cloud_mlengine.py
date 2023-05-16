@@ -127,9 +127,9 @@ def job_dir():
 
 def get_requirements(usr_dir):
   requirements_file = os.path.join(usr_dir, "requirements.txt")
-  if not tf.gfile.Exists(requirements_file):
+  if not tf.io.gfile.exists(requirements_file):
     return []
-  with tf.gfile.Open(requirements_file) as f:
+  with tf.io.gfile.GFile(requirements_file) as f:
     pkg_list = f.readlines()
     return [pkg.strip() for pkg in pkg_list if "tensor2tensor" not in pkg]
 
@@ -192,7 +192,7 @@ def configure_job():
     training_input["workerType"] = "cloud_tpu"
     training_input["workerCount"] = 1
   if FLAGS.hparams_range:
-    tf.logging.info("Configuring hyperparameter tuning.")
+    tf.compat.v1.logging.info("Configuring hyperparameter tuning.")
     training_input["hyperparameters"] = configure_autotune(
         FLAGS.hparams_range,
         FLAGS.autotune_objective,
@@ -241,7 +241,7 @@ def _tar_and_copy(src_dir, target_dir):
 
 def tar_and_copy_t2t(train_dir):
   """Tar Tensor2Tensor and cp to train_dir."""
-  tf.logging.info("Tarring and pushing local Tensor2Tensor package.")
+  tf.compat.v1.logging.info("Tarring and pushing local Tensor2Tensor package.")
 
   output = text_encoder.native_to_unicode(shell_output(
       "pip show tensor2tensor")).split("\n")
@@ -253,17 +253,17 @@ def tar_and_copy_t2t(train_dir):
   # A local installation cloned from GitHub will have a setup.py file and a docs
   # folder
   is_local_t2t = all([
-      tf.gfile.Exists(os.path.join(t2t_dir, fname))
+      tf.io.gfile.exists(os.path.join(t2t_dir, fname))
       for fname in ["setup.py", "docs/cloud_mlengine.md"]
   ])
 
   if is_local_t2t:
-    tf.logging.info("Found local T2T installation. Tarring directory %s",
+    tf.compat.v1.logging.info("Found local T2T installation. Tarring directory %s",
                     t2t_dir)
   else:
     # PyPI installation
     # Create a folder with just a setup.py file pointing to the right version
-    tf.logging.info("Found PyPI T2T installation. Launching tensor2tensor==%s",
+    tf.compat.v1.logging.info("Found PyPI T2T installation. Launching tensor2tensor==%s",
                     t2t_version)
     t2t_dir = os.path.join(tempfile.gettempdir(), "tensor2tensor_tmp")
     shutil.rmtree(t2t_dir, ignore_errors=True)
@@ -273,7 +273,7 @@ def tar_and_copy_t2t(train_dir):
         name="DummyT2TPackage",
         packages=["tensor2tensor==%s" % t2t_version]
     )
-    with tf.gfile.Open(setup_fname, "w") as f:
+    with tf.io.gfile.GFile(setup_fname, "w") as f:
       f.write(setup_file_str)
   t2t_tar = _tar_and_copy(t2t_dir, train_dir)
   return t2t_tar
@@ -281,7 +281,7 @@ def tar_and_copy_t2t(train_dir):
 
 def tar_and_copy_usr_dir(usr_dir, train_dir):
   """Package, tar, and copy usr_dir to GCS train_dir."""
-  tf.logging.info("Tarring and pushing t2t_usr_dir.")
+  tf.compat.v1.logging.info("Tarring and pushing t2t_usr_dir.")
   usr_dir = os.path.abspath(os.path.expanduser(usr_dir))
   # Copy usr dir to a temp location
   top_dir = os.path.join(tempfile.gettempdir(), "t2t_usr_container")
@@ -294,7 +294,7 @@ def tar_and_copy_usr_dir(usr_dir, train_dir):
       name="DummyUsrDirPackage",
       packages=get_requirements(usr_dir)
   )
-  with tf.gfile.Open(top_setup_fname, "w") as f:
+  with tf.io.gfile.GFile(top_setup_fname, "w") as f:
     f.write(setup_file_str)
   usr_tar = _tar_and_copy(top_dir, train_dir)
   return usr_tar
@@ -370,7 +370,7 @@ def launch():
   validate_flags()
   job_spec = configure_job()
   job_name = job_spec["jobId"]
-  tf.logging.info("Launching job %s with ML Engine spec:\n%s", job_name,
+  tf.compat.v1.logging.info("Launching job %s with ML Engine spec:\n%s", job_name,
                   job_spec)
   assert confirm()
   train_dir = FLAGS.output_dir
@@ -380,5 +380,5 @@ def launch():
     usr_tar = tar_and_copy_usr_dir(FLAGS.t2t_usr_dir, train_dir)
     configure_usr_dir(job_spec, usr_tar)
   launch_job(job_spec)
-  tf.logging.info("Launched %s. See console to track: %s.", job_name,
+  tf.compat.v1.logging.info("Launched %s. See console to track: %s.", job_name,
                   CONSOLE_URL)

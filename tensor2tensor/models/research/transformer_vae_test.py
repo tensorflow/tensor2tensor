@@ -46,12 +46,12 @@ class TransformerVaeTest(tf.test.TestCase):
         "targets": tf.constant(targets, dtype=tf.int32),
         "target_space_id": tf.constant(1, dtype=tf.int32),
     }
-    tf.train.create_global_step()
+    tf.compat.v1.train.create_global_step()
     model = transformer_vae.TransformerAE(hparams, tf.estimator.ModeKeys.TRAIN,
                                           p_hparams)
     logits, _ = model(features)
     with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       logits_val = session.run(logits)
       self.assertEqual(logits_val.shape,
                        (batch_size, target_length, 1, 1, vocab_size))

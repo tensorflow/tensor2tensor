@@ -59,9 +59,9 @@ class WikisumBase(problem.Problem):
 
   def example_reading_spec(self):
     data_fields = {
-        "inputs": tf.VarLenFeature(tf.int64),
-        "targets": tf.VarLenFeature(tf.int64),
-        "section_boundaries": tf.VarLenFeature(tf.int64),
+        "inputs": tf.io.VarLenFeature(tf.int64),
+        "targets": tf.io.VarLenFeature(tf.int64),
+        "section_boundaries": tf.io.VarLenFeature(tf.int64),
     }
     data_items_to_decoders = None
     return (data_fields, data_items_to_decoders)
@@ -122,9 +122,9 @@ class WikisumBase(problem.Problem):
           break
 
       if total_chars >= max_chars:
-        tf.logging.info("Seen enough chars: %d; finished.", max_chars)
+        tf.compat.v1.logging.info("Seen enough chars: %d; finished.", max_chars)
         break
-    tf.logging.info("Built vocabulary using %d chars", total_chars)
+    tf.compat.v1.logging.info("Built vocabulary using %d chars", total_chars)
 
   def generate_vocab(self, data_dir, wikis_dir, refs_dir):
     # Produce a SubwordTextEncoder from a subset of the data
@@ -133,7 +133,7 @@ class WikisumBase(problem.Problem):
         self.generate_lines_for_vocab(wikis_dir, refs_dir))
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    tf.logging.warn("See wikisum/README.md for instructions to generate data.")
+    tf.compat.v1.logging.warn("See wikisum/README.md for instructions to generate data.")
 
   def out_filepaths(self, data_dir):
     train_shards = 800
@@ -174,7 +174,7 @@ class WikisumCommoncrawlLeadSection(WikisumCommoncrawl):
     return WikisumCommoncrawl.name
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    tf.logging.warn("Problem %s reuses data from problem %s", self.name,
+    tf.compat.v1.logging.warn("Problem %s reuses data from problem %s", self.name,
                     WikisumCommoncrawl.name)
 
 
@@ -191,15 +191,15 @@ class WikisumWebLeadSection(WikisumWeb):
     return WikisumWeb.name
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    tf.logging.warn("Problem %s reuses data from problem %s", self.name,
+    tf.compat.v1.logging.warn("Problem %s reuses data from problem %s", self.name,
                     WikisumWeb.name)
 
 
 def make_ref_shard_files(out_dir):
-  tf.gfile.MakeDirs(out_dir)
-  opts = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.GZIP)
+  tf.io.gfile.makedirs(out_dir)
+  opts = tf.io.TFRecordOptions(tf.compat.v1.python_io.TFRecordCompressionType.GZIP)
   files = [
-      tf.python_io.TFRecordWriter(
+      tf.io.TFRecordWriter(
           os.path.join(out_dir, REF_SHARD_FILE % i), opts)
       for i in range(cc_utils.NUM_SHARDS)
   ]
@@ -236,7 +236,7 @@ def _references_files_by_shard(refs_dir):
   process_dirs = _process_folders(refs_dir)
   shards = collections.defaultdict(list)
   for d in process_dirs:
-    ref_files = tf.gfile.Glob(os.path.join(d, REF_SHARD_FILE_PREFIX) + "*")
+    ref_files = tf.io.gfile.glob(os.path.join(d, REF_SHARD_FILE_PREFIX) + "*")
     for f in ref_files:
       shards[_shard_id_for_file(f)].append(f)
   return shards
@@ -245,8 +245,8 @@ def _references_files_by_shard(refs_dir):
 def _references_content(ref_files):
   """Returns dict<str ref_url, str ref_content>."""
   example_spec = {
-      "url": tf.FixedLenFeature([], tf.string),
-      "content": tf.FixedLenFeature([], tf.string),
+      "url": tf.io.FixedLenFeature([], tf.string),
+      "content": tf.io.FixedLenFeature([], tf.string),
   }
   data = {}
   for ex in generator_utils.tfrecord_iterator(
@@ -259,7 +259,7 @@ def _wiki_urls_for_shard(shard_id, urls_dir=None):
   """Urls for chunk: dict<str wiki_url, list<str> ref_urls>."""
   urls_dir = urls_dir or WIKI_URLS_DIR
   urls_filepath = os.path.join(urls_dir, WIKI_URLS_FILE % shard_id)
-  with tf.gfile.GFile(urls_filepath) as f:
+  with tf.io.gfile.GFile(urls_filepath) as f:
     return json.loads(f.read())
 
 
@@ -286,12 +286,12 @@ def _wiki_articles(shard_id, wikis_dir=None):
     def _parse_example(ex_ser):
       """Parse serialized Example containing Wikipedia article content."""
       features = {
-          "url": tf.VarLenFeature(tf.string),
-          "title": tf.VarLenFeature(tf.string),
-          "section_titles": tf.VarLenFeature(tf.string),
-          "section_texts": tf.VarLenFeature(tf.string),
+          "url": tf.io.VarLenFeature(tf.string),
+          "title": tf.io.VarLenFeature(tf.string),
+          "section_titles": tf.io.VarLenFeature(tf.string),
+          "section_texts": tf.io.VarLenFeature(tf.string),
       }
-      ex = tf.parse_single_example(ex_ser, features)
+      ex = tf.io.parse_single_example(ex_ser, features)
       for k in ex.keys():
         ex[k] = ex[k].values
       ex["url"] = ex["url"][0]
@@ -300,9 +300,9 @@ def _wiki_articles(shard_id, wikis_dir=None):
 
     dataset = dataset.map(_parse_example, num_parallel_calls=32)
     dataset = dataset.prefetch(100)
-    record_it = dataset.make_one_shot_iterator().get_next()
+    record_it = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
 
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
       while True:
         try:
           ex = sess.run(record_it)
@@ -383,7 +383,7 @@ def produce_examples(shard_ids, wikis_dir, refs_dir, urls_dir, vocab_path,
   # * Run Tf-idf to sort reference paragraphs
   # * Encode the Wikipedia and reference text with the vocabulary
   # * Write out TFRecords of tensorflow.Example
-  tf.logging.info("Processing %d input shards into %d output files.",
+  tf.compat.v1.logging.info("Processing %d input shards into %d output files.",
                   len(shard_ids), len(out_filepaths))
 
   vocab = text_encoder.SubwordTextEncoder(vocab_path)
@@ -397,14 +397,14 @@ def produce_examples(shard_ids, wikis_dir, refs_dir, urls_dir, vocab_path,
                  wikis_skipped_short_lead=0, num_wikis_written=0)
     ref_files_by_shard = _references_files_by_shard(refs_dir)
     for shard_id in shard_ids:
-      tf.logging.info("Processing shard %d", shard_id)
+      tf.compat.v1.logging.info("Processing shard %d", shard_id)
       wiki_urls = _wiki_urls_for_shard(shard_id, urls_dir)
-      tf.logging.info("Loaded wiki URLs for shard")
+      tf.compat.v1.logging.info("Loaded wiki URLs for shard")
       refs_content = _references_content(ref_files_by_shard[shard_id])
-      tf.logging.info("Loaded reference content for shard")
+      tf.compat.v1.logging.info("Loaded reference content for shard")
       for i, wiki in enumerate(_wiki_articles(shard_id, wikis_dir)):
         if not i % 1000:
-          tf.logging.info("Processing wiki index %d for shard %d", i, shard_id)
+          tf.compat.v1.logging.info("Processing wiki index %d for shard %d", i, shard_id)
         stats["total_original_wikis"] += 1
 
         # Get reference content
@@ -464,15 +464,15 @@ def produce_examples(shard_ids, wikis_dir, refs_dir, urls_dir, vocab_path,
             "section_boundaries": section_boundaries,
         }
 
-    tf.logging.info("Total: %d, Skipped: %d",
+    tf.compat.v1.logging.info("Total: %d, Skipped: %d",
                     stats["num_wikis_written"],
                     stats["total_original_wikis"] - stats["num_wikis_written"])
-    tf.logging.info("Total refs: %d, Skipped refs: %d",
+    tf.compat.v1.logging.info("Total refs: %d, Skipped refs: %d",
                     stats["total_found_refs"],
                     stats["total_original_refs"] - stats["total_found_refs"])
     stats_fname = os.path.join(os.path.split(out_filepaths[0])[0],
                                "stats.%d.json" % shard_ids[0])
-    with tf.gfile.Open(stats_fname, "w") as f:
+    with tf.io.gfile.GFile(stats_fname, "w") as f:
       f.write(json.dumps(stats))
 
   generator_utils.generate_files(example_generator(), out_filepaths)
@@ -497,7 +497,7 @@ def _encode_wiki_sections(sections, vocab):
 
 
 def _process_folders(tmp_dir):
-  return tf.gfile.Glob(os.path.join(tmp_dir, PROCESS_FOLDER_PREFIX) + "*")
+  return tf.io.gfile.glob(os.path.join(tmp_dir, PROCESS_FOLDER_PREFIX) + "*")
 
 
 def extract_references_from_wets(wet_files, metadata_dir, out_dir,
@@ -509,12 +509,12 @@ def extract_references_from_wets(wet_files, metadata_dir, out_dir,
   num_refs = 0
   for i, wet_file in enumerate(wet_files):
     num_refs_in_wet = 0
-    tf.logging.info("Processing file %d", i)
+    tf.compat.v1.logging.info("Processing file %d", i)
 
     # Read metadata file
     metadata_fname = os.path.join(
         metadata_dir, os.path.basename(wet_file)) + cc_utils.METADTA_SUFFIX
-    with tf.gfile.Open(cc_utils.readahead(metadata_fname)) as f:
+    with tf.io.gfile.GFile(cc_utils.readahead(metadata_fname)) as f:
       wet_metadata = json.loads(f.read())
 
     if not wet_metadata:
@@ -545,9 +545,9 @@ def extract_references_from_wets(wet_files, metadata_dir, out_dir,
       num_refs += 1
       num_refs_in_wet += 1
 
-    tf.logging.info("Wrote out %d references for this WET", num_refs_in_wet)
+    tf.compat.v1.logging.info("Wrote out %d references for this WET", num_refs_in_wet)
 
-  tf.logging.info("Wrote out %d references total", num_refs)
+  tf.compat.v1.logging.info("Wrote out %d references total", num_refs)
 
   # Cleanup
   for shard_file in shard_files:

@@ -33,14 +33,14 @@ class TransformerSketch(transformer.Transformer):
 
   def encode(self, inputs, target_space, hparams, features=None, losses=None):
     """Add layers of strided convolutions on top of encoder."""
-    with tf.variable_scope("downstride"):
+    with tf.compat.v1.variable_scope("downstride"):
       hparams = self.hparams
       kernel, strides = (4, 4), (2, 2)
       x = inputs
       # Down-convolutions.
       for i in range(hparams.num_compress_steps):
         x = common_layers.make_even_size(x)
-        x = tf.layers.conv2d(
+        x = tf.compat.v1.layers.conv2d(
             x, hparams.hidden_size, kernel, strides=strides,
             padding="SAME", activation=common_layers.belu, name="conv_%d" % i)
         x = common_layers.layer_norm(x)

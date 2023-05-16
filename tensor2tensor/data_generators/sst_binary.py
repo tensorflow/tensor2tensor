@@ -72,7 +72,7 @@ class SentimentSSTBinary(text_problems.Text2ClassProblem):
   def _maybe_download_corpora(self, tmp_dir):
     sst_binary_filename = "SST-2.zip"
     sst_binary_finalpath = os.path.join(tmp_dir, "SST-2")
-    if not tf.gfile.Exists(sst_binary_finalpath):
+    if not tf.io.gfile.exists(sst_binary_finalpath):
       zip_filepath = generator_utils.maybe_download(
           tmp_dir, sst_binary_filename, self._SST2_URL)
       zip_ref = zipfile.ZipFile(zip_filepath, "r")
@@ -82,7 +82,7 @@ class SentimentSSTBinary(text_problems.Text2ClassProblem):
     return sst_binary_finalpath
 
   def example_generator(self, filename):
-    for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
+    for idx, line in enumerate(tf.io.gfile.GFile(filename, "rb")):
       if idx == 0: continue  # skip header
       if six.PY2:
         line = unicode(line.strip(), "utf-8")

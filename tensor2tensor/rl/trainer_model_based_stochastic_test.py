@@ -28,7 +28,7 @@ FLAGS = tf.flags.FLAGS
 class ModelRLExperimentStochasticTest(tf.test.TestCase):
 
   def test_basic_stochastic(self):
-    FLAGS.output_dir = tf.test.get_temp_dir()
+    FLAGS.output_dir = tf.compat.v1.test.get_temp_dir()
     FLAGS.loop_hparams_set = "rlmb_tiny_stochastic"
     FLAGS.schedule = "train"  # skip evaluation for world model training
     trainer_model_based.main(None)

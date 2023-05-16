@@ -42,10 +42,10 @@ class AutoencoderTest(tf.test.TestCase):
     hparams = trainer_lib.create_hparams(
         hparams_set, problem_name="image_mnist_rev", data_dir=".")
     model = registry.model(model_name)(hparams, mode)
-    tf.train.create_global_step()
+    tf.compat.v1.train.create_global_step()
     logits, _ = model(features)
     with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     return res
 

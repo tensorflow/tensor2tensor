@@ -25,7 +25,7 @@ from tensorboard.backend.event_processing import event_accumulator
 from tensorboard.backend.event_processing import event_multiplexer
 
 
-class MetricsBasedHook(tf.train.SessionRunHook):
+class MetricsBasedHook(tf.estimator.SessionRunHook):
   """Base class for hooks based on summary metrics.
 
   Subclasses should override _process_metrics.
@@ -62,7 +62,7 @@ class MetricsBasedHook(tf.train.SessionRunHook):
     return event_multiplexer.EventMultiplexer(run_path_map)
 
   def begin(self):
-    self._global_step_tensor = tf.train.get_global_step()
+    self._global_step_tensor = tf.compat.v1.train.get_global_step()
     if self._global_step_tensor is None:
       raise RuntimeError("Global step must be created to use MetricsBasedHook.")
 
@@ -73,7 +73,7 @@ class MetricsBasedHook(tf.train.SessionRunHook):
 
   def before_run(self, run_context):
     del run_context
-    return tf.train.SessionRunArgs([self._global_step_tensor])
+    return tf.estimator.SessionRunArgs([self._global_step_tensor])
 
   def after_run(self, run_context, run_values):
     global_step = run_values.results[0]
@@ -210,7 +210,7 @@ class PlateauOpHook(MetricsBasedHook):
       self._should_run_op = False
       self._ever_ran = True
 
-    return tf.train.SessionRunArgs(fetches)
+    return tf.estimator.SessionRunArgs(fetches)
 
   def _after_run(self, run_context, run_values, global_step, metrics):
     del run_context

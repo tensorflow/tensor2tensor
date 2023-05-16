@@ -76,7 +76,7 @@ class WinogradNLI(text_problems.TextConcat2ClassProblem):
   def _maybe_download_corpora(self, tmp_dir):
     wnli_filename = "WNLI.zip"
     wnli_finalpath = os.path.join(tmp_dir, "WNLI")
-    if not tf.gfile.Exists(wnli_finalpath):
+    if not tf.io.gfile.exists(wnli_finalpath):
       zip_filepath = generator_utils.maybe_download(
           tmp_dir, wnli_filename, self._WNLI_URL)
       zip_ref = zipfile.ZipFile(zip_filepath, "r")
@@ -86,7 +86,7 @@ class WinogradNLI(text_problems.TextConcat2ClassProblem):
     return wnli_finalpath
 
   def example_generator(self, filename):
-    for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
+    for idx, line in enumerate(tf.io.gfile.GFile(filename, "rb")):
       if idx == 0: continue  # skip header
       if six.PY2:
         line = unicode(line.strip(), "utf-8")

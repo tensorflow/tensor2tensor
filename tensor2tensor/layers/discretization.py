@@ -99,8 +99,8 @@ def nearest_neighbor(x,
   """
   batch_size, latent_dim, num_blocks, block_dim = common_layers.shape_list(x)
   x = tf.reshape(x, [batch_size * latent_dim, num_blocks, block_dim])
-  x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keep_dims=True)
-  means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keep_dims=True)
+  x_norm_sq = tf.reduce_sum(tf.square(x), axis=-1, keepdims=True)
+  means_norm_sq = tf.reduce_sum(tf.square(means), axis=-1, keepdims=True)
   scalar_prod = tf.matmul(
       tf.transpose(x, perm=[1, 0, 2]), tf.transpose(means, perm=[0, 2, 1]))
   scalar_prod = tf.transpose(scalar_prod, perm=[1, 0, 2])
@@ -112,7 +112,7 @@ def nearest_neighbor(x,
     num_blocks = common_layers.shape_list(dist)[1]
     nearest_idx = tf.stack(
         [
-            tf.multinomial(-dist[:, i, :], num_samples=num_samples)
+            tf.random.categorical(-dist[:, i, :], num_samples=num_samples)
             for i in range(num_blocks)
         ],
         axis=1)
@@ -124,14 +124,14 @@ def nearest_neighbor(x,
     neg_q_entropy = tf.reduce_mean(neg_q_entropy, axis=0)
     nearest_hot = tf.reduce_mean(nearest_hot, axis=-2)
     if summary:
-      tf.summary.histogram("neg_q_entropy", tf.reshape(neg_q_entropy, [-1]))
+      tf.compat.v1.summary.histogram("neg_q_entropy", tf.reshape(neg_q_entropy, [-1]))
   else:
     neg_q_entropy = 0.
     if random_top_k > 1:
       _, top_k_idx = tf.nn.top_k(-dist, k=random_top_k)
       nearest_idx = tf.gather(
           top_k_idx,
-          tf.random_uniform(
+          tf.random.uniform(
               [1], minval=0, maxval=random_top_k - 1, dtype=tf.int32),
           axis=-1)
     else:
@@ -233,12 +233,12 @@ def bit_to_int(x_bit, num_bits, base=2):
   Returns:
     Integer representation of this number.
   """
-  x_l = tf.stop_gradient(tf.to_int32(tf.reshape(x_bit, [-1, num_bits])))
+  x_l = tf.stop_gradient(tf.cast(tf.reshape(x_bit, [-1, num_bits]), dtype=tf.int32))
   x_labels = []
   for i in range(num_bits):
-    x_labels.append(x_l[:, i] * tf.to_int32(base)**tf.to_int32(i))
+    x_labels.append(x_l[:, i] * tf.cast(base, dtype=tf.int32)**tf.cast(i, dtype=tf.int32))
   res = sum(x_labels)
-  return tf.to_int32(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]))
+  return tf.cast(tf.reshape(res, common_layers.shape_list(x_bit)[:-1]), dtype=tf.int32)
 
 
 def int_to_bit(x_int, num_bits, base=2):
@@ -252,15 +252,15 @@ def int_to_bit(x_int, num_bits, base=2):
   Returns:
     Corresponding number expressed in base.
   """
-  x_l = tf.to_int32(tf.expand_dims(x_int, axis=-1))
+  x_l = tf.cast(tf.expand_dims(x_int, axis=-1), dtype=tf.int32)
   x_labels = []
   for i in range(num_bits):
     x_labels.append(
-        tf.floormod(
-            tf.floordiv(tf.to_int32(x_l),
-                        tf.to_int32(base)**i), tf.to_int32(base)))
+        tf.math.floormod(
+            tf.math.floordiv(tf.cast(x_l, dtype=tf.int32),
+                        tf.cast(base, dtype=tf.int32)**i), tf.cast(base, dtype=tf.int32)))
   res = tf.concat(x_labels, axis=-1)
-  return tf.to_float(res)
+  return tf.cast(res, dtype=tf.float32)
 
 
 def int_to_bit_embed(x_int, num_bits, embedding_size, base=2):
@@ -268,8 +268,8 @@ def int_to_bit_embed(x_int, num_bits, embedding_size, base=2):
   shape = common_layers.shape_list(x_int)
   inputs = int_to_bit(x_int, num_bits, base=base)
   inputs = tf.reshape(inputs, shape[:-1] + [shape[-1] * 8])
-  inputs = 2.0 * tf.to_float(inputs) - 1.0  # Move from 0/1 to -1/1.
-  return tf.layers.dense(inputs, embedding_size, name="int_to_bit_embed")
+  inputs = 2.0 * tf.cast(inputs, dtype=tf.float32) - 1.0  # Move from 0/1 to -1/1.
+  return tf.compat.v1.layers.dense(inputs, embedding_size, name="int_to_bit_embed")
 
 
 def embed(x,
@@ -306,15 +306,15 @@ def embed(x,
   Raises:
     ValueError: For unknown or missing arguments.
   """
-  with tf.variable_scope(name, default_name="embed", reuse=tf.AUTO_REUSE):
+  with tf.compat.v1.variable_scope(name, default_name="embed", reuse=tf.compat.v1.AUTO_REUSE):
     if bottleneck_kind == "semhash":
       c = int_to_bit(x, z_size)
-      h1a = tf.layers.dense(c, filter_size, name="vch1a")
-      h1b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
+      h1a = tf.compat.v1.layers.dense(c, filter_size, name="vch1a")
+      h1b = tf.compat.v1.layers.dense(1.0 - c, filter_size, name="vch1b")
       h1 = h1a + h1b
     elif bottleneck_kind == "gumbel-softmax":
       hot = tf.one_hot(x, 2**z_size)
-      h1 = tf.layers.dense(hot, hidden_size, name="dae_dense")
+      h1 = tf.compat.v1.layers.dense(hot, hidden_size, name="dae_dense")
     elif bottleneck_kind in ["dvq", "gumbel-softmax-dvq"]:
       if block_v_size is None:
         raise ValueError("Bottleneck kind is dvq but block_v_size is None.")
@@ -336,7 +336,7 @@ def embed(x,
         new_shape[-1] = num_residuals
         new_shape.append(num_blocks)
         new_shape.append(int(z_size / (num_residuals * num_blocks)))
-        c = tf.to_int32(tf.reshape(c, shape=new_shape))
+        c = tf.cast(tf.reshape(c, shape=new_shape), dtype=tf.int32)
         h1_shape = shape_x
         h1_shape.append(hidden_size)
         h1 = tf.zeros(dtype=tf.float32, shape=h1_shape)
@@ -371,11 +371,11 @@ def vae(x, z_size, name=None):
   Returns:
     Embedding function, latent, loss, mu and log_simga.
   """
-  with tf.variable_scope(name, default_name="vae"):
-    mu = tf.layers.dense(x, z_size, name="mu")
-    log_sigma = tf.layers.dense(x, z_size, name="log_sigma")
+  with tf.compat.v1.variable_scope(name, default_name="vae"):
+    mu = tf.compat.v1.layers.dense(x, z_size, name="mu")
+    log_sigma = tf.compat.v1.layers.dense(x, z_size, name="log_sigma")
     shape = common_layers.shape_list(x)
-    epsilon = tf.random_normal([shape[0], shape[1], 1, z_size])
+    epsilon = tf.random.normal([shape[0], shape[1], 1, z_size])
     z = mu + tf.exp(log_sigma / 2) * epsilon
     kl = 0.5 * tf.reduce_mean(
         tf.exp(log_sigma) + tf.square(mu) - 1. - log_sigma, axis=-1)
@@ -396,9 +396,9 @@ def top_k_softmax(x, k):
   """
   x = tf.nn.softmax(x)
   top_x, _ = tf.nn.top_k(x, k=k + 1)
-  min_top = tf.reduce_min(top_x, axis=-1, keep_dims=True)
+  min_top = tf.reduce_min(top_x, axis=-1, keepdims=True)
   x = tf.nn.relu((x - min_top) + 1e-12)
-  x /= tf.reduce_sum(x, axis=-1, keep_dims=True)
+  x /= tf.reduce_sum(x, axis=-1, keepdims=True)
   return x, tf.reduce_max(top_x, axis=-1)
 
 
@@ -411,8 +411,8 @@ def gumbel_sample(shape):
   Returns:
     Noise drawn from Gumbel distribution.
   """
-  uniform_samples = tf.random_uniform(shape, minval=0.00001, maxval=0.99998)
-  return -tf.log(-tf.log(uniform_samples))
+  uniform_samples = tf.random.uniform(shape, minval=0.00001, maxval=0.99998)
+  return -tf.math.log(-tf.math.log(uniform_samples))
 
 
 def gumbel_softmax(x,
@@ -437,8 +437,8 @@ def gumbel_softmax(x,
   Returns:
     Embedding function, discrete code, and loss.
   """
-  with tf.variable_scope(name, default_name="gumbel_softmax"):
-    m = tf.layers.dense(x, 2**z_size, name="mask")
+  with tf.compat.v1.variable_scope(name, default_name="gumbel_softmax"):
+    m = tf.compat.v1.layers.dense(x, 2**z_size, name="mask")
     if softmax_k > 0:
       m, kl = top_k_softmax(m, softmax_k)
       return m, m, 1.0 - tf.reduce_mean(kl)
@@ -452,14 +452,14 @@ def gumbel_softmax(x,
 
     # 10% of the time keep reasonably high temperature to keep learning.
     temperature = tf.cond(
-        tf.less(tf.random_uniform([]), 0.9), lambda: temperature,
-        lambda: tf.random_uniform([], minval=0.5, maxval=1.0))
+        tf.less(tf.random.uniform([]), 0.9), lambda: temperature,
+        lambda: tf.random.uniform([], minval=0.5, maxval=1.0))
     s = tf.nn.softmax((logsm + gumbel_samples) / temperature)
     m = tf.nn.softmax(m)
     kl = -tf.reduce_max(logsm, axis=-1)
 
     if summary:
-      tf.summary.histogram("max-log", tf.reshape(kl, [-1]))
+      tf.compat.v1.summary.histogram("max-log", tf.reshape(kl, [-1]))
 
     # Calculate the argmax and construct hot vectors.
     maxvec = tf.reshape(tf.argmax(m, axis=-1), [-1])
@@ -467,7 +467,7 @@ def gumbel_softmax(x,
 
     # Add losses that prevent too few being used.
     distrib = tf.reshape(logsm, [-1, 2**z_size]) * maxvhot
-    d_mean = tf.reduce_mean(distrib, axis=[0], keep_dims=True)
+    d_mean = tf.reduce_mean(distrib, axis=[0], keepdims=True)
     d_variance = tf.reduce_mean(tf.square(distrib - d_mean), axis=[0])
     d_dev = -tf.reduce_mean(d_variance)
     ret = s
@@ -602,8 +602,8 @@ def discrete_bottleneck(inputs,
   else:
     block_v_size = None
 
-  with tf.variable_scope(
-      name, default_name="discrete_bottleneck", reuse=tf.AUTO_REUSE):
+  with tf.compat.v1.variable_scope(
+      name, default_name="discrete_bottleneck", reuse=tf.compat.v1.AUTO_REUSE):
     embed_fn = partial(
         embed,
         hidden_size=hidden_size,
@@ -619,8 +619,8 @@ def discrete_bottleneck(inputs,
 
     if bottleneck_kind == "dense":
       # Note discrete output is continuous here.
-      outputs_discrete = tf.layers.dense(inputs, z_size, name="vcc")
-      outputs_dense = tf.layers.dense(
+      outputs_discrete = tf.compat.v1.layers.dense(inputs, z_size, name="vcc")
+      outputs_dense = tf.compat.v1.layers.dense(
           outputs_discrete, filter_size, name="vch1")
       extra_loss = tf.constant(0.0)
       neg_q_entropy = tf.constant(0.0)
@@ -666,7 +666,7 @@ def discrete_bottleneck(inputs,
                 sum_over_latents=sum_over_latents))
         # Update the EMA variables.
         if ema:
-          tf.logging.info("Using EMA with beta = {}".format(beta))
+          tf.compat.v1.logging.info("Using EMA with beta = {}".format(beta))
           updated_ema_count_res = moving_averages.assign_moving_average(
               ema_count[i],
               tf.reduce_sum(
@@ -682,7 +682,7 @@ def discrete_bottleneck(inputs,
 
           updated_ema_means_res = moving_averages.assign_moving_average(
               ema_means[i], dw, decay, zero_debias=False)
-          n = tf.reduce_sum(updated_ema_count_res, axis=-1, keep_dims=True)
+          n = tf.reduce_sum(updated_ema_count_res, axis=-1, keepdims=True)
           updated_ema_count_res = (
               (updated_ema_count_res + epsilon) / (n + 2**z_size * epsilon) * n)
           # pylint: disable=g-no-augmented-assignment
@@ -691,7 +691,7 @@ def discrete_bottleneck(inputs,
           # pylint: enable=g-no-augmented-assignment
 
           with tf.control_dependencies([e_loss_res]):
-            update_means_res = tf.assign(means[i], updated_ema_means_res)
+            update_means_res = tf.compat.v1.assign(means[i], updated_ema_means_res)
             with tf.control_dependencies([update_means_res]):
               extra_loss += beta * e_loss_res
         else:
@@ -716,7 +716,7 @@ def discrete_bottleneck(inputs,
       new_shape[-1] = z_size
       x_means_bits = tf.reshape(x_means_bits, shape=new_shape)
       outputs_discrete = bit_to_int(
-          tf.to_int32(x_means_bits), num_bits=z_size, base=2)
+          tf.cast(x_means_bits, dtype=tf.int32), num_bits=z_size, base=2)
 
       # Adjust shape of discrete outputs.
       inputs_shape = common_layers.shape_list(inputs)
@@ -741,40 +741,40 @@ def discrete_bottleneck(inputs,
           summary=summary,
           name=name)
       outputs_discrete = tf.argmax(outputs_hot, axis=-1)
-      outputs_dense = tf.layers.dense(
+      outputs_dense = tf.compat.v1.layers.dense(
           outputs_hot, hidden_size, name="dae_dense")
       neg_q_entropy = tf.constant(0.0)
     elif bottleneck_kind == "semhash":
-      outputs_discrete = tf.layers.dense(inputs, z_size, name="vcc")
+      outputs_discrete = tf.compat.v1.layers.dense(inputs, z_size, name="vcc")
       y_clean = common_layers.saturating_sigmoid(outputs_discrete)
       if summary:
-        tf.summary.histogram("y_clean", tf.reshape(y_clean, [-1]))
+        tf.compat.v1.summary.histogram("y_clean", tf.reshape(y_clean, [-1]))
       if noise_dev > 0 and mode == tf.estimator.ModeKeys.TRAIN:
-        noise = tf.truncated_normal(
+        noise = tf.random.truncated_normal(
             common_layers.shape_list(outputs_discrete),
             mean=0.0,
             stddev=noise_dev)
         y = common_layers.saturating_sigmoid(outputs_discrete + noise)
       else:
         y = y_clean
-      d = tf.to_float(tf.less(0.5, y))
+      d = tf.cast(tf.less(0.5, y), dtype=tf.float32)
       y_discrete = tf.stop_gradient(d) + y - tf.stop_gradient(y)
       pd = common_layers.inverse_exp_decay(startup_steps * 2)
       pd *= discrete_mix
       pd = pd if mode == tf.estimator.ModeKeys.TRAIN else 1.0
-      c = tf.where(
-          tf.less(tf.random_uniform([common_layers.shape_list(y)[0]]), pd),
+      c = tf.compat.v1.where(
+          tf.less(tf.random.uniform([common_layers.shape_list(y)[0]]), pd),
           y_discrete, y)
-      outputs_dense_a = tf.layers.dense(c, filter_size, name="vch1a")
-      outputs_dense_b = tf.layers.dense(1.0 - c, filter_size, name="vch1b")
+      outputs_dense_a = tf.compat.v1.layers.dense(c, filter_size, name="vch1a")
+      outputs_dense_b = tf.compat.v1.layers.dense(1.0 - c, filter_size, name="vch1b")
       outputs_dense = outputs_dense_a + outputs_dense_b
-      dx = tf.to_int32(tf.stop_gradient(d))
+      dx = tf.cast(tf.stop_gradient(d), dtype=tf.int32)
       outputs_discrete = bit_to_int(dx, z_size)
       extra_loss = tf.constant(0.0)
       neg_q_entropy = tf.constant(0.0)
     elif bottleneck_kind == "vae":
       outputs_discrete, extra_loss, _, _ = vae(inputs, z_size, name="vae")
-      outputs_dense = tf.layers.dense(
+      outputs_dense = tf.compat.v1.layers.dense(
           outputs_discrete, filter_size, name="vch1")
       neg_q_entropy = tf.constant(0.0)
     else:
@@ -810,16 +810,16 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
     used to train the predictions against the provided target_bits.
   """
 
-  with tf.variable_scope("predict_bits_with_lstm"):
+  with tf.compat.v1.variable_scope("predict_bits_with_lstm"):
     # Layers and cell state creation.
-    lstm_cell = tf.contrib.rnn.LSTMCell(state_size)
-    discrete_predict = tf.layers.Dense(2**bits_at_once, name="discrete_predict")
-    discrete_embed = tf.layers.Dense(state_size, name="discrete_embed")
+    lstm_cell = tf.compat.v1.nn.rnn_cell.LSTMCell(state_size)
+    discrete_predict = tf.compat.v1.layers.Dense(2**bits_at_once, name="discrete_predict")
+    discrete_embed = tf.compat.v1.layers.Dense(state_size, name="discrete_embed")
     batch_size = common_layers.shape_list(prediction_source)[0]
-    layer_pred = tf.layers.flatten(prediction_source)
-    prediction = tf.layers.dense(layer_pred, state_size, name="istate")
-    c_state = tf.layers.dense(layer_pred, state_size, name="cstate")
-    m_state = tf.layers.dense(layer_pred, state_size, name="mstate")
+    layer_pred = tf.compat.v1.layers.flatten(prediction_source)
+    prediction = tf.compat.v1.layers.dense(layer_pred, state_size, name="istate")
+    c_state = tf.compat.v1.layers.dense(layer_pred, state_size, name="cstate")
+    m_state = tf.compat.v1.layers.dense(layer_pred, state_size, name="mstate")
     state = (c_state, m_state)
 
     # Prediction mode if no targets are given.
@@ -842,7 +842,7 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
     d_pred = tf.reshape(tf.maximum(tf.stop_gradient(target_bits), 0), [
         batch_size, total_num_bits // bits_at_once, bits_at_once])
     d_int = bit_to_int(d_pred, bits_at_once)
-    tf.summary.histogram("target_integers", tf.reshape(d_int, [-1]))
+    tf.compat.v1.summary.histogram("target_integers", tf.reshape(d_int, [-1]))
     d_hot = tf.one_hot(d_int, 2**bits_at_once, axis=-1)
     d_pred = discrete_embed(d_hot)
     pred = tf.concat([tf.expand_dims(prediction, axis=1), d_pred], axis=1)
@@ -852,7 +852,7 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
       outputs.append(tf.expand_dims(output, axis=1))
     outputs = tf.concat(outputs, axis=1)
     d_int_pred = discrete_predict(outputs)
-    pred_loss = tf.losses.sparse_softmax_cross_entropy(
+    pred_loss = tf.compat.v1.losses.sparse_softmax_cross_entropy(
         logits=d_int_pred, labels=d_int)
     pred_loss = tf.reduce_mean(pred_loss)
     return target_bits, pred_loss
@@ -866,20 +866,20 @@ def predict_bits_with_lstm(prediction_source, state_size, total_num_bits,
 
 def get_vq_codebook(codebook_size, hidden_size):
   """Get lookup table for VQ bottleneck."""
-  with tf.variable_scope("vq", reuse=tf.AUTO_REUSE):
-    means = tf.get_variable(
+  with tf.compat.v1.variable_scope("vq", reuse=tf.compat.v1.AUTO_REUSE):
+    means = tf.compat.v1.get_variable(
         name="means",
         shape=[codebook_size, hidden_size],
-        initializer=tf.uniform_unit_scaling_initializer())
+        initializer=tf.compat.v1.keras.initializers.VarianceScaling(distribution="uniform"))
 
-    ema_count = tf.get_variable(
+    ema_count = tf.compat.v1.get_variable(
         name="ema_count",
         shape=[codebook_size],
-        initializer=tf.constant_initializer(0),
+        initializer=tf.compat.v1.constant_initializer(0),
         trainable=False)
 
-    with tf.colocate_with(means):
-      ema_means = tf.get_variable(
+    with tf.compat.v1.colocate_with(means):
+      ema_means = tf.compat.v1.get_variable(
           name="ema_means",
           initializer=means.initialized_value(),
           trainable=False)
@@ -896,7 +896,7 @@ def vq_nearest_neighbor(x, means,
   scalar_prod = tf.matmul(x, means, transpose_b=True)
   dist = x_norm_sq + tf.transpose(means_norm_sq) - 2 * scalar_prod
   if soft_em:
-    x_means_idx = tf.multinomial(-dist, num_samples=num_samples)
+    x_means_idx = tf.random.categorical(-dist, num_samples=num_samples)
     x_means_hot = tf.one_hot(
         x_means_idx, depth=common_layers.shape_list(means)[0])
     x_means_hot = tf.reduce_mean(x_means_hot, axis=1)
@@ -904,11 +904,11 @@ def vq_nearest_neighbor(x, means,
     if temperature is None:
       x_means_idx = tf.argmax(-dist, axis=-1)
     else:
-      x_means_idx = tf.multinomial(- dist / temperature, 1)
+      x_means_idx = tf.random.categorical(- dist / temperature, 1)
       x_means_idx = tf.squeeze(x_means_idx, axis=-1)
     if (common_layers.should_generate_summaries() and
         not common_layers.is_xla_compiled()):
-      tf.summary.histogram("means_idx", tf.reshape(x_means_idx, [-1]))
+      tf.compat.v1.summary.histogram("means_idx", tf.reshape(x_means_idx, [-1]))
     x_means_hot = tf.one_hot(x_means_idx, bottleneck_size)
   x_means_hot_flat = tf.reshape(x_means_hot, [-1, bottleneck_size])
   x_means = tf.matmul(x_means_hot_flat, means)
@@ -1041,7 +1041,7 @@ def vq_loss(x,
       do_update=do_update)
 
   logits = -distances
-  targets_loss = tf.losses.sparse_softmax_cross_entropy(
+  targets_loss = tf.compat.v1.losses.sparse_softmax_cross_entropy(
       logits=logits, labels=targets)
   targets_loss = tf.reduce_mean(targets_loss)
 
@@ -1056,7 +1056,7 @@ def vq_loss(x,
 def vq_discrete_unbottleneck(x, hidden_size):
   """Simple undiscretization from vector quantized representation."""
   x_shape = common_layers.shape_list(x)
-  x = tf.to_float(x)
+  x = tf.cast(x, dtype=tf.float32)
   bottleneck_size = common_layers.shape_list(x)[-1]
   means, _, _ = get_vq_codebook(bottleneck_size, hidden_size)
   result = tf.matmul(tf.reshape(x, [-1, x_shape[-1]]), means)
@@ -1135,8 +1135,8 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
 
   # 10% of the time keep reasonably high temperature to keep learning.
   temperature = tf.cond(
-      tf.less(tf.random_uniform([]), 0.9), lambda: temperature,
-      lambda: tf.random_uniform([], minval=0.5, maxval=1.0))
+      tf.less(tf.random.uniform([]), 0.9), lambda: temperature,
+      lambda: tf.random.uniform([], minval=0.5, maxval=1.0))
 
   gumbel_softmax_samples = tf.nn.softmax(
       (tf.expand_dims(log_class_probs, 0) + gumbel_samples) / temperature)
@@ -1151,7 +1151,7 @@ def gumbel_softmax_nearest_neighbor_dvq(x,
   # Take mean over samples to approximate entropy.
   neg_q_entropy = tf.reduce_mean(q_dist.log_prob(q_samples), 0)
   if summary:
-    tf.summary.histogram("neg_q_entropy", tf.reshape(neg_q_entropy, [-1]))
+    tf.compat.v1.summary.histogram("neg_q_entropy", tf.reshape(neg_q_entropy, [-1]))
   if sum_over_latents:
     neg_q_entropy = tf.reshape(neg_q_entropy,
                                [batch_size, num_blocks, latent_dim])
@@ -1299,16 +1299,16 @@ def gumbel_softmax_discrete_bottleneck(x,
 
   # 10% of the time keep reasonably high temperature to keep learning.
   temperature = tf.cond(
-      tf.less(tf.random_uniform([]), 0.9), lambda: temperature,
-      lambda: tf.random_uniform([], minval=0.5, maxval=1.0))
+      tf.less(tf.random.uniform([]), 0.9), lambda: temperature,
+      lambda: tf.random.uniform([], minval=0.5, maxval=1.0))
   gumbel_softmax_samples = tf.nn.softmax(
       (log_class_probs + gumbel_samples) / temperature)
 
   # Calculate KL between q and a uniform prior.
   kl = tf.reduce_sum(
-      class_probs * (log_class_probs - tf.log(1.0 / bottleneck_size)), -1)
+      class_probs * (log_class_probs - tf.math.log(1.0 / bottleneck_size)), -1)
   if summary:
-    tf.summary.histogram("KL", tf.reshape(kl, [-1]))
+    tf.compat.v1.summary.histogram("KL", tf.reshape(kl, [-1]))
 
   # Straight-through gradient estimation when we're using hard assignments.
   if hard:
@@ -1355,16 +1355,16 @@ def gumbel_softmax_discrete_bottleneck(x,
 def tanh_discrete_bottleneck(x, bottleneck_bits, bottleneck_noise,
                              discretize_warmup_steps, mode):
   """Simple discretization through tanh, flip bottleneck_noise many bits."""
-  x = tf.layers.dense(x, bottleneck_bits, name="tanh_discrete_bottleneck")
-  d0 = tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x))) - 1.0
+  x = tf.compat.v1.layers.dense(x, bottleneck_bits, name="tanh_discrete_bottleneck")
+  d0 = tf.stop_gradient(2.0 * tf.cast(tf.less(0.0, x), dtype=tf.float32)) - 1.0
   if mode == tf.estimator.ModeKeys.TRAIN:
-    x += tf.truncated_normal(
+    x += tf.random.truncated_normal(
         common_layers.shape_list(x), mean=0.0, stddev=0.2)
   x = tf.tanh(x)
-  d = x + tf.stop_gradient(2.0 * tf.to_float(tf.less(0.0, x)) - 1.0 - x)
+  d = x + tf.stop_gradient(2.0 * tf.cast(tf.less(0.0, x), dtype=tf.float32) - 1.0 - x)
   if mode == tf.estimator.ModeKeys.TRAIN:
-    noise = tf.random_uniform(common_layers.shape_list(x))
-    noise = 2.0 * tf.to_float(tf.less(bottleneck_noise, noise)) - 1.0
+    noise = tf.random.uniform(common_layers.shape_list(x))
+    noise = 2.0 * tf.cast(tf.less(bottleneck_noise, noise), dtype=tf.float32) - 1.0
     d *= noise
   d = common_layers.mix(d, x, discretize_warmup_steps,
                         mode == tf.estimator.ModeKeys.TRAIN)
@@ -1373,7 +1373,7 @@ def tanh_discrete_bottleneck(x, bottleneck_bits, bottleneck_noise,
 
 def tanh_discrete_unbottleneck(x, hidden_size):
   """Simple un-discretization from tanh."""
-  x = tf.layers.dense(x, hidden_size, name="tanh_discrete_unbottleneck")
+  x = tf.compat.v1.layers.dense(x, hidden_size, name="tanh_discrete_unbottleneck")
   return x
 
 
@@ -1385,18 +1385,18 @@ def isemhash_bottleneck(x,
                         isemhash_noise_dev=0.5,
                         isemhash_mix_prob=0.5):
   """Improved semantic hashing bottleneck."""
-  with tf.variable_scope("isemhash_bottleneck"):
-    x = tf.layers.dense(x, bottleneck_bits, name="dense")
+  with tf.compat.v1.variable_scope("isemhash_bottleneck"):
+    x = tf.compat.v1.layers.dense(x, bottleneck_bits, name="dense")
     y = common_layers.saturating_sigmoid(x)
     if isemhash_noise_dev > 0 and mode == tf.estimator.ModeKeys.TRAIN:
-      noise = tf.truncated_normal(
+      noise = tf.random.truncated_normal(
           common_layers.shape_list(x), mean=0.0, stddev=isemhash_noise_dev)
       y = common_layers.saturating_sigmoid(x + noise)
-    d = tf.to_float(tf.less(0.5, y)) + y - tf.stop_gradient(y)
+    d = tf.cast(tf.less(0.5, y), dtype=tf.float32) + y - tf.stop_gradient(y)
     d = 2.0 * d - 1.0  # Move from [0, 1] to [-1, 1].
     if mode == tf.estimator.ModeKeys.TRAIN:  # Flip some bits.
-      noise = tf.random_uniform(common_layers.shape_list(x))
-      noise = 2.0 * tf.to_float(tf.less(bottleneck_noise, noise)) - 1.0
+      noise = tf.random.uniform(common_layers.shape_list(x))
+      noise = 2.0 * tf.cast(tf.less(bottleneck_noise, noise), dtype=tf.float32) - 1.0
       d *= noise
       d = common_layers.mix(
           d,
@@ -1411,11 +1411,11 @@ def isemhash_unbottleneck(x, hidden_size, isemhash_filter_size_multiplier=1.0):
   """Improved semantic hashing un-bottleneck."""
   filter_size = int(hidden_size * isemhash_filter_size_multiplier)
   x = 0.5 * (x - 1.0)  # Move from [-1, 1] to [0, 1].
-  with tf.variable_scope("isemhash_unbottleneck"):
-    h1a = tf.layers.dense(x, filter_size, name="hidden1a")
-    h1b = tf.layers.dense(1.0 - x, filter_size, name="hidden1b")
-    h2 = tf.layers.dense(tf.nn.relu(h1a + h1b), filter_size, name="hidden2")
-    return tf.layers.dense(tf.nn.relu(h2), hidden_size, name="final")
+  with tf.compat.v1.variable_scope("isemhash_unbottleneck"):
+    h1a = tf.compat.v1.layers.dense(x, filter_size, name="hidden1a")
+    h1b = tf.compat.v1.layers.dense(1.0 - x, filter_size, name="hidden1b")
+    h2 = tf.compat.v1.layers.dense(tf.nn.relu(h1a + h1b), filter_size, name="hidden2")
+    return tf.compat.v1.layers.dense(tf.nn.relu(h2), hidden_size, name="final")
 
 
 def parametrized_bottleneck(x, hparams):

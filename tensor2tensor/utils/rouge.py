@@ -144,11 +144,11 @@ def rouge_l_fscore(predictions, labels, **unused_kwargs):
   Returns:
     rouge_l_fscore: approx rouge-l f1 score.
   """
-  outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
+  outputs = tf.cast(tf.argmax(predictions, axis=-1), dtype=tf.int32)
   # Convert the outputs and labels to a [batch_size, input_length] tensor.
   outputs = tf.squeeze(outputs, axis=[-1, -2])
   labels = tf.squeeze(labels, axis=[-1, -2])
-  rouge_l_f_score = tf.py_func(rouge_l_sentence_level, (outputs, labels),
+  rouge_l_f_score = tf.compat.v1.py_func(rouge_l_sentence_level, (outputs, labels),
                                tf.float32)
   return rouge_l_f_score, tf.constant(1.0)
 
@@ -228,9 +228,9 @@ def rouge_2_fscore(predictions, labels, **unused_kwargs):
     rouge2_fscore: approx rouge-2 f1 score.
   """
 
-  outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
+  outputs = tf.cast(tf.argmax(predictions, axis=-1), dtype=tf.int32)
   # Convert the outputs and labels to a [batch_size, input_length] tensor.
   outputs = tf.squeeze(outputs, axis=[-1, -2])
   labels = tf.squeeze(labels, axis=[-1, -2])
-  rouge_2_f_score = tf.py_func(rouge_n, (outputs, labels), tf.float32)
+  rouge_2_f_score = tf.compat.v1.py_func(rouge_n, (outputs, labels), tf.float32)
   return rouge_2_f_score, tf.constant(1.0)

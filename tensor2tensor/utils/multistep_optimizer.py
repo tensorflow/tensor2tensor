@@ -29,7 +29,7 @@ from __future__ import print_function
 import tensorflow as tf
 
 
-class MultistepAdamOptimizer(tf.train.AdamOptimizer):
+class MultistepAdamOptimizer(tf.compat.v1.train.AdamOptimizer):
   """Adam with SGD updates every n steps with accumulated gradients."""
 
   def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8,
@@ -52,7 +52,7 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
 
   def _get_iter_variable(self):
     graph = (
-        None if tf.contrib.eager.in_eager_mode() else tf.get_default_graph())
+        None if tf.contrib.eager.in_eager_mode() else tf.compat.v1.get_default_graph())
     return self._get_non_slot_variable("iter", graph=graph)
 
   def _prepare(self):
@@ -72,7 +72,7 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
       return tf.group(adam_op, grad_acc_to_zero_op)
 
     def accumulate_gradient(grad_acc, grad):
-      assign_op = tf.assign_add(grad_acc, grad, use_locking=self._use_locking)
+      assign_op = tf.compat.v1.assign_add(grad_acc, grad, use_locking=self._use_locking)
       return tf.group(assign_op)  # Strip return value
 
     return tf.cond(
@@ -95,7 +95,7 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
 
   def _apply_sparse(self, grad, var):
     # TODO(fstahlberg): Implement a sparse version
-    tf.logging.warning("MultistepAdamOptimizer does not support sparse updates")
+    tf.compat.v1.logging.warning("MultistepAdamOptimizer does not support sparse updates")
     dense_grad = tf.convert_to_tensor(grad)
     return self._apply_cond(
         super(MultistepAdamOptimizer, self)._apply_dense, dense_grad, var)
@@ -105,7 +105,7 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
     iter_ = self._get_iter_variable()
     beta1_power, beta2_power = self._get_beta_accumulators()
     with tf.control_dependencies(update_ops):
-      with tf.colocate_with(iter_):
+      with tf.compat.v1.colocate_with(iter_):
 
         def update_beta_op():
           update_beta1 = beta1_power.assign(
@@ -118,7 +118,7 @@ class MultistepAdamOptimizer(tf.train.AdamOptimizer):
         maybe_update_beta = tf.cond(
             tf.equal(iter_, 0), update_beta_op, tf.no_op)
         with tf.control_dependencies([maybe_update_beta]):
-          update_iter = iter_.assign(tf.mod(iter_ + 1, self._n_t),
+          update_iter = iter_.assign(tf.math.floormod(iter_ + 1, self._n_t),
                                      use_locking=self._use_locking)
     return tf.group(
         *update_ops + [update_iter, maybe_update_beta], name=name_scope)

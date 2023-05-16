@@ -74,29 +74,29 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
     # https://github.com/alexlee-gk/video_prediction
     padding = [[0, 0], [1, 1], [1, 1], [0, 0]]
     for i in range(n_layers):
-      with tf.variable_scope("layer_%d" % (i + 1)):
+      with tf.compat.v1.variable_scope("layer_%d" % (i + 1)):
         n_filters *= 2**i
         if i:
           padded = tf.pad(rectified, padding)
         else:
           padded = tf.pad(inputs, padding)
-        convolved = tf.layers.conv2d(padded, filters=n_filters, kernel_size=4,
+        convolved = tf.compat.v1.layers.conv2d(padded, filters=n_filters, kernel_size=4,
                                      strides=2, padding="VALID")
         normalized = tf.contrib.layers.instance_norm(convolved)
         rectified = tf.nn.leaky_relu(normalized, alpha=0.2)
 
     # Mean pooling across all spatial dimensions.
-    pooled = tf.nn.avg_pool(
-        rectified, [1] + rectified.shape[1:3].as_list() + [1],
+    pooled = tf.nn.avg_pool2d(
+        input=rectified, ksize=[1] + rectified.shape[1:3].as_list() + [1],
         strides=[1, 1, 1, 1], padding="VALID")
     squeezed = tf.squeeze(pooled, [1, 2])
 
     # Down-project and output the mean and log of the standard deviation of
     # the latents.
-    with tf.variable_scope("z_mu"):
-      z_mu = tf.layers.dense(squeezed, latent_dims)
-    with tf.variable_scope("z_log_sigma_sq"):
-      z_log_var = tf.layers.dense(squeezed, latent_dims)
+    with tf.compat.v1.variable_scope("z_mu"):
+      z_mu = tf.compat.v1.layers.dense(squeezed, latent_dims)
+    with tf.compat.v1.variable_scope("z_log_sigma_sq"):
+      z_log_var = tf.compat.v1.layers.dense(squeezed, latent_dims)
       z_log_var = tf.clip_by_value(z_log_var, -10, 10)
 
     # Reshape to (batch_size X num_frames X latent_dims)
@@ -151,7 +151,7 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
                                           stride, name)
     num_fc_dimensions = self.get_fc_dimensions(strides, kernel_sizes)
     activations = tf.reshape(activations, (-1, num_fc_dimensions))
-    return tf.squeeze(tf.layers.dense(activations, 1))
+    return tf.squeeze(tf.compat.v1.layers.dense(activations, 1))
 
   def d_step(self, true_frames, gen_frames):
     """Performs the discriminator step in computing the GAN loss.
@@ -180,10 +180,10 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
     true_logits, fake_logits_stop = \
       all_logits[:batch_size], all_logits[batch_size:]
     mean_true_logits = tf.reduce_mean(true_logits)
-    tf.summary.scalar("mean_true_logits", mean_true_logits)
+    tf.compat.v1.summary.scalar("mean_true_logits", mean_true_logits)
 
     mean_fake_logits_stop = tf.reduce_mean(fake_logits_stop)
-    tf.summary.scalar("mean_fake_logits_stop", mean_fake_logits_stop)
+    tf.compat.v1.summary.scalar("mean_fake_logits_stop", mean_fake_logits_stop)
 
     discriminator_loss_func = hparam_to_disc_loss[self.hparams.gan_loss]
     gan_d_loss = discriminator_loss_func(
@@ -211,7 +211,7 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
 
     fake_logits = self.discriminator(gen_frames)
     mean_fake_logits = tf.reduce_mean(fake_logits)
-    tf.summary.scalar("mean_fake_logits", mean_fake_logits)
+    tf.compat.v1.summary.scalar("mean_fake_logits", mean_fake_logits)
 
     # Generator loss.
     # Using gan_g_loss_pos_d updates the discriminator as well.
@@ -242,21 +242,21 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
       loss: 0-D Tensor, with d_loss + g_loss
     """
     # D - STEP
-    with tf.variable_scope("%s_discriminator" % name, reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope("%s_discriminator" % name, reuse=tf.compat.v1.AUTO_REUSE):
       gan_d_loss, _, fake_logits_stop = self.d_step(
           true_frames, gen_frames)
 
     # G - STEP
-    with tf.variable_scope("%s_discriminator" % name, reuse=True):
+    with tf.compat.v1.variable_scope("%s_discriminator" % name, reuse=True):
       gan_g_loss_pos_d, gan_g_loss_neg_d = self.g_step(
           gen_frames, fake_logits_stop)
     gan_g_loss = gan_g_loss_pos_d + gan_g_loss_neg_d
-    tf.summary.scalar("gan_loss_%s" % name, gan_g_loss_pos_d + gan_d_loss)
+    tf.compat.v1.summary.scalar("gan_loss_%s" % name, gan_g_loss_pos_d + gan_d_loss)
 
     if self.hparams.gan_optimization == "joint":
       gan_loss = gan_g_loss + gan_d_loss
     else:
-      curr_step = tf.train.get_or_create_global_step()
+      curr_step = tf.compat.v1.train.get_or_create_global_step()
       gan_loss = tf.cond(
           tf.logical_not(curr_step % 2 == 0), lambda: gan_g_loss,
           lambda: gan_d_loss)
@@ -310,15 +310,15 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
     filter_shape = (
         [kernel_size]*3 + activations.shape[-1:].as_list() + [n_filters])
 
-    with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
-      conv_filter = tf.get_variable(
+    with tf.compat.v1.variable_scope(scope, reuse=tf.compat.v1.AUTO_REUSE):
+      conv_filter = tf.compat.v1.get_variable(
           "conv_filter", shape=filter_shape,
-          initializer=tf.truncated_normal_initializer(stddev=0.02))
+          initializer=tf.compat.v1.truncated_normal_initializer(stddev=0.02))
 
       if self.hparams.use_spectral_norm:
         conv_filter, assign_op = common_layers.apply_spectral_norm(conv_filter)
         if self.is_training:
-          tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, assign_op)
+          tf.compat.v1.add_to_collection(tf.compat.v1.GraphKeys.UPDATE_OPS, assign_op)
 
       padded = tf.pad(activations, padding)
       convolved = tf.nn.conv3d(
@@ -395,14 +395,14 @@ class NextFrameSAVP(sv2p.NextFrameSv2pLegacy):
     # Create scheduled sampling function
     ss_func = self.get_scheduled_sample_func(batch_size)
 
-    with tf.variable_scope("prediction", reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope("prediction", reuse=tf.compat.v1.AUTO_REUSE):
 
       for step, (image, action, reward, mu, log_sigma_sq) in enumerate(iterable):  # pylint:disable=line-too-long
         # Sample latents using a gaussian centered at conditional mu and std.
         latent = common_video.get_gaussian_tensor(mu, log_sigma_sq)
 
         # Sample prior latents from isotropic normal distribution.
-        prior_latent = tf.random_normal(tf.shape(latent), dtype=tf.float32)
+        prior_latent = tf.random.normal(tf.shape(latent), dtype=tf.float32)
 
         # LSTM that encodes correlations between conditional latents.
         # Pg 22 in https://arxiv.org/pdf/1804.01523.pdf

@@ -35,7 +35,7 @@ class MetricsTest(tf.test.TestCase):
           tf.one_hot(predictions, depth=5, dtype=tf.float32),
           tf.constant(targets, dtype=tf.int32))
       a = tf.reduce_mean(scores)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       actual = session.run(a)
     self.assertAlmostEqual(actual, expected)
 
@@ -51,7 +51,7 @@ class MetricsTest(tf.test.TestCase):
           predicted, tf.constant(targets, dtype=tf.int32), k=7)
       a1 = tf.reduce_mean(scores1)
       a2 = tf.reduce_mean(scores2)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       actual1, actual2 = session.run([a1, a2])
     self.assertAlmostEqual(actual1, expected)
     self.assertAlmostEqual(actual2, 1.0)
@@ -66,7 +66,7 @@ class MetricsTest(tf.test.TestCase):
           tf.one_hot(predictions, depth=4, dtype=tf.float32),
           tf.constant(targets, dtype=tf.int32))
       a = tf.reduce_mean(scores)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       actual = session.run(a)
     self.assertEqual(actual, expected)
 
@@ -78,7 +78,7 @@ class MetricsTest(tf.test.TestCase):
       rmse, _ = metrics.padded_rmse(
           tf.constant(predictions, dtype=tf.int32),
           tf.constant(targets, dtype=tf.int32))
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       actual = session.run(rmse)
     self.assertEqual(actual, expected)
 
@@ -100,7 +100,7 @@ class MetricsTest(tf.test.TestCase):
       scores, weight = metrics.sequence_edit_distance(
           tf.one_hot(predictions, depth=6, dtype=tf.float32),
           tf.constant(targets, dtype=tf.int32))
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       actual_scores, actual_weight = session.run([scores, weight])
     self.assertAlmostEqual(actual_scores, 3.0 / 13)
     self.assertEqual(actual_weight, 13)
@@ -113,7 +113,7 @@ class MetricsTest(tf.test.TestCase):
           tf.one_hot(predictions, depth=4, dtype=tf.float32),
           tf.constant(targets, dtype=tf.int32))
       a = tf.reduce_mean(scores)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       actual = session.run(a)
     self.assertEqual(actual.shape, ())
 
@@ -135,8 +135,8 @@ class MetricsTest(tf.test.TestCase):
 
     with self.test_session() as session:
       score, _ = metrics.sigmoid_accuracy_one_hot(logits, labels)
-      session.run(tf.global_variables_initializer())
-      session.run(tf.local_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
+      session.run(tf.compat.v1.local_variables_initializer())
       s = session.run(score)
     self.assertEqual(s, 0.5)
 
@@ -158,8 +158,8 @@ class MetricsTest(tf.test.TestCase):
 
     with self.test_session() as session:
       score, _ = metrics.sigmoid_precision_one_hot(logits, labels)
-      session.run(tf.global_variables_initializer())
-      session.run(tf.local_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
+      session.run(tf.compat.v1.local_variables_initializer())
       s = session.run(score)
     self.assertEqual(s, 0.25)
 
@@ -181,8 +181,8 @@ class MetricsTest(tf.test.TestCase):
 
     with self.test_session() as session:
       score, _ = metrics.sigmoid_recall_one_hot(logits, labels)
-      session.run(tf.global_variables_initializer())
-      session.run(tf.local_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
+      session.run(tf.compat.v1.local_variables_initializer())
       s = session.run(score)
     self.assertEqual(s, 0.25)
 
@@ -204,8 +204,8 @@ class MetricsTest(tf.test.TestCase):
 
     with self.test_session() as session:
       score, _ = metrics.sigmoid_cross_entropy_one_hot(logits, labels)
-      session.run(tf.global_variables_initializer())
-      session.run(tf.local_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
+      session.run(tf.compat.v1.local_variables_initializer())
       s = session.run(score)
     self.assertAlmostEqual(s, 0.688, places=3)
 
@@ -227,8 +227,8 @@ class MetricsTest(tf.test.TestCase):
 
     with self.test_session() as session:
       score, _ = metrics.roc_auc(logits, labels)
-      session.run(tf.global_variables_initializer())
-      session.run(tf.local_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
+      session.run(tf.compat.v1.local_variables_initializer())
       s = session.run(score)
     self.assertAlmostEqual(s, 0.750, places=3)
 
@@ -247,9 +247,9 @@ class MetricsTest(tf.test.TestCase):
       scores, weights_ = metrics.multilabel_accuracy_match3(
           tf.one_hot(predictions, depth=5, dtype=tf.float32),
           tf.constant(targets, dtype=tf.int32))
-      a, a_op = tf.metrics.mean(scores, weights_)
-      session.run(tf.local_variables_initializer())
-      session.run(tf.global_variables_initializer())
+      a, a_op = tf.compat.v1.metrics.mean(scores, weights_)
+      session.run(tf.compat.v1.local_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       _ = session.run(a_op)
       actual = session.run(a)
     self.assertAlmostEqual(actual, expected, places=6)

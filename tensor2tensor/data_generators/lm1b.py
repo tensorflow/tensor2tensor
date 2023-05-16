@@ -51,7 +51,7 @@ def _original_vocab(tmp_dir):
     generator_utils.maybe_download(tmp_dir, vocab_filename, vocab_url)
   return set([
       text_encoder.native_to_unicode(l.strip())
-      for l in tf.gfile.Open(vocab_filepath)
+      for l in tf.io.gfile.GFile(vocab_filepath)
   ])
 
 
@@ -132,8 +132,8 @@ class LanguagemodelLm1b32k(text_problems.Text2SelfProblem):
     original_vocab = _original_vocab(tmp_dir)
     files = split_files[dataset_split]
     for filepath in files:
-      tf.logging.info("filepath = %s", filepath)
-      for line in tf.gfile.Open(filepath):
+      tf.compat.v1.logging.info("filepath = %s", filepath)
+      for line in tf.io.gfile.GFile(filepath):
         txt = _replace_oov(original_vocab, text_encoder.native_to_unicode(line))
         yield {"targets": txt}
 

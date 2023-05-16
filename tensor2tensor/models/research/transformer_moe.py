@@ -113,9 +113,9 @@ class TransformerMoe(t2t_model.T2TModel):
 
       # Display the encoder-decoder architecture
       def print_layer(name, layers):
-        tf.logging.info("{} architecture:".format(name))
+        tf.compat.v1.logging.info("{} architecture:".format(name))
         for i, l in enumerate(layers):
-          tf.logging.info(" * Layer {}: {}".format(i, " - ".join(l)))
+          tf.compat.v1.logging.info(" * Layer {}: {}".format(i, " - ".join(l)))
       print_layer("Encoder", encoder_layers)
       print_layer("Decoder", decoder_layers)
 
@@ -124,13 +124,13 @@ class TransformerMoe(t2t_model.T2TModel):
     encoder_outputs = []
 
     x = encoder_input
-    with tf.variable_scope("encoder"):
+    with tf.compat.v1.variable_scope("encoder"):
       for layer_num, block_types in enumerate(encoder_layers):
         # Each encoder layers is composed of two blocks:
         # * self-attention block
         # * feed-forward block
         att_type, ff_type = block_types
-        with tf.variable_scope("layer_{}".format(layer_num)):
+        with tf.compat.v1.variable_scope("layer_{}".format(layer_num)):
           x = prepostprocess(layers[att_type])(
               x,
               bias=encoder_self_attention_bias,
@@ -145,14 +145,14 @@ class TransformerMoe(t2t_model.T2TModel):
         encoder_outputs[-1] = dp_preprocess(x)
 
     x = decoder_input
-    with tf.variable_scope("decoder"):
+    with tf.compat.v1.variable_scope("decoder"):
       for layer_num, block_types in enumerate(decoder_layers):
         # Each decoder layers is composed of three blocks:
         # * self-attention block
         # * enco-deco attention block (optional)
         # * feed-forward block
         self_att_type, att_ende_type, ff_type = block_types
-        with tf.variable_scope("layer_{}".format(layer_num)):
+        with tf.compat.v1.variable_scope("layer_{}".format(layer_num)):
           x = prepostprocess(layers[self_att_type])(
               x,
               bias=decoder_self_attention_bias,
@@ -192,7 +192,7 @@ class TransformerMoe(t2t_model.T2TModel):
     enco_input, enco_self_att_bias, enco_deco_att_bias = output
 
     enco_input = tf.nn.dropout(
-        enco_input, 1.0 - self._hparams.layer_prepostprocess_dropout)
+        enco_input, rate=1 - (1.0 - self._hparams.layer_prepostprocess_dropout))
 
     return enco_input, enco_self_att_bias, enco_deco_att_bias
 
@@ -207,7 +207,7 @@ class TransformerMoe(t2t_model.T2TModel):
     deco_input, deco_self_attention_bias = output
 
     deco_input = tf.nn.dropout(
-        deco_input, 1.0 - self._hparams.layer_prepostprocess_dropout
+        deco_input, rate=1 - (1.0 - self._hparams.layer_prepostprocess_dropout)
     )
     return deco_input, deco_self_attention_bias
 

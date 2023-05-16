@@ -80,12 +80,12 @@ def imagenet_pixelrnn_generator(tmp_dir,
     eval_prefix = _IMAGENET_MEDIUM_EVAL_PREFIX
   prefix = train_prefix if training else eval_prefix
   images_filepath = os.path.join(tmp_dir, prefix)
-  image_files = tf.gfile.Glob(images_filepath + "/*")
+  image_files = tf.io.gfile.glob(images_filepath + "/*")
   height = size
   width = size
   const_label = 0
   for filename in image_files:
-    with tf.gfile.Open(filename, "r") as f:
+    with tf.io.gfile.GFile(filename, "r") as f:
       encoded_image = f.read()
       yield {
           "image/encoded": [encoded_image],
@@ -145,7 +145,7 @@ class ImageImagenetRescaled(ImageImagenet):
     return "image_imagenet"  # Reuse Imagenet data.
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    tf.logging.warning(
+    tf.compat.v1.logging.warning(
         "Generate data for rescaled ImageNet problems with image_imagenet")
 
   def preprocess_example(self, example, mode, _):
@@ -177,13 +177,13 @@ class ImageImagenet32(ImageImagenetRescaled):
   def preprocess_example(self, example, mode, _):
     # Just resize with area.
     if self._was_reversed:
-      example["inputs"] = tf.to_int64(
-          tf.image.resize_images(example["inputs"], self.rescale_size,
-                                 tf.image.ResizeMethod.AREA))
+      example["inputs"] = tf.cast(
+          tf.image.resize(example["inputs"], self.rescale_size,
+                                 tf.image.ResizeMethod.AREA), dtype=tf.int64)
     else:
       example = imagenet_preprocess_example(example, mode)
-      example["inputs"] = tf.to_int64(
-          tf.image.resize_images(example["inputs"], self.rescale_size))
+      example["inputs"] = tf.cast(
+          tf.image.resize(example["inputs"], self.rescale_size), dtype=tf.int64)
     return example
 
 
@@ -217,7 +217,7 @@ class ImageImagenet32Gen(ImageImagenet):
   def preprocess_example(self, example, mode, unused_hparams):
     example["inputs"].set_shape([_IMAGENET_SMALL_IMAGE_SIZE,
                                  _IMAGENET_SMALL_IMAGE_SIZE, 3])
-    example["inputs"] = tf.to_int64(example["inputs"])
+    example["inputs"] = tf.cast(example["inputs"], dtype=tf.int64)
     return example
 
 
@@ -251,7 +251,7 @@ class ImageImagenet64Gen(ImageImagenet):
   def preprocess_example(self, example, mode, unused_hparams):
     example["inputs"].set_shape([_IMAGENET_MEDIUM_IMAGE_SIZE,
                                  _IMAGENET_MEDIUM_IMAGE_SIZE, 3])
-    example["inputs"] = tf.to_int64(example["inputs"])
+    example["inputs"] = tf.cast(example["inputs"], dtype=tf.int64)
     return example
 
 
@@ -324,7 +324,7 @@ class ImageImagenet32Small(ImageImagenet):
   def preprocess_example(self, example, mode, unused_hparams):
     example["inputs"].set_shape([_IMAGENET_SMALL_IMAGE_SIZE,
                                  _IMAGENET_SMALL_IMAGE_SIZE, 3])
-    example["inputs"] = tf.to_int64(example["inputs"])
+    example["inputs"] = tf.cast(example["inputs"], dtype=tf.int64)
     return example
 
 
@@ -353,7 +353,7 @@ class Img2imgImagenet(image_utils.ImageProblem):
     return example
 
   def generate_data(self, data_dir, tmp_dir, task_id=-1):
-    tf.logging.warning("Generate data for img2img_imagenet with image_imagenet")
+    tf.compat.v1.logging.warning("Generate data for img2img_imagenet with image_imagenet")
 
   def hparams(self, defaults, unused_model_hparams):
     p = defaults
@@ -400,7 +400,7 @@ def _crop(image, offset_height, offset_width, crop_height, crop_width):
           tf.greater_equal(original_shape[1], crop_width)),
       ["Crop size greater than the image size."])
 
-  offsets = tf.to_int32(tf.stack([offset_height, offset_width, 0]))
+  offsets = tf.cast(tf.stack([offset_height, offset_width, 0]), dtype=tf.int32)
 
   # Use tf.slice instead of crop_to_bounding box as it accepts tensors to
   # define the crop size.
@@ -440,7 +440,7 @@ def distorted_bounding_box_crop(image,
   Returns:
     (cropped image `Tensor`, distorted bbox `Tensor`).
   """
-  with tf.name_scope(scope, default_name="distorted_bounding_box_crop",
+  with tf.compat.v1.name_scope(scope, default_name="distorted_bounding_box_crop",
                      values=[image, bbox]):
     # Each bounding box has shape [1, num_boxes, box coords] and
     # the coordinates are ordered [ymin, xmin, ymax, xmax].
@@ -482,7 +482,7 @@ def _random_crop(image, size):
 
   image = tf.cond(
       bad, lambda: _center_crop(_do_scale(image, size), size),
-      lambda: tf.image.resize_bicubic([random_image], [size, size])[0])
+      lambda: tf.image.resize([random_image], [size, size], method=tf.image.ResizeMethod.BICUBIC)[0])
   return image
 
 
@@ -507,7 +507,7 @@ def _do_scale(image, size):
                   lambda: tf.cast([shape[0] / shape[1] * size, size], tf.int32),
                   lambda: tf.cast([size, shape[1] / shape[0] * size], tf.int32))
 
-  return tf.image.resize_bicubic([image], shape)[0]
+  return tf.image.resize([image], shape, method=tf.image.ResizeMethod.BICUBIC)[0]
 
 
 def _center_crop(image, size):

@@ -31,28 +31,28 @@ class DietVarTest(tf.test.TestCase):
 
     @diet.fn_with_diet_vars(params)
     def model_fn(x):
-      y = tf.layers.dense(x, 10, use_bias=False)
+      y = tf.compat.v1.layers.dense(x, 10, use_bias=False)
       return y
 
     @diet.fn_with_diet_vars(params)
     def model_fn2(x):
-      y = tf.layers.dense(x, 10, use_bias=False)
+      y = tf.compat.v1.layers.dense(x, 10, use_bias=False)
       return y
 
-    x = tf.random_uniform((10, 10))
+    x = tf.random.uniform((10, 10))
     y = model_fn(x) + 10.
     y = model_fn2(y) + 10.
     grads = tf.gradients(y, [x])
     with tf.control_dependencies(grads):
-      incr_step = tf.assign_add(tf.train.get_or_create_global_step(), 1)
+      incr_step = tf.compat.v1.assign_add(tf.compat.v1.train.get_or_create_global_step(), 1)
 
     train_op = tf.group(incr_step, *grads)
     with self.test_session() as sess:
-      sess.run(tf.global_variables_initializer())
-      orig_vals = sess.run(tf.global_variables())
+      sess.run(tf.compat.v1.global_variables_initializer())
+      orig_vals = sess.run(tf.compat.v1.global_variables())
       for _ in range(10):
         sess.run(train_op)
-      new_vals = sess.run(tf.global_variables())
+      new_vals = sess.run(tf.compat.v1.global_variables())
 
       different = []
       for old, new in zip(orig_vals, new_vals):
@@ -60,7 +60,7 @@ class DietVarTest(tf.test.TestCase):
           self.assertAllClose(old, new)
         except AssertionError:
           different.append(True)
-      self.assertEqual(len(different), len(tf.global_variables()))
+      self.assertEqual(len(different), len(tf.compat.v1.global_variables()))
 
 
 if __name__ == "__main__":

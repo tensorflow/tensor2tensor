@@ -43,7 +43,7 @@ class GeneratorUtilsTest(tf.test.TestCase):
 
     filenames = generator_utils.train_data_filenames(tmp_file_name, tmp_dir, 1)
     generator_utils.generate_files(test_generator(), filenames)
-    self.assertTrue(tf.gfile.Exists(tmp_file_path + "-train-00000-of-00001"))
+    self.assertTrue(tf.io.gfile.exists(tmp_file_path + "-train-00000-of-00001"))
 
     # Clean up.
     os.remove(tmp_file_path + "-train-00000-of-00001")
@@ -101,22 +101,22 @@ class GeneratorUtilsTest(tf.test.TestCase):
   def testGetOrGenerateTxtVocab(self):
     data_dir = tempfile.mkdtemp(dir=self.get_temp_dir())
     test_file = os.path.join(self.get_temp_dir(), "test.txt")
-    with tf.gfile.Open(test_file, "w") as outfile:
+    with tf.io.gfile.GFile(test_file, "w") as outfile:
       outfile.write("a b c\n")
       outfile.write("d e f\n")
     # Create a vocab over the test file.
     vocab1 = generator_utils.get_or_generate_txt_vocab(
         data_dir, "test.voc", 20, test_file)
-    self.assertTrue(tf.gfile.Exists(os.path.join(data_dir, "test.voc")))
+    self.assertTrue(tf.io.gfile.exists(os.path.join(data_dir, "test.voc")))
     self.assertIsNotNone(vocab1)
 
     # Append a new line to the test file which would change the vocab if
     # the vocab were not being read from file.
-    with tf.gfile.Open(test_file, "a") as outfile:
+    with tf.io.gfile.GFile(test_file, "a") as outfile:
       outfile.write("g h i\n")
     vocab2 = generator_utils.get_or_generate_txt_vocab(
         data_dir, "test.voc", 20, test_file)
-    self.assertTrue(tf.gfile.Exists(os.path.join(data_dir, "test.voc")))
+    self.assertTrue(tf.io.gfile.exists(os.path.join(data_dir, "test.voc")))
     self.assertIsNotNone(vocab2)
     self.assertEqual(vocab1.dump(), vocab2.dump())
 

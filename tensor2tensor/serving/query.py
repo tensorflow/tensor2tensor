@@ -76,7 +76,7 @@ def make_request_fn():
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   validate_flags()
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   problem = registry.problem(FLAGS.problem)
@@ -103,4 +103,4 @@ Output (Score {score:.3f}):
 
 if __name__ == "__main__":
   flags.mark_flags_as_required(["problem", "data_dir"])
-  tf.app.run()
+  tf.compat.v1.app.run()

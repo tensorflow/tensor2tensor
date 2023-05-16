@@ -42,12 +42,12 @@ def residual_block(x, hparams):
       separability=0,
       name="residual_block")
   x = common_layers.layer_norm(x + y, hparams.hidden_size, name="lnorm")
-  return tf.nn.dropout(x, 1.0 - hparams.dropout)
+  return tf.nn.dropout(x, rate=1 - (1.0 - hparams.dropout))
 
 
 def xception_internal(inputs, hparams):
   """Xception body."""
-  with tf.variable_scope("xception"):
+  with tf.compat.v1.variable_scope("xception"):
     cur = inputs
 
     if cur.get_shape().as_list()[1] > 200:
@@ -64,7 +64,7 @@ def xception_internal(inputs, hparams):
           name="small_image_conv")
 
     for i in range(hparams.num_hidden_layers):
-      with tf.variable_scope("layer_%d" % i):
+      with tf.compat.v1.variable_scope("layer_%d" % i):
         cur = residual_block(cur, hparams)
 
     return xception_exit(cur)
@@ -72,11 +72,11 @@ def xception_internal(inputs, hparams):
 
 def xception_entry(inputs, hidden_dim):
   """Xception entry flow."""
-  with tf.variable_scope("xception_entry"):
+  with tf.compat.v1.variable_scope("xception_entry"):
 
     def xnet_resblock(x, filters, res_relu, name):
       """Resblock."""
-      with tf.variable_scope(name):
+      with tf.compat.v1.variable_scope(name):
         y = common_layers.separable_conv_block(
             x,
             filters, [((1, 1), (3, 3)), ((1, 1), (3, 3))],
@@ -94,7 +94,7 @@ def xception_entry(inputs, hidden_dim):
             force2d=True,
             name="res_conv0")
 
-    tf.summary.image("inputs", inputs, max_outputs=2)
+    tf.compat.v1.summary.image("inputs", inputs, max_outputs=2)
     x = common_layers.conv_block(
         inputs,
         32, [((1, 1), (3, 3))],
@@ -112,14 +112,14 @@ def xception_entry(inputs, hidden_dim):
 
 def xception_exit(inputs):
   """Xception exit flow."""
-  with tf.variable_scope("xception_exit"):
+  with tf.compat.v1.variable_scope("xception_exit"):
     x = inputs
     x_shape = x.get_shape().as_list()
     if x_shape[1] is None or x_shape[2] is None:
-      length_float = tf.to_float(tf.shape(x)[1])
-      length_float *= tf.to_float(tf.shape(x)[2])
+      length_float = tf.cast(tf.shape(x)[1], dtype=tf.float32)
+      length_float *= tf.cast(tf.shape(x)[2], dtype=tf.float32)
       spatial_dim_float = tf.sqrt(length_float)
-      spatial_dim = tf.to_int32(spatial_dim_float)
+      spatial_dim = tf.cast(spatial_dim_float, dtype=tf.int32)
       x_depth = x_shape[3]
       x = tf.reshape(x, [-1, spatial_dim, spatial_dim, x_depth])
     elif x_shape[1] != x_shape[2]:

@@ -38,8 +38,8 @@ class TrainerTest(tf.test.TestCase):
     FLAGS.hparams_set = "transformer_tiny"
     FLAGS.train_steps = 1
     FLAGS.eval_steps = 1
-    FLAGS.output_dir = tf.test.get_temp_dir()
-    FLAGS.data_dir = tf.test.get_temp_dir()
+    FLAGS.output_dir = tf.compat.v1.test.get_temp_dir()
+    FLAGS.data_dir = tf.compat.v1.test.get_temp_dir()
     t2t_trainer.main(None)
 
 

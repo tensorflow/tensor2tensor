@@ -204,10 +204,10 @@ class TranslateEnzhWmt32k(translate.TranslateProblem):
     for dataset in [_CWMT_TRAIN_DATASETS, _UN_TRAIN_DATASETS]:
       filename = get_filename(dataset)
       tmp_filepath = os.path.join(tmp_dir, filename)
-      if tf.gfile.Exists(tmp_filepath):
+      if tf.io.gfile.exists(tmp_filepath):
         full_dataset += dataset
       else:
-        tf.logging.info("[TranslateEzhWmt] dataset incomplete, you need to "
+        tf.compat.v1.logging.info("[TranslateEzhWmt] dataset incomplete, you need to "
                         "manually download %s" % filename)
     return full_dataset
 

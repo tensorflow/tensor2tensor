@@ -84,7 +84,7 @@ class GithubFunctionDocstring(text_problems.Text2TextProblem):
     ]
 
     for pairs_file in csv_files:
-      tf.logging.debug("Reading {}".format(pairs_file))
+      tf.compat.v1.logging.debug("Reading {}".format(pairs_file))
       with open(pairs_file, "r") as csv_file:
         for line in csv_file:
           reader = csv.reader(StringIO(line))

@@ -28,7 +28,7 @@ def cast_ints_to_int32(features):
   f = {}
   for k, v in sorted(six.iteritems(features)):
     if v.dtype in [tf.int64, tf.uint8]:
-      v = tf.to_int32(v)
+      v = tf.cast(v, dtype=tf.int32)
     f[k] = v
   return f
 

@@ -37,7 +37,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         tf.constant(x, dtype=tf.float32),
         max_length=4,
         name="pos_embedding")
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(y)
     self.assertEqual(res.shape, (5, 3, 12))
 
@@ -53,7 +53,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         tf.constant(x, dtype=tf.float32),
         max_length=5,
         name="pos_embedding")
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(y)
     self.assertEqual(res.shape, input_shape)
 
@@ -78,10 +78,10 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
   def testMaskedWithinBlockLocalAttention1D(self, batch, heads, length,
                                             depth_k, depth_v, block_length):
     if batch is None:
-      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
-    q = tf.random_normal([batch, heads, length, depth_k])
-    k = tf.random_normal([batch, heads, length, depth_k])
-    v = tf.random_normal([batch, heads, length, depth_v])
+      batch = tf.random.uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random.normal([batch, heads, length, depth_k])
+    k = tf.random.normal([batch, heads, length, depth_k])
+    v = tf.random.normal([batch, heads, length, depth_v])
     output = common_attention.masked_within_block_local_attention_1d(
         q, k, v, block_length=block_length)
     if isinstance(batch, tf.Tensor):
@@ -101,10 +101,10 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
   def testMaskedLocalAttention1D(self, batch, heads, length, depth_k, depth_v,
                                  block_length):
     if batch is None:
-      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
-    q = tf.random_normal([batch, heads, length, depth_k])
-    k = tf.random_normal([batch, heads, length, depth_k])
-    v = tf.random_normal([batch, heads, length, depth_v])
+      batch = tf.random.uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random.normal([batch, heads, length, depth_k])
+    k = tf.random.normal([batch, heads, length, depth_k])
+    v = tf.random.normal([batch, heads, length, depth_v])
     output = common_attention.masked_local_attention_1d(
         q, k, v, block_length=block_length)
     if isinstance(batch, tf.Tensor):
@@ -125,10 +125,10 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
   def testMaskedLocalAttention2D(self, batch, heads, length, depth_k, depth_v,
                                  query_shape):
     if batch is None:
-      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
-    q = tf.random_normal([batch, heads, length, length, depth_k])
-    k = tf.random_normal([batch, heads, length, length, depth_k])
-    v = tf.random_normal([batch, heads, length, length, depth_v])
+      batch = tf.random.uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random.normal([batch, heads, length, length, depth_k])
+    k = tf.random.normal([batch, heads, length, length, depth_k])
+    v = tf.random.normal([batch, heads, length, length, depth_v])
     output = common_attention.masked_local_attention_2d(
         q,
         k,
@@ -151,10 +151,10 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
   def testLocalUnmaskedAttention1D(self, batch, heads, length,
                                    depth_k, depth_v, block_length):
     if batch is None:
-      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
-    q = tf.random_normal([batch, heads, length, depth_k])
-    k = tf.random_normal([batch, heads, length, depth_k])
-    v = tf.random_normal([batch, heads, length, depth_v])
+      batch = tf.random.uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random.normal([batch, heads, length, depth_k])
+    k = tf.random.normal([batch, heads, length, depth_k])
+    v = tf.random.normal([batch, heads, length, depth_v])
     output = common_attention.local_attention_1d(
         q, k, v, block_length=block_length, filter_width=3)
     if isinstance(batch, tf.Tensor):
@@ -174,10 +174,10 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
   def testLocalUnmaskedAttention2D(self, batch, heads, length,
                                    depth_k, depth_v, query_shape):
     if batch is None:
-      batch = tf.random_uniform([], minval=0, maxval=5, dtype=tf.int32)
-    q = tf.random_normal([batch, heads, length, length, depth_k])
-    k = tf.random_normal([batch, heads, length, length, depth_k])
-    v = tf.random_normal([batch, heads, length, length, depth_v])
+      batch = tf.random.uniform([], minval=0, maxval=5, dtype=tf.int32)
+    q = tf.random.normal([batch, heads, length, length, depth_k])
+    k = tf.random.normal([batch, heads, length, length, depth_k])
+    v = tf.random.normal([batch, heads, length, length, depth_v])
     output = common_attention.local_attention_2d(
         q,
         k,
@@ -200,15 +200,15 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
     x = np.random.rand(batch, length, io_size)
     dy = np.random.rand(batch, length, io_size)
     with self.test_session() as session:
-      x = tf.to_float(x)
-      dy = tf.to_float(dy)
+      x = tf.cast(x, dtype=tf.float32)
+      dy = tf.cast(dy, dtype=tf.float32)
       bias = common_attention.attention_bias_lower_triangle(length)
-      wqkv = tf.get_variable(
+      wqkv = tf.compat.v1.get_variable(
           "wqkv", [num_heads, 1, io_size, 3 * head_size],
-          initializer=tf.random_normal_initializer(stddev=io_size**-0.5))
-      wo = tf.get_variable(
+          initializer=tf.compat.v1.random_normal_initializer(stddev=io_size**-0.5))
+      wo = tf.compat.v1.get_variable(
           "wo", [num_heads, 1, head_size, io_size],
-          initializer=tf.random_normal_initializer(
+          initializer=tf.compat.v1.random_normal_initializer(
               stddev=(head_size * num_heads)**-0.5))
       norm_scale, norm_bias = common_layers.layer_norm_vars(io_size)
       y = common_attention.multihead_self_attention_memory_efficient(
@@ -221,7 +221,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
           ys=[y], xs=[x, wqkv, wo, norm_scale, norm_bias], grad_ys=[dy])
       dx_f, dwqkv_f, dwo_f, dnorm_scale_f, dnorm_bias_f = tf.gradients(
           ys=[y_forget], xs=[x, wqkv, wo, norm_scale, norm_bias], grad_ys=[dy])
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       (y, y_forget,
        dx, dwqkv, dwo, dnorm_scale, dnorm_bias,
        dx_f, dwqkv_f, dwo_f, dnorm_scale_f, dnorm_bias_f) = session.run(
@@ -468,7 +468,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         tf.constant(y, dtype=tf.float32),
         None,
         max_relative_position=3)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
@@ -485,7 +485,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         None,
         max_relative_position=max_relative_position,
         heads_share_relative_embedding=False)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 4, 16, 7))
 
@@ -502,7 +502,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         None,
         max_relative_position=max_relative_position,
         heads_share_relative_embedding=True)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 4, 16, 7))
 
@@ -519,7 +519,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         None,
         max_relative_position=max_relative_position,
         heads_share_relative_embedding=False)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 4, 3, 7))
 
@@ -533,7 +533,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         tf.constant(y, dtype=tf.float32),
         None,
         35)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 12, 32))
 
@@ -550,7 +550,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         None,
         max_relative_position=max_relative_position,
         heads_share_relative_embedding=False)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 4, 16, 7))
 
@@ -567,7 +567,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         None,
         max_relative_position=max_relative_position,
         heads_share_relative_embedding=True)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 4, 16, 7))
 
@@ -584,7 +584,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         None,
         max_relative_position=max_relative_position,
         heads_share_relative_embedding=False)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 4, 3, 7))
 
@@ -602,7 +602,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         heads_share_relative_embedding=True,
         add_relative_to_values=False,
         name="masked_relative_local_attention_1d")
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 4, 16, 7))
 
@@ -620,7 +620,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         heads_share_relative_embedding=True,
         add_relative_to_values=False,
         name="masked_relative_local_attention_1d")
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 4, 16, 7))
 
@@ -637,7 +637,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         block_length=block_length,
         heads_share_relative_embedding=True,
         name="masked_relative_local_attention_1d")
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 2, 7))
 
@@ -654,7 +654,7 @@ class CommonAttentionTest(parameterized.TestCase, tf.test.TestCase):
         block_length=block_length,
         heads_share_relative_embedding=True,
         name="masked_relative_local_attention_1d")
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     res = self.evaluate(a)
     self.assertEqual(res.shape, (5, 7, 5, 7))
 

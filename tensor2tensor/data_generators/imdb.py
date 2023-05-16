@@ -66,7 +66,7 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
 
     for d, label in dirs:
       for filename in os.listdir(d):
-        with tf.gfile.Open(os.path.join(d, filename)) as imdb_f:
+        with tf.io.gfile.GFile(os.path.join(d, filename)) as imdb_f:
           doc = imdb_f.read().strip()
           if include_label:
             yield doc, label
@@ -80,7 +80,7 @@ class SentimentIMDB(text_problems.Text2ClassProblem):
     download_path = generator_utils.maybe_download(tmp_dir, compressed_filename,
                                                    self.URL)
     imdb_dir = os.path.join(tmp_dir, "aclImdb")
-    if not tf.gfile.Exists(imdb_dir):
+    if not tf.io.gfile.exists(imdb_dir):
       with tarfile.open(download_path, "r:gz") as tar:
         tar.extractall(tmp_dir)
 

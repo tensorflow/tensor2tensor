@@ -31,7 +31,7 @@ class TimeseriesTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    cls.tmp_dir = tf.test.get_temp_dir()
+    cls.tmp_dir = tf.compat.v1.test.get_temp_dir()
     shutil.rmtree(cls.tmp_dir)
     os.mkdir(cls.tmp_dir)
 
@@ -40,7 +40,7 @@ class TimeseriesTest(tf.test.TestCase):
     problem.generate_data(self.tmp_dir, self.tmp_dir)
 
     dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN, self.tmp_dir)
-    features = dataset.make_one_shot_iterator().get_next()
+    features = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
 
     examples = []
     exhausted = False

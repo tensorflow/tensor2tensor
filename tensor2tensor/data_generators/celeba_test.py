@@ -32,7 +32,7 @@ class CelebaTest(parameterized.TestCase, tf.test.TestCase):
       ("Area", "AREA"),
       ("Dilated", "DILATED"))
   def testCelebaMultiResolutionPreprocessExample(self, resize_method):
-    example = {"inputs": tf.random_uniform([218, 178, 3], minval=-1.)}
+    example = {"inputs": tf.random.uniform([218, 178, 3], minval=-1.)}
     mode = tf.estimator.ModeKeys.TRAIN
     hparams = tf.contrib.training.HParams(resolutions=[8, 16, 32])
     if resize_method is not None:

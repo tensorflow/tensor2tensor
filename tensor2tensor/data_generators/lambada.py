@@ -64,8 +64,8 @@ def _prepare_lambada_data(tmp_dir, data_dir, vocab_size, vocab_filename):
 
   """
 
-  if not tf.gfile.Exists(data_dir):
-    tf.gfile.MakeDirs(data_dir)
+  if not tf.io.gfile.exists(data_dir):
+    tf.io.gfile.makedirs(data_dir)
 
   file_path = generator_utils.maybe_download(tmp_dir, _TAR, _URL)
   tar_all = tarfile.open(file_path)
@@ -76,12 +76,12 @@ def _prepare_lambada_data(tmp_dir, data_dir, vocab_size, vocab_filename):
   tar_train.close()
 
   vocab_path = os.path.join(data_dir, vocab_filename)
-  if not tf.gfile.Exists(vocab_path):
-    with tf.gfile.GFile(os.path.join(tmp_dir, _VOCAB), "r") as infile:
+  if not tf.io.gfile.exists(vocab_path):
+    with tf.io.gfile.GFile(os.path.join(tmp_dir, _VOCAB), "r") as infile:
       reader = csv.reader(infile, delimiter="\t")
       words = [row[0] for row in reader]
       words = [_UNK] + words[:vocab_size]
-    with tf.gfile.GFile(vocab_path, "w") as outfile:
+    with tf.io.gfile.GFile(vocab_path, "w") as outfile:
       outfile.write("\n".join(words))
 
 
@@ -100,7 +100,7 @@ def get_dataset_split(tmp_dir, split, use_control_set):
   if not use_control_set:
     dataset_split = {
         problem.DatasetSplit.TRAIN: [
-            f for f in tf.gfile.Glob(
+            f for f in tf.io.gfile.glob(
                 os.path.join(tmp_dir, "train-novels/*/*.txt"))
         ],
         problem.DatasetSplit.EVAL: [
@@ -114,7 +114,7 @@ def get_dataset_split(tmp_dir, split, use_control_set):
   else:
     dataset_split = {
         problem.DatasetSplit.TRAIN: [
-            f for f in tf.gfile.Glob(
+            f for f in tf.io.gfile.glob(
                 os.path.join(tmp_dir, "train-novels/*/*.txt"))
         ],
         problem.DatasetSplit.EVAL: [
@@ -198,7 +198,7 @@ class LambadaLm(text_problems.Text2SelfProblem):
 
       """
       for filepath in files:
-        with tf.gfile.GFile(filepath, "r") as f:
+        with tf.io.gfile.GFile(filepath, "r") as f:
           for line in f:
             line = " ".join(line.split())
             yield {"targets": line}
@@ -302,7 +302,7 @@ class LambadaRc(text_problems.Text2ClassProblem):
 
       """
       for filepath in files:
-        with tf.gfile.GFile(filepath, "r") as f:
+        with tf.io.gfile.GFile(filepath, "r") as f:
           for line in f:
             input_target = line.split()
             yield {

@@ -94,10 +94,10 @@ class GymDiscreteProblem(video_utils.VideoProblem):
   def _setup(self, data_dir, extra_collect_hparams=None,
              override_collect_hparams=None):
     dumper_path = os.path.join(data_dir, "dumper")
-    dumper_exists = tf.gfile.Exists(dumper_path)
-    tf.logging.info("Dumper path %s." % dumper_path)
+    dumper_exists = tf.io.gfile.exists(dumper_path)
+    tf.compat.v1.logging.info("Dumper path %s." % dumper_path)
     if dumper_exists and not self.settable_eval_phase:
-      tf.logging.info("Using dumper data.")
+      tf.compat.v1.logging.info("Using dumper data.")
       self._use_dumper_data = True
       self._dumper_data_index = 0
       self._dumper_path = dumper_path
@@ -134,7 +134,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       if self._forced_collect_level is not None:  # For autoencoders.
         collect_level = self._forced_collect_level
 
-      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=tf.compat.v1.AUTO_REUSE):
         self.collect_memory, self.collect_trigger_op, collect_init = (
             collect.define_collect(
                 collect_hparams,
@@ -143,9 +143,9 @@ class GymDiscreteProblem(video_utils.VideoProblem):
                 collect_level=collect_level,
                 policy_to_actions_lambda=policy_to_actions_lambda))
 
-      self._session = tf.Session()
+      self._session = tf.compat.v1.Session()
       collect_init(self._session)
-      self._session.run(tf.global_variables_initializer())
+      self._session.run(tf.compat.v1.global_variables_initializer())
       self.restore_networks(self._session)
       self.memory_index = 0
       self.memory = None
@@ -159,7 +159,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
       file_path = os.path.join(self._dumper_path,
                                "frame_{}.npz".format(self._dumper_data_index))
       if frame_dumper_use_disk:
-        with tf.gfile.Open(file_path) as gfile:
+        with tf.io.gfile.GFile(file_path) as gfile:
           data = np.load(gfile)
       else:
         data = frame_dumper.pop(file_path)
@@ -222,8 +222,8 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
   def restore_networks(self, sess):
     if FLAGS.agent_policy_path:
-      model_saver = tf.train.Saver(
-          tf.global_variables(".*network_parameters.*"))
+      model_saver = tf.compat.v1.train.Saver(
+          tf.compat.v1.global_variables(".*network_parameters.*"))
       ckpts = tf.train.get_checkpoint_state(FLAGS.agent_policy_path)
       ckpt = ckpts.model_checkpoint_path
       model_saver.restore(sess, ckpt)
@@ -241,9 +241,9 @@ class GymDiscreteProblem(video_utils.VideoProblem):
 
     # TODO(piotrmilos): shouldn't done be included here?
     data_fields = {
-        "frame_number": tf.FixedLenFeature([1], tf.int64),
-        "action": tf.FixedLenFeature([1], tf.int64),
-        "reward": tf.FixedLenFeature([1], tf.int64)
+        "frame_number": tf.io.FixedLenFeature([1], tf.int64),
+        "action": tf.io.FixedLenFeature([1], tf.int64),
+        "reward": tf.io.FixedLenFeature([1], tf.int64)
     }
     decoders = {
         "frame_number":
@@ -348,7 +348,7 @@ class GymDiscreteProblem(video_utils.VideoProblem):
     # Save stats to file, or restore if data was already generated.
     stats_file = os.path.join(data_dir,
                               "%s.stats.json" % self.dataset_filename())
-    if tf.gfile.Exists(stats_file):
+    if tf.io.gfile.exists(stats_file):
       self.statistics.update_from_file(stats_file)
     else:
       self.statistics.save_to_file(stats_file)
@@ -384,11 +384,11 @@ class BasicStatistics(object):
     return stats_dict
 
   def save_to_file(self, fname):
-    with tf.gfile.Open(fname, "w") as f:
+    with tf.io.gfile.GFile(fname, "w") as f:
       f.write(json.dumps(self.to_dict()))
 
   def update_from_file(self, fname):
-    with tf.gfile.Open(fname) as f:
+    with tf.io.gfile.GFile(fname) as f:
       self.update_from_dict(json.loads(f.read()))
       return self
 
@@ -434,8 +434,8 @@ class GymDiscreteProblemWithAutoencoder(GymRealDiscreteProblem):
   def restore_networks(self, sess):
     super(GymDiscreteProblemWithAutoencoder, self).restore_networks(sess)
     if FLAGS.autoencoder_path:
-      autoencoder_saver = tf.train.Saver(
-          tf.global_variables("autoencoder.*"))
+      autoencoder_saver = tf.compat.v1.train.Saver(
+          tf.compat.v1.global_variables("autoencoder.*"))
       ckpts = tf.train.get_checkpoint_state(FLAGS.autoencoder_path)
       ckpt = ckpts.model_checkpoint_path
       autoencoder_saver.restore(sess, ckpt)
@@ -598,7 +598,7 @@ class GymSimulatedDiscreteProblem(GymDiscreteProblem):
     super(GymSimulatedDiscreteProblem, self).restore_networks(sess)
     # TODO(blazej): adjust regexp for different models.
     # TODO(piotrmilos): move restoring networks to SimulatedBatchEnv.initialize
-    env_model_loader = tf.train.Saver(tf.global_variables("next_frame*"))
+    env_model_loader = tf.compat.v1.train.Saver(tf.compat.v1.global_variables("next_frame*"))
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
     ckpt = ckpts.model_checkpoint_path
     env_model_loader.restore(sess, ckpt)
@@ -648,11 +648,11 @@ class GymSimulatedDiscreteProblemForWorldModelEval(GymSimulatedDiscreteProblem):
         action = tf.identity(action)
 
       obs_shape = observations.shape.as_list()
-      with tf.variable_scope("network_parameters"):
+      with tf.compat.v1.variable_scope("network_parameters"):
         probs = tf.one_hot(
             tf.transpose(action), depth=action_space.n
         )
-        policy = tf.distributions.Categorical(probs=probs)
+        policy = tf.compat.v1.distributions.Categorical(probs=probs)
         value = tf.zeros(obs_shape[:2])
       return rl.NetworkOutput(policy, value, lambda a: a)
 

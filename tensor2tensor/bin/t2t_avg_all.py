@@ -41,7 +41,7 @@ flags.DEFINE_integer("wait_minutes", 0,
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
   model_dir = os.path.expanduser(FLAGS.model_dir)
   output_dir = os.path.expanduser(FLAGS.output_dir)
@@ -49,7 +49,7 @@ def main(_):
 
   # Copy flags.txt with the original time, so t2t-bleu can report correct
   # relative time.
-  tf.gfile.MakeDirs(FLAGS.output_dir)
+  tf.io.gfile.makedirs(FLAGS.output_dir)
   if (not os.path.exists(os.path.join(output_dir, "flags.txt")) and
       os.path.exists(os.path.join(model_dir, "flags.txt"))):
     shutil.copy2(os.path.join(model_dir, "flags.txt"),
@@ -67,7 +67,7 @@ def main(_):
           avg_values[name] = np.zeros(shape)
     models_processed += 1
 
-    tf.logging.info("Loading [%d]: %s" % (models_processed, model.filename))
+    tf.compat.v1.logging.info("Loading [%d]: %s" % (models_processed, model.filename))
     reader = tf.contrib.framework.load_checkpoint(model.filename)
     for name in avg_values:
       avg_values[name] += reader.get_tensor(name) / FLAGS.n
@@ -77,30 +77,30 @@ def main(_):
 
     out_file = "%s-%d" % (out_base_file, model.steps)
     tf_vars = []
-    tf.logging.info("Averaging %s" % (out_file))
+    tf.compat.v1.logging.info("Averaging %s" % (out_file))
     for (name, value) in six.iteritems(avg_values):
       # TODO(martinpopel): dtype=var_dtypes[name]
-      tf_vars.append(tf.get_variable(name, shape=value.shape))
-    placeholders = [tf.placeholder(v.dtype, shape=v.shape) for v in tf_vars]
-    assign_ops = [tf.assign(v, p) for (v, p) in zip(tf_vars, placeholders)]
+      tf_vars.append(tf.compat.v1.get_variable(name, shape=value.shape))
+    placeholders = [tf.compat.v1.placeholder(v.dtype, shape=v.shape) for v in tf_vars]
+    assign_ops = [tf.compat.v1.assign(v, p) for (v, p) in zip(tf_vars, placeholders)]
 
-    global_step = tf.get_variable(
+    global_step = tf.compat.v1.get_variable(
         "global_step",
         initializer=tf.constant(model.steps, dtype=tf.int64),
         trainable=False)
-    saver = tf.train.Saver(tf.global_variables())
+    saver = tf.compat.v1.train.Saver(tf.compat.v1.global_variables())
 
-    tf.logging.info("Running session for %s" % (out_file))
-    with tf.Session() as sess:
-      sess.run(tf.global_variables_initializer())
+    tf.compat.v1.logging.info("Running session for %s" % (out_file))
+    with tf.compat.v1.Session() as sess:
+      sess.run(tf.compat.v1.global_variables_initializer())
       for p, assign_op, (name, value) in zip(
           placeholders, assign_ops, six.iteritems(avg_values)):
         sess.run(assign_op, {p: value})
-      tf.logging.info("Storing to %s" % out_file)
+      tf.compat.v1.logging.info("Storing to %s" % out_file)
       saver.save(sess, out_base_file, global_step=global_step)
     os.utime(out_file + ".index", (model.mtime, model.mtime))
 
-    tf.reset_default_graph()
+    tf.compat.v1.reset_default_graph()
     first_model = queue.popleft()
 
     reader = tf.contrib.framework.load_checkpoint(first_model.filename)
@@ -108,5 +108,5 @@ def main(_):
       avg_values[name] -= reader.get_tensor(name) / FLAGS.n
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

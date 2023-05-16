@@ -49,7 +49,7 @@ class WsjParsing(text_problems.Text2textTmpdir):
     is_training = dataset_split == problem.DatasetSplit.TRAIN
     tree_file = self.TRAIN_FILES_TREE if is_training else self.EVAL_FILES_TREE
     tree_file_path = os.path.join(tmp_dir, tree_file)
-    with tf.gfile.GFile(tree_file_path, mode="r") as cur_tree_file:
+    with tf.io.gfile.GFile(tree_file_path, mode="r") as cur_tree_file:
       for line in cur_tree_file:
         (words, tags) = words_and_tags_from_wsj_tree(line)
         yield {"inputs": words, "targets": tags}
@@ -123,7 +123,7 @@ def token_generator(tree_path, source_token_vocab, target_token_vocab,
     the lines are integer lists converted from tokens in the file lines.
   """
   eos_list = [] if eos is None else [eos]
-  with tf.gfile.GFile(tree_path, mode="r") as tree_file:
+  with tf.io.gfile.GFile(tree_path, mode="r") as tree_file:
     tree_line = tree_file.readline()
     while tree_line:
       source, target = words_and_tags_from_wsj_tree(tree_line)

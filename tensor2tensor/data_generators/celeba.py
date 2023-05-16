@@ -81,13 +81,13 @@ class ImageCeleba(image_utils.ImageProblem):
 
     img_path, landmarks_path, attr_path = out_paths  # pylint: disable=unbalanced-tuple-unpacking
     unzipped_folder = img_path[:-4]
-    if not tf.gfile.Exists(unzipped_folder):
+    if not tf.io.gfile.exists(unzipped_folder):
       zipfile.ZipFile(img_path, "r").extractall(tmp_dir)
 
-    with tf.gfile.Open(landmarks_path) as f:
+    with tf.io.gfile.GFile(landmarks_path) as f:
       landmarks_raw = f.read()
 
-    with tf.gfile.Open(attr_path) as f:
+    with tf.io.gfile.GFile(attr_path) as f:
       attr_raw = f.read()
 
     def process_landmarks(raw_data):
@@ -115,13 +115,13 @@ class ImageCeleba(image_utils.ImageProblem):
     img_landmarks, _ = process_landmarks(landmarks_raw)
     img_attrs, _ = process_attrs(attr_raw)
 
-    image_files = list(sorted(tf.gfile.Glob(unzipped_folder + "/*.jpg")))
+    image_files = list(sorted(tf.io.gfile.glob(unzipped_folder + "/*.jpg")))
     for filename in image_files[start_from:start_from + how_many]:
       img_name = os.path.basename(filename)
       landmarks = img_landmarks[img_name]
       attrs = img_attrs[img_name]
 
-      with tf.gfile.Open(filename, "rb") as f:
+      with tf.io.gfile.GFile(filename, "rb") as f:
         encoded_image_data = f.read()
         yield {
             "image/encoded": [encoded_image_data],

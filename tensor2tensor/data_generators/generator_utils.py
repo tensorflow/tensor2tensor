@@ -70,13 +70,13 @@ def generate_files_distributed(generator,
   assert task_id < num_shards
   output_filename = sharded_name(output_name, task_id, num_shards)
   output_file = os.path.join(output_dir, output_filename)
-  tf.logging.info("Writing to file %s", output_file)
-  writer = tf.python_io.TFRecordWriter(output_file)
+  tf.compat.v1.logging.info("Writing to file %s", output_file)
+  writer = tf.io.TFRecordWriter(output_file)
 
   counter = 0
   for case in generator:
     if counter % 100000 == 0:
-      tf.logging.info("Generating case %d for %s." % (counter, output_name))
+      tf.compat.v1.logging.info("Generating case %d for %s." % (counter, output_name))
     counter += 1
     if max_cases and counter > max_cases:
       break
@@ -125,7 +125,7 @@ def shard_filepath(fname, num_shards):
 def outputs_exist(filenames):
   for out_fname in filenames:
     out_fname = out_fname.replace(UNSHUFFLED_SUFFIX, "")
-    if tf.gfile.Exists(out_fname):
+    if tf.io.gfile.exists(out_fname):
       return out_fname
 
 def generate_files(generator, output_filenames, 
@@ -147,18 +147,18 @@ def generate_files(generator, output_filenames,
   """
   # Fathom
   if outputs_exist(output_filenames) and check_existing_files:
-    tf.logging.info("Skipping generator because outputs files exists at {}"
+    tf.compat.v1.logging.info("Skipping generator because outputs files exists at {}"
                     .format(output_filenames))
     return
   tmp_filenames = [fname + ".incomplete" for fname in output_filenames]
   num_shards = len(output_filenames)
-  writers = [tf.python_io.TFRecordWriter(fname) for fname in tmp_filenames]
+  writers = [tf.io.TFRecordWriter(fname) for fname in tmp_filenames]
   counter, shard = 0, 0
   for case in generator:
     if case is None:
       continue
     if counter % 100000 == 0:
-      tf.logging.info("Generating case %d." % counter)
+      tf.compat.v1.logging.info("Generating case %d." % counter)
     counter += 1
     if max_cases and counter > max_cases:
       break
@@ -171,9 +171,9 @@ def generate_files(generator, output_filenames,
     writer.close()
 
   for tmp_name, final_name in zip(tmp_filenames, output_filenames):
-    tf.gfile.Rename(tmp_name, final_name, overwrite=True)
+    tf.io.gfile.rename(tmp_name, final_name, overwrite=True)
 
-  tf.logging.info("Generated %s Examples", counter)
+  tf.compat.v1.logging.info("Generated %s Examples", counter)
 
 
 def download_report_hook(count, block_size, total_size):
@@ -206,15 +206,15 @@ def maybe_download(directory, filename, uri):
   Returns:
     The path to the downloaded file.
   """
-  tf.gfile.MakeDirs(directory)
+  tf.io.gfile.makedirs(directory)
   filepath = os.path.join(directory, filename)
-  if tf.gfile.Exists(filepath):
-    tf.logging.info("Not downloading, file already found: %s" % filepath)
+  if tf.io.gfile.exists(filepath):
+    tf.compat.v1.logging.info("Not downloading, file already found: %s" % filepath)
     return filepath
 
-  tf.logging.info("Downloading %s to %s" % (uri, filepath))
+  tf.compat.v1.logging.info("Downloading %s to %s" % (uri, filepath))
   try:
-    tf.gfile.Copy(uri, filepath)
+    tf.io.gfile.copy(uri, filepath)
   except tf.errors.UnimplementedError:
     if uri.startswith("http"):
       inprogress_filepath = filepath + ".incomplete"
@@ -222,11 +222,11 @@ def maybe_download(directory, filename, uri):
           uri, inprogress_filepath, reporthook=download_report_hook)
       # Print newline to clear the carriage return from the download progress
       print()
-      tf.gfile.Rename(inprogress_filepath, filepath)
+      tf.io.gfile.rename(inprogress_filepath, filepath)
     else:
       raise ValueError("Unrecognized URI: " + filepath)
   statinfo = os.stat(filepath)
-  tf.logging.info("Successfully downloaded %s, %s bytes." %
+  tf.compat.v1.logging.info("Successfully downloaded %s, %s bytes." %
                   (filename, statinfo.st_size))
   return filepath
 
@@ -242,13 +242,13 @@ def maybe_download_from_drive(directory, filename, url):
   Returns:
     The path to the downloaded file.
   """
-  if not tf.gfile.Exists(directory):
-    tf.logging.info("Creating directory %s" % directory)
-    tf.gfile.MakeDirs(directory)
+  if not tf.io.gfile.exists(directory):
+    tf.compat.v1.logging.info("Creating directory %s" % directory)
+    tf.io.gfile.makedirs(directory)
   filepath = os.path.join(directory, filename)
   confirm_token = None
-  if tf.gfile.Exists(filepath):
-    tf.logging.info("Not downloading, file already found: %s" % filepath)
+  if tf.io.gfile.exists(filepath):
+    tf.compat.v1.logging.info("Not downloading, file already found: %s" % filepath)
     return filepath
 
   # Since the file is big, drive will scan it for virus and take it to a
@@ -263,7 +263,7 @@ def maybe_download_from_drive(directory, filename, url):
 
   if confirm_token:
     url = url + "&confirm=" + confirm_token
-  tf.logging.info("Downloading %s to %s" % (url, filepath))
+  tf.compat.v1.logging.info("Downloading %s to %s" % (url, filepath))
 
   response = session.get(url, stream=True)
   # Now begin the download.
@@ -276,7 +276,7 @@ def maybe_download_from_drive(directory, filename, url):
   # Print newline to clear the carriage return from the download progress
   print()
   statinfo = os.stat(filepath)
-  tf.logging.info("Successfully downloaded %s, %s bytes." % (filename,
+  tf.compat.v1.logging.info("Successfully downloaded %s, %s bytes." % (filename,
                                                              statinfo.st_size))
   return filepath
 
@@ -288,15 +288,15 @@ def gunzip_file(gz_path, new_path):
     gz_path: path to the zipped file.
     new_path: path to where the file will be unzipped.
   """
-  if tf.gfile.Exists(new_path):
-    tf.logging.info("File %s already exists, skipping unpacking" % new_path)
+  if tf.io.gfile.exists(new_path):
+    tf.compat.v1.logging.info("File %s already exists, skipping unpacking" % new_path)
     return
-  tf.logging.info("Unpacking %s to %s" % (gz_path, new_path))
+  tf.compat.v1.logging.info("Unpacking %s to %s" % (gz_path, new_path))
   # We may be unpacking into a newly created directory, add write mode.
   mode = stat.S_IRWXU or stat.S_IXGRP or stat.S_IRGRP or stat.S_IROTH
   os.chmod(os.path.dirname(new_path), mode)
   with gzip.open(gz_path, "rb") as gz_file:
-    with tf.gfile.GFile(new_path, mode="wb") as new_file:
+    with tf.io.gfile.GFile(new_path, mode="wb") as new_file:
       for line in gz_file:
         new_file.write(line)
 
@@ -323,19 +323,19 @@ def get_or_generate_vocab_inner(data_dir, vocab_filename, vocab_size,
   """
   if data_dir and vocab_filename:
     vocab_filepath = os.path.join(data_dir, vocab_filename)
-    if tf.gfile.Exists(vocab_filepath):
-      tf.logging.info("Found vocab file: %s", vocab_filepath)
+    if tf.io.gfile.exists(vocab_filepath):
+      tf.compat.v1.logging.info("Found vocab file: %s", vocab_filepath)
       return text_encoder.SubwordTextEncoder(vocab_filepath)
   else:
     vocab_filepath = None
 
-  tf.logging.info("Generating vocab file: %s", vocab_filepath)
+  tf.compat.v1.logging.info("Generating vocab file: %s", vocab_filepath)
   vocab = text_encoder.SubwordTextEncoder.build_from_generator(
       generator, vocab_size, max_subtoken_length=max_subtoken_length,
       reserved_tokens=reserved_tokens)
 
   if vocab_filepath:
-    tf.gfile.MakeDirs(data_dir)
+    tf.io.gfile.makedirs(data_dir)
     vocab.store_to_file(vocab_filepath)
 
   return vocab
@@ -352,18 +352,18 @@ def get_or_generate_vocab(data_dir, tmp_dir, vocab_filename, vocab_size,
 
 def generate_lines_for_vocab(tmp_dir, sources, file_byte_budget=1e6):
   """Generate lines for vocabulary generation."""
-  tf.logging.info("Generating vocab from: %s", str(sources))
+  tf.compat.v1.logging.info("Generating vocab from: %s", str(sources))
   for source in sources:
     url = source[0]
     filename = os.path.basename(url)
     compressed_file = maybe_download(tmp_dir, filename, url)
 
     for lang_file in source[1]:
-      tf.logging.info("Reading file: %s" % lang_file)
+      tf.compat.v1.logging.info("Reading file: %s" % lang_file)
       filepath = os.path.join(tmp_dir, lang_file)
 
       # Extract from tar if needed.
-      if not tf.gfile.Exists(filepath):
+      if not tf.io.gfile.exists(filepath):
         read_type = "r:gz" if filename.endswith("tgz") else "r"
         with tarfile.open(compressed_file, read_type) as corpus_tar:
           corpus_tar.extractall(tmp_dir)
@@ -371,15 +371,15 @@ def generate_lines_for_vocab(tmp_dir, sources, file_byte_budget=1e6):
       # For some datasets a second extraction is necessary.
       if lang_file.endswith(".gz"):
         new_filepath = os.path.join(tmp_dir, lang_file[:-3])
-        if tf.gfile.Exists(new_filepath):
-          tf.logging.info(
+        if tf.io.gfile.exists(new_filepath):
+          tf.compat.v1.logging.info(
               "Subdirectory %s already exists, skipping unpacking" % filepath)
         else:
-          tf.logging.info("Unpacking subdirectory %s" % filepath)
+          tf.compat.v1.logging.info("Unpacking subdirectory %s" % filepath)
           gunzip_file(filepath, new_filepath)
         filepath = new_filepath
 
-      with tf.gfile.GFile(filepath, mode="r") as source_file:
+      with tf.io.gfile.GFile(filepath, mode="r") as source_file:
         file_byte_budget_ = file_byte_budget
         counter = 0
         countermax = int(source_file.size() / file_byte_budget_ / 2)
@@ -416,8 +416,8 @@ def get_or_generate_tabbed_vocab(data_dir, tmp_dir, source_filename,
   """
   def generate():
     filepath = os.path.join(tmp_dir, source_filename)
-    tf.logging.info("Generating vocab from %s", filepath)
-    with tf.gfile.GFile(filepath, mode="r") as source_file:
+    tf.compat.v1.logging.info("Generating vocab from %s", filepath)
+    with tf.io.gfile.GFile(filepath, mode="r") as source_file:
       for line in source_file:
         line = line.strip()
         if line and "\t" in line:
@@ -436,10 +436,10 @@ def get_or_generate_txt_vocab(data_dir, vocab_filename, vocab_size,
     filepatterns = [filepatterns]
 
   def generate():
-    tf.logging.info("Generating vocab from %s", filepatterns)
+    tf.compat.v1.logging.info("Generating vocab from %s", filepatterns)
     for filepattern in filepatterns:
-      for filename in tf.gfile.Glob(filepattern):
-        with tf.gfile.GFile(filename, mode="r") as source_file:
+      for filename in tf.io.gfile.glob(filepattern):
+        with tf.io.gfile.GFile(filename, mode="r") as source_file:
           for line in source_file:
             yield line.strip()
 
@@ -448,21 +448,21 @@ def get_or_generate_txt_vocab(data_dir, vocab_filename, vocab_size,
 
 
 def read_records(filename):
-  reader = tf.python_io.tf_record_iterator(filename)
+  reader = tf.compat.v1.python_io.tf_record_iterator(filename)
   records = []
   for record in reader:
     records.append(record)
     if len(records) % 100000 == 0:
-      tf.logging.info("read: %d", len(records))
+      tf.compat.v1.logging.info("read: %d", len(records))
   return records
 
 
 def write_records(records, out_filename):
-  writer = tf.python_io.TFRecordWriter(out_filename)
+  writer = tf.io.TFRecordWriter(out_filename)
   for count, record in enumerate(records):
     writer.write(record)
     if count > 0 and count % 100000 == 0:
-      tf.logging.info("write: %d", count)
+      tf.compat.v1.logging.info("write: %d", count)
   writer.close()
 
 
@@ -482,18 +482,18 @@ def _shuffle_single(fname):
   random.shuffle(records)
   out_fname = fname.replace(UNSHUFFLED_SUFFIX, "")
   write_records(records, out_fname)
-  tf.gfile.Remove(fname)
+  tf.io.gfile.remove(fname)
 
 
 def shuffle_dataset(filenames):
   """Shuffles the dataset."""
   if outputs_exist(filenames):
-    tf.logging.info("Skipping shuffle because output files exist")
+    tf.compat.v1.logging.info("Skipping shuffle because output files exist")
     return
-  tf.logging.info("Shuffling data...")
+  tf.compat.v1.logging.info("Shuffling data...")
   for filename in filenames:
     _shuffle_single(filename)
-  tf.logging.info("Data shuffled.")
+  tf.compat.v1.logging.info("Data shuffled.")
 
 
 class SequencePacker(object):
@@ -634,9 +634,9 @@ def make_tmp_dir(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefine
     while True:
       rand_term = random.randint(1, 9999)
       tmp_dir = os.path.join(dir, "%s%d%s" % (prefix, rand_term, suffix))
-      if tf.gfile.Exists(tmp_dir):
+      if tf.io.gfile.exists(tmp_dir):
         continue
-      tf.gfile.MakeDirs(tmp_dir)
+      tf.io.gfile.makedirs(tmp_dir)
       break
     return tmp_dir
 
@@ -644,7 +644,7 @@ def make_tmp_dir(suffix="", prefix="tmp", dir=None):  # pylint: disable=redefine
 def tfrecord_iterator_for_problem(problem, data_dir,
                                   dataset_split=tf.estimator.ModeKeys.TRAIN):
   """Iterate over the records on disk for the Problem."""
-  filenames = tf.gfile.Glob(problem.filepattern(data_dir, mode=dataset_split))
+  filenames = tf.io.gfile.glob(problem.filepattern(data_dir, mode=dataset_split))
   example_spec = problem.example_reading_spec()[0]
   return tfrecord_iterator(filenames, example_spec=example_spec)
 
@@ -673,14 +673,14 @@ def tfrecord_iterator(filenames, gzipped=False, example_spec=None):
     dataset = dataset.flat_map(_load_records)
 
     def _parse_example(ex_ser):
-      return tf.parse_single_example(ex_ser, example_spec)
+      return tf.io.parse_single_example(ex_ser, example_spec)
 
     if example_spec:
       dataset = dataset.map(_parse_example, num_parallel_calls=32)
     dataset = dataset.prefetch(100)
-    record_it = dataset.make_one_shot_iterator().get_next()
+    record_it = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
 
-    with tf.Session() as sess:
+    with tf.compat.v1.Session() as sess:
       while True:
         try:
           ex = sess.run(record_it)

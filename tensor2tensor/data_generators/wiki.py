@@ -54,18 +54,18 @@ class LanguagemodelWikiXmlV8kL1k(text_problems.ChoppedTextProblem):
     decompressed_filepath = compressed_filepath[:-4]
     split_file_prefix = decompressed_filepath + "-part-"
     split_filepattern = split_file_prefix + "?????"
-    split_files = sorted(tf.gfile.Glob(split_filepattern))
+    split_files = sorted(tf.io.gfile.glob(split_filepattern))
     if not split_files:
-      if not tf.gfile.Exists(decompressed_filepath):
-        if not tf.gfile.Exists(compressed_filepath):
+      if not tf.io.gfile.exists(decompressed_filepath):
+        if not tf.io.gfile.exists(compressed_filepath):
           generator_utils.maybe_download(
               tmp_dir, compressed_filepath, self.corpus_url)
         assert not subprocess.call(["bunzip2", compressed_filepath])
-      assert tf.gfile.Exists(decompressed_filepath)
+      assert tf.io.gfile.exists(decompressed_filepath)
       assert not subprocess.call([
           "split", "--line-bytes=4M", "--suffix-length=5",
           "--numeric-suffixes", decompressed_filepath, split_file_prefix])
-      split_files = sorted(tf.gfile.Glob(split_filepattern))
+      split_files = sorted(tf.io.gfile.glob(split_filepattern))
     assert split_files
     return split_files
 
@@ -218,7 +218,7 @@ class LanguagemodelWikiNorefV8kL1k(LanguagemodelWikiXmlV8kL1k):
 
   def filepath_to_unicode_strings(self, filepath):
     """Overrides the base class to clean up the xml dump before tokenizing."""
-    dump = text_encoder.to_unicode_ignore_errors(tf.gfile.Open(filepath).read())
+    dump = text_encoder.to_unicode_ignore_errors(tf.io.gfile.GFile(filepath).read())
     pages = _dump_to_pages(dump)
     ret = u""
     for p in pages:

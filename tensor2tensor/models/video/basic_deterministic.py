@@ -51,9 +51,9 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     kernel1 = (3, 3)
     filters = common_layers.shape_list(x)[-1]
     for i in range(self.hparams.num_hidden_layers):
-      with tf.variable_scope("layer%d" % i):
-        y = tf.nn.dropout(x, 1.0 - self.hparams.dropout)
-        y = tf.layers.conv2d(y, filters, kernel1, activation=common_layers.belu,
+      with tf.compat.v1.variable_scope("layer%d" % i):
+        y = tf.nn.dropout(x, rate=1 - (1.0 - self.hparams.dropout))
+        y = tf.compat.v1.layers.conv2d(y, filters, kernel1, activation=common_layers.belu,
                              strides=(1, 1), padding="SAME")
         if i == 0:
           x = y
@@ -73,21 +73,21 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     stacked_frames = tf.concat(frames, axis=-1)
     inputs_shape = common_layers.shape_list(stacked_frames)
     # Using non-zero bias initializer below for edge cases of uniform inputs.
-    x = tf.layers.dense(
+    x = tf.compat.v1.layers.dense(
         stacked_frames, filters, name="inputs_embed",
-        bias_initializer=tf.random_normal_initializer(stddev=0.01))
+        bias_initializer=tf.compat.v1.random_normal_initializer(stddev=0.01))
     x = common_attention.add_timing_signal_nd(x)
 
     # Down-stride.
     layer_inputs = [x]
     for i in range(hparams.num_compress_steps):
-      with tf.variable_scope("downstride%d" % i):
+      with tf.compat.v1.variable_scope("downstride%d" % i):
         layer_inputs.append(x)
         x = common_layers.make_even_size(x)
         if i < hparams.filter_double_steps:
           filters *= 2
         x = common_attention.add_timing_signal_nd(x)
-        x = tf.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
+        x = tf.compat.v1.layers.conv2d(x, filters, kernel2, activation=common_layers.belu,
                              strides=(2, 2), padding="SAME")
         x = common_layers.layer_norm(x)
 
@@ -106,13 +106,13 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     # Up-convolve.
     layer_inputs = list(reversed(layer_inputs))
     for i in range(hparams.num_compress_steps):
-      with tf.variable_scope("upstride%d" % i):
+      with tf.compat.v1.variable_scope("upstride%d" % i):
         if self.has_actions:
           x = common_video.inject_additional_input(
               x, action, "action_enc", hparams.action_injection)
         if i >= hparams.num_compress_steps - hparams.filter_double_steps:
           filters //= 2
-        x = tf.layers.conv2d_transpose(
+        x = tf.compat.v1.layers.conv2d_transpose(
             x, filters, kernel2, activation=common_layers.belu,
             strides=(2, 2), padding="SAME")
         y = layer_inputs[i]
@@ -125,9 +125,9 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
     x = x[:, :inputs_shape[1], :inputs_shape[2], :]
     x_fin = tf.reduce_mean(x, axis=[1, 2], keepdims=True)
     if self.is_per_pixel_softmax:
-      x = tf.layers.dense(x, hparams.problem.num_channels * 256, name="logits")
+      x = tf.compat.v1.layers.dense(x, hparams.problem.num_channels * 256, name="logits")
     else:
-      x = tf.layers.dense(x, hparams.problem.num_channels, name="logits")
+      x = tf.compat.v1.layers.dense(x, hparams.problem.num_channels, name="logits")
 
     # No reward prediction if not needed.
     if not self.has_rewards:
@@ -135,7 +135,7 @@ class NextFrameBasicDeterministic(base.NextFrameBase):
 
     # Reward prediction based on middle and final logits.
     reward_pred = tf.concat([x_mid, x_fin], axis=-1)
-    reward_pred = tf.nn.relu(tf.layers.dense(
+    reward_pred = tf.nn.relu(tf.compat.v1.layers.dense(
         reward_pred, 128, name="reward_pred"))
     reward_pred = tf.expand_dims(reward_pred, axis=3)  # Need fake channels dim.
     return x, reward_pred, extra_loss, internal_states

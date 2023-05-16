@@ -56,7 +56,7 @@ class GeneExpressionModelsTest(tf.test.TestCase):
         hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)(features)
 
     with self.test_session() as sess:
-      sess.run(tf.global_variables_initializer())
+      sess.run(tf.compat.v1.global_variables_initializer())
       res = sess.run(logits)
 
     self.assertEqual(res.shape, (batch_size, target_length, 1, target_out))

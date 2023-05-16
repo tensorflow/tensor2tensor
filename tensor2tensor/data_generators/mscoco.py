@@ -53,7 +53,7 @@ def _get_mscoco(directory):
     download_url = os.path.join(_MSCOCO_ROOT_URL, url)
     path = generator_utils.maybe_download(directory, filename, download_url)
     unzip_dir = os.path.join(directory, filename.strip(".zip"))
-    if not tf.gfile.Exists(unzip_dir):
+    if not tf.io.gfile.exists(unzip_dir):
       zipfile.ZipFile(path, "r").extractall(directory)
 
 
@@ -90,8 +90,8 @@ def mscoco_generator(data_dir,
     """Get vocab for caption text encoder."""
     if data_dir is not None and vocab_filename is not None:
       vocab_filepath = os.path.join(data_dir, vocab_filename)
-      if tf.gfile.Exists(vocab_filepath):
-        tf.logging.info("Found vocab file: %s", vocab_filepath)
+      if tf.io.gfile.exists(vocab_filepath):
+        tf.compat.v1.logging.info("Found vocab file: %s", vocab_filepath)
         vocab_symbolizer = text_encoder.SubwordTextEncoder(vocab_filepath)
         return vocab_symbolizer
       else:
@@ -114,7 +114,7 @@ def mscoco_generator(data_dir,
   annotations = caption_json["annotations"]
   annotation_count = len(annotations)
   image_count = len(image_dict)
-  tf.logging.info("Processing %d images and %d labels\n" % (image_count,
+  tf.compat.v1.logging.info("Processing %d images and %d labels\n" % (image_count,
                                                             annotation_count))
   for annotation in annotations:
     image_id = annotation["image_id"]
@@ -125,7 +125,7 @@ def mscoco_generator(data_dir,
   for image_info, labels in data:
     image_filename = image_info[0]
     image_filepath = os.path.join(tmp_dir, prefix, image_filename)
-    with tf.gfile.Open(image_filepath, "r") as f:
+    with tf.io.gfile.GFile(image_filepath, "r") as f:
       encoded_image_data = f.read()
       height, width = image_info[1], image_info[2]
       for label in labels:

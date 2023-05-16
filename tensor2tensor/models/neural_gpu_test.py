@@ -51,7 +51,7 @@ class NeuralGPUTest(tf.test.TestCase):
       model = neural_gpu.NeuralGPU(hparams, tf.estimator.ModeKeys.TRAIN,
                                    p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (batch_size, target_length, 1, 1,
                                  target_vocab_size))

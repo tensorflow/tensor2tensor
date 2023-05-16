@@ -58,7 +58,7 @@ class ImagetransformerTest(parameterized.TestCase, tf.test.TestCase):
       }
       model = net(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     if hparams.likelihood == common_image_attention.DistributionType.CAT:
       expected = (batch_size, size, size, 3, vocab_size)

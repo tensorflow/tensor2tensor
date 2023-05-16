@@ -84,7 +84,7 @@ class TransformerAux(transformer.Transformer):
     shift_values_str = self._hparams.get("shift_values", "")
     shift_values = [int(x) for x in shift_values_str.split(",")]
 
-    tf.logging.info(
+    tf.compat.v1.logging.info(
         "Computing auxiliary losses for the following shifts: %s",
         shift_values)
 
@@ -119,7 +119,7 @@ class TransformerAux(transformer.Transformer):
       raise ValueError(
           "Feature map must contain a targets_raw tensor.")
 
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
       logits = self.top(body_output, features)
       labels = shift_and_pad(targets, shift, axis=1)
       return common_layers.padded_cross_entropy(

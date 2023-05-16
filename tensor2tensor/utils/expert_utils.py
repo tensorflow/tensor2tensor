@@ -65,7 +65,7 @@ def add_scope(scope=None, scope_fn=None):
 
 
 def add_var_scope(scope=None):
-  return add_scope(scope, scope_fn=tf.variable_scope)
+  return add_scope(scope, scope_fn=tf.compat.v1.variable_scope)
 
 
 def add_name_scope(scope=None):
@@ -216,9 +216,9 @@ class Parallelism(object):
       else:
         custom_getter = None
       # pylint: enable=cell-var-from-loop
-      with tf.name_scope("parallel_%d" % i):
-        with tf.variable_scope(
-            tf.get_variable_scope() if self._reuse else "parallel_%d" % i,
+      with tf.compat.v1.name_scope("parallel_%d" % i):
+        with tf.compat.v1.variable_scope(
+            tf.compat.v1.get_variable_scope() if self._reuse else "parallel_%d" % i,
             reuse=True if i > 0 and self._reuse else None,
             caching_device=self._caching_devices[i],
             custom_getter=custom_getter):
@@ -275,8 +275,8 @@ def _rowwise_unsorted_segment_sum(values, indices, n):
     A `Tensor` with the same type as `values` and shape `[batch_size, n]`.
   """
   batch, k = tf.unstack(tf.shape(indices), num=2)
-  indices_flat = tf.reshape(indices, [-1]) + tf.div(tf.range(batch * k), k) * n
-  ret_flat = tf.unsorted_segment_sum(
+  indices_flat = tf.reshape(indices, [-1]) + tf.compat.v1.div(tf.range(batch * k), k) * n
+  ret_flat = tf.math.unsorted_segment_sum(
       tf.reshape(values, [-1]), indices_flat, batch * n)
   return tf.reshape(ret_flat, [batch, n])
 
@@ -297,7 +297,7 @@ def _normal_distribution_cdf(x, stddev):
     a `Tensor` with the same shape as `x`.
 
   """
-  return 0.5 * (1.0 + tf.erf(x / (math.sqrt(2) * stddev + 1e-20)))
+  return 0.5 * (1.0 + tf.math.erf(x / (math.sqrt(2) * stddev + 1e-20)))
 
 
 def _prob_in_top_k(
@@ -335,7 +335,7 @@ def _prob_in_top_k(
       tf.gather(top_values_flat, threshold_positions_if_in), 1)
   is_in = tf.greater(noisy_values, threshold_if_in)
   if noise_stddev is None:
-    return tf.to_float(is_in)
+    return tf.cast(is_in, dtype=tf.float32)
   threshold_positions_if_out = threshold_positions_if_in - 1
   threshold_if_out = tf.expand_dims(
       tf.gather(top_values_flat, threshold_positions_if_out), 1)
@@ -344,7 +344,7 @@ def _prob_in_top_k(
                                         noise_stddev)
   prob_if_out = _normal_distribution_cdf(clean_values - threshold_if_out,
                                          noise_stddev)
-  prob = tf.where(is_in, prob_if_in, prob_if_out)
+  prob = tf.compat.v1.where(is_in, prob_if_in, prob_if_out)
   return prob
 
 
@@ -362,7 +362,7 @@ def cv_squared(x):
     a `Scalar`.
   """
   epsilon = 1e-10
-  float_size = tf.to_float(tf.size(x)) + epsilon
+  float_size = tf.cast(tf.size(x), dtype=tf.float32) + epsilon
   mean = tf.reduce_sum(x) / float_size
   variance = tf.reduce_sum(tf.square(x - mean)) / float_size
   return variance / (tf.square(mean) + epsilon)
@@ -378,7 +378,7 @@ def _gates_to_load(gates):
   Returns:
     a float32 `Tensor` of shape [n]
   """
-  return tf.reduce_sum(tf.to_float(gates > 0), 0)
+  return tf.reduce_sum(tf.cast(gates > 0, dtype=tf.float32), 0)
 
 
 def update_hparams_for_vq_gating(hparams):
@@ -431,7 +431,7 @@ def _my_top_k(x, k):
     indices.append(argmax)
     if i + 1 < k:
       x += tf.one_hot(argmax, depth, -1e9)
-  return tf.stack(values, axis=1), tf.to_int32(tf.stack(indices, axis=1))
+  return tf.stack(values, axis=1), tf.cast(tf.stack(indices, axis=1), dtype=tf.int32)
 
 
 def vq_gating(x,
@@ -454,13 +454,13 @@ def vq_gating(x,
     gates: a Tensor with shape [batch_size, num_experts]
     load: a Tensor with shape [num_experts]
   """
-  with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
+  with tf.compat.v1.variable_scope(name, reuse=tf.compat.v1.AUTO_REUSE):
 
     if hparams.use_scales:
-      scales = tf.get_variable(
+      scales = tf.compat.v1.get_variable(
           "scales", [num_experts],
           tf.float32,
-          initializer=tf.ones_initializer())
+          initializer=tf.compat.v1.ones_initializer())
       scales = tf.nn.softmax(scales)
       hparams.scales = scales
     input_size = x.get_shape().as_list()[-1]
@@ -470,7 +470,7 @@ def vq_gating(x,
       # first project into two dense layers, chop and discretize, and gate
       # TODO(avaswani): Maybe scale the embeddings flowing out of the experts.
       # We might want to do this to match the computation being done by topk
-      x = tf.layers.dense(x, input_size * k)
+      x = tf.compat.v1.layers.dense(x, input_size * k)
       # x goes from [batch_size, input_size*k] to [batch_size*k, input_size]
       x = tf.reshape(x, [batch_size * k, input_size])
     inputs = tf.expand_dims(x, axis=1)
@@ -487,7 +487,7 @@ def vq_gating(x,
     if hparams.residual_centroids:
       centroids = embed_lookup(exp_discrete)  # gives the centroids
     top_k_indices = tf.squeeze(exp_discrete, axis=1)
-    tf.summary.histogram("discrete_counts", top_k_indices)
+    tf.compat.v1.summary.histogram("discrete_counts", top_k_indices)
     # if k > 1, then we need to reshape top_k_indices from [batch_size*k, 1]
     # to [batch_size, k]
     if k > 1:
@@ -503,10 +503,10 @@ def vq_gating(x,
     # count per expert has shape [num_experts, 1]
     count_per_expert = tf.reduce_sum(gates, axis=0)
     if hparams.use_scales:
-      scale_loss = tf.reduce_mean(tf.to_float(count_per_expert) * scales)
+      scale_loss = tf.reduce_mean(tf.cast(count_per_expert, dtype=tf.float32) * scales)
       extra_loss += scale_loss
     if common_layers.should_generate_summaries():
-      tf.summary.histogram("vq_loss", extra_loss)
+      tf.compat.v1.summary.histogram("vq_loss", extra_loss)
       tf.summary.historgram("scale_loss", scale_loss)
     return gates, extra_loss, centroids
 
@@ -515,7 +515,7 @@ def noisy_top_k_gating(x,
                        num_experts,
                        train,
                        k=2,
-                       initializer=tf.zeros_initializer(),
+                       initializer=tf.compat.v1.zeros_initializer(),
                        noisy_gating=True,
                        noise_epsilon=1e-2,
                        name=None):
@@ -537,25 +537,25 @@ def noisy_top_k_gating(x,
     gates: a Tensor with shape [batch_size, num_experts]
     load: a Tensor with shape [num_experts]
   """
-  with tf.variable_scope(name, default_name="noisy_top_k_gating"):
+  with tf.compat.v1.variable_scope(name, default_name="noisy_top_k_gating"):
     input_size = x.get_shape().as_list()[-1]
-    w_gate = tf.get_variable(
+    w_gate = tf.compat.v1.get_variable(
         "w_gate", [input_size, num_experts], tf.float32, initializer)
     if noisy_gating:
-      w_noise = tf.get_variable("w_noise",
+      w_noise = tf.compat.v1.get_variable("w_noise",
                                 [input_size, num_experts], tf.float32,
                                 initializer)
     clean_logits = tf.matmul(x, w_gate)
     if noisy_gating:
       raw_noise_stddev = tf.matmul(x, w_noise)
       noise_stddev = ((tf.nn.softplus(raw_noise_stddev) + noise_epsilon) *
-                      (tf.to_float(train)))
+                      (tf.cast(train, dtype=tf.float32)))
       noisy_logits = clean_logits + (
-          tf.random_normal(tf.shape(clean_logits)) * noise_stddev)
+          tf.random.normal(tf.shape(clean_logits)) * noise_stddev)
       logits = noisy_logits
       if common_layers.should_generate_summaries():
-        tf.summary.histogram("noisy_logits", noisy_logits)
-        tf.summary.histogram("noise_stddev", noise_stddev)
+        tf.compat.v1.summary.histogram("noisy_logits", noisy_logits)
+        tf.compat.v1.summary.histogram("noise_stddev", noise_stddev)
     else:
       logits = clean_logits
     top_logits, top_indices = _my_top_k(logits, min(k + 1, num_experts))
@@ -574,8 +574,8 @@ def noisy_top_k_gating(x,
     else:
       load = _gates_to_load(gates)
     if common_layers.should_generate_summaries():
-      tf.summary.histogram("importance", tf.reduce_sum(gates, 0))
-      tf.summary.histogram("load", load)
+      tf.compat.v1.summary.histogram("importance", tf.reduce_sum(gates, 0))
+      tf.compat.v1.summary.histogram("load", load)
     return gates, load
 
 
@@ -612,13 +612,13 @@ class PadRemover(object):
     self.nonpad_ids = None
     self.dim_origin = None
 
-    with tf.name_scope("pad_reduce/get_ids"):
+    with tf.compat.v1.name_scope("pad_reduce/get_ids"):
       pad_mask = tf.reshape(pad_mask, [-1])  # Flatten the batch
       # nonpad_ids contains coordinates of zeros rows (as pad_mask is
       # float32, checking zero equality is done with |x| < epsilon, with
       # epsilon=1e-9 as standard, here pad_mask only contains positive values
       # so tf.abs would be redundant)
-      self.nonpad_ids = tf.to_int32(tf.where(pad_mask < 1e-9))
+      self.nonpad_ids = tf.cast(tf.compat.v1.where(pad_mask < 1e-9), dtype=tf.int32)
       self.dim_origin = tf.shape(pad_mask)[:1]
 
   def remove(self, x):
@@ -630,7 +630,7 @@ class PadRemover(object):
     Returns:
       a tensor of shape [dim_compressed,...] with dim_compressed <= dim_origin
     """
-    with tf.name_scope("pad_reduce/remove"):
+    with tf.compat.v1.name_scope("pad_reduce/remove"):
       x_shape = x.get_shape().as_list()
       x = tf.gather_nd(
           x,
@@ -652,7 +652,7 @@ class PadRemover(object):
       a tensor of shape [dim_origin,...] with dim_compressed >= dim_origin. The
       dim is restored from the original reference tensor
     """
-    with tf.name_scope("pad_reduce/restore"):
+    with tf.compat.v1.name_scope("pad_reduce/restore"):
       x = tf.scatter_nd(
           indices=self.nonpad_ids,
           updates=x,
@@ -705,7 +705,7 @@ def map_ids(x, indices, map_fn):
   def body(t_i, ta_stack_out):
     """Loop body."""
     # Gather the ids
-    current_ids = tf.to_int32(tf.where(tf.equal(indices, t_i)))
+    current_ids = tf.cast(tf.compat.v1.where(tf.equal(indices, t_i)), dtype=tf.int32)
     t_row = tf.gather_nd(x, indices=current_ids)
 
     # TODO(epot): Should not call map_fn if t_row size is 0
@@ -724,7 +724,7 @@ def map_ids(x, indices, map_fn):
   # stack_out = []
   # while i < batch_size:
   #   stack_out.expand(map_fn(x[indices==i]))
-  _, ta_stack_out = tf.while_loop(while_condition, body, [t_i, ta_stack_out])
+  _, ta_stack_out = tf.while_loop(cond=while_condition, body=body, loop_vars=[t_i, ta_stack_out])
 
   # Merge all results
   return ta_stack_out.concat()
@@ -783,9 +783,9 @@ class SparseDispatcher(object):
     self._gates = gates
     self._num_experts = num_experts
 
-    where = tf.to_int32(tf.where(tf.transpose(gates) > 0))
+    where = tf.cast(tf.compat.v1.where(tf.transpose(gates) > 0), dtype=tf.int32)
     self._expert_index, self._batch_index = tf.unstack(where, num=2, axis=1)
-    self._part_sizes_tensor = tf.reduce_sum(tf.to_int32(gates > 0), [0])
+    self._part_sizes_tensor = tf.reduce_sum(tf.cast(gates > 0, dtype=tf.int32), [0])
     self._nonzero_gates = tf.gather(
         tf.reshape(self._gates, [-1]),
         self._batch_index * num_experts + self._expert_index)
@@ -828,7 +828,7 @@ class SparseDispatcher(object):
         tf.concat(expert_out, 0))
     if multiply_by_gates:
       stitched *= tf.expand_dims(self._nonzero_gates, 1)
-    combined = tf.unsorted_segment_sum(stitched, self._batch_index,
+    combined = tf.math.unsorted_segment_sum(stitched, self._batch_index,
                                        tf.shape(self._gates)[0])
     return combined
 
@@ -973,7 +973,7 @@ def ffn_expert_fn(input_size,
   def my_fn(x):
     layer_sizes = [input_size] + hidden_sizes + [output_size]
     for i in range(1 + len(hidden_sizes)):
-      w = tf.get_variable("w_%d" % i, layer_sizes[i:i+2], tf.float32)
+      w = tf.compat.v1.get_variable("w_%d" % i, layer_sizes[i:i+2], tf.float32)
       x = tf.matmul(x, w)
       if i < len(hidden_sizes):
         x = hidden_activation(x)
@@ -1028,11 +1028,11 @@ def local_moe(x,
       encourages all experts to be approximately equally used across a batch.
   """
   bneck = DiscreteBottleneck(hparams)
-  with tf.variable_scope(name, default_name="local_moe"):
+  with tf.compat.v1.variable_scope(name, default_name="local_moe"):
     centroids = None
     x_flat = flatten_all_but_last(x)
     if hparams.gating_type == "topk":
-      tf.logging.info("Using noisy top_k with k = {}".format(k))
+      tf.compat.v1.logging.info("Using noisy top_k with k = {}".format(k))
       # The gates indicate which batch elements go to which tensors.
       # load is a measure of approximately how many examples go to each expert
       gates, load = noisy_top_k_gating(
@@ -1040,14 +1040,14 @@ def local_moe(x,
           num_experts,
           train,
           k,
-          initializer=tf.zeros_initializer(),
+          initializer=tf.compat.v1.zeros_initializer(),
           noisy_gating=True,
           noise_epsilon=1e-2)
       importance = tf.reduce_sum(gates, 0)
       loss = loss_coef * (cv_squared(importance) + cv_squared(load))
     else:
       assert hparams.gating_type == "vq"
-      tf.logging.info("Using VQ gating")
+      tf.compat.v1.logging.info("Using VQ gating")
       gates, loss, centroids = vq_gating(
           x_flat, num_experts, k, bneck, hparams=hparams)
     loss *= loss_coef
@@ -1110,33 +1110,33 @@ class TruncatingDispatcher(object):
     Returns:
       a TruncatingDispatcher
     """
-    self._requests = tf.to_float(requests)
+    self._requests = tf.cast(requests, dtype=tf.float32)
     self._expert_capacity = expert_capacity
-    expert_capacity_f = tf.to_float(expert_capacity)
+    expert_capacity_f = tf.cast(expert_capacity, dtype=tf.float32)
     self._batch, self._length, self._num_experts = tf.unstack(
         tf.shape(self._requests), num=3)
 
     # [batch, length, num_experts]
     position_in_expert = tf.cumsum(self._requests, axis=1, exclusive=True)
     # [batch, length, num_experts]
-    self._gates = self._requests * tf.to_float(
-        tf.less(position_in_expert, expert_capacity_f))
+    self._gates = self._requests * tf.cast(
+        tf.less(position_in_expert, expert_capacity_f), dtype=tf.float32)
     batch_index = tf.reshape(
-        tf.to_float(tf.range(self._batch)), [self._batch, 1, 1])
+        tf.cast(tf.range(self._batch), dtype=tf.float32), [self._batch, 1, 1])
     length_index = tf.reshape(
-        tf.to_float(tf.range(self._length)), [1, self._length, 1])
+        tf.cast(tf.range(self._length), dtype=tf.float32), [1, self._length, 1])
     expert_index = tf.reshape(
-        tf.to_float(tf.range(self._num_experts)), [1, 1, self._num_experts])
+        tf.cast(tf.range(self._num_experts), dtype=tf.float32), [1, 1, self._num_experts])
     # position in a Tensor with shape [batch * num_experts * expert_capacity]
     flat_position = (
         position_in_expert +
-        batch_index * (tf.to_float(self._num_experts) * expert_capacity_f) +
+        batch_index * (tf.cast(self._num_experts, dtype=tf.float32) * expert_capacity_f) +
         expert_index * expert_capacity_f)
     # Tensor of shape [batch * num_experts * expert_capacity].
     # each element is an integer in [0, length)
-    self._indices = tf.unsorted_segment_sum(
+    self._indices = tf.math.unsorted_segment_sum(
         data=tf.reshape((length_index + 1.0) * self._gates, [-1]),
-        segment_ids=tf.to_int32(tf.reshape(flat_position, [-1])),
+        segment_ids=tf.cast(tf.reshape(flat_position, [-1]), dtype=tf.int32),
         num_segments=self._batch * self._num_experts * expert_capacity)
     self._indices = tf.reshape(
         self._indices,
@@ -1148,11 +1148,11 @@ class TruncatingDispatcher(object):
     self._indices = tf.nn.relu(self._indices - 1.0)
     # self._flat_indices is [batch, num_experts, expert_capacity], with values
     # in [0, batch * length)
-    self._flat_indices = tf.to_int32(
+    self._flat_indices = tf.cast(
         self._indices +
-        (tf.reshape(tf.to_float(tf.range(self._batch)), [-1, 1, 1])
-         * tf.to_float(self._length)))
-    self._indices = tf.to_int32(self._indices)
+        (tf.reshape(tf.cast(tf.range(self._batch), dtype=tf.float32), [-1, 1, 1])
+         * tf.cast(self._length, dtype=tf.float32)), dtype=tf.int32)
+    self._indices = tf.cast(self._indices, dtype=tf.int32)
 
   @add_name_scope("truncating_dispatcher_dispatch")
   def dispatch(self, inp):
@@ -1182,7 +1182,7 @@ class TruncatingDispatcher(object):
     """
     depth = tf.shape(x)[-1]
     x *= tf.expand_dims(self._nonpadding, -1)
-    ret = tf.unsorted_segment_sum(
+    ret = tf.math.unsorted_segment_sum(
         x, self._flat_indices, num_segments=self._batch * self._length)
     ret = tf.reshape(ret, [self._batch, self._length, depth])
     return ret
@@ -1279,13 +1279,13 @@ def local_moe_tpu(inputs,
         length, int((length * 2 * overhead) / num_experts))
   else:
     expert_capacity = tf.minimum(
-        length, tf.to_int32(
-            tf.to_float(length) * 2 * overhead / num_experts))
-  expert_capacity_f = tf.to_float(expert_capacity)
+        length, tf.cast(
+            tf.cast(length, dtype=tf.float32) * 2 * overhead / num_experts, dtype=tf.int32))
+  expert_capacity_f = tf.cast(expert_capacity, dtype=tf.float32)
 
   # This is the learned gating function.
   gates = tf.nn.softmax(
-      tf.to_float(common_layers.dense(inputs, num_experts, name="logits")))
+      tf.cast(common_layers.dense(inputs, num_experts, name="logits"), dtype=tf.float32))
 
   # Find the top expert for each position.
   gate_1, index_1 = common_layers.top_1_tpu(gates)
@@ -1296,7 +1296,7 @@ def local_moe_tpu(inputs,
   position_in_expert_1 = common_layers.cumsum(
       mask_1, axis=1, exclusive=True) * mask_1
   # Remove the elements that don't fit.
-  mask_1 *= tf.to_float(tf.less(position_in_expert_1, expert_capacity_f))
+  mask_1 *= tf.cast(tf.less(position_in_expert_1, expert_capacity_f), dtype=tf.float32)
   # [batch, 1, num_experts]
   # How many examples in this sequence go to this expert
   mask_1_count = tf.reduce_sum(mask_1, axis=1, keepdims=True)
@@ -1309,14 +1309,14 @@ def local_moe_tpu(inputs,
   # Pick a second-place expert for each position.
   # We first mask out the experts that we expect to be over-capacity
   space_remaining = expert_capacity_f - mask_1_count
-  use_rate = (mask_1_count + 1.0) / tf.to_float(length)
+  use_rate = (mask_1_count + 1.0) / tf.cast(length, dtype=tf.float32)
   # At what point in the sequence do we expect the expert to be full.
   expected_exhaustion_pos = space_remaining / use_rate
   # A Tensor with shape [batch, length, num_experts] representing a boolean
   #   - whether we expect that the expert will already be full.
-  expected_exhausted = tf.to_float(tf.greater(
-      tf.reshape(tf.to_float(tf.range(length)), [1, length, 1]),
-      expected_exhaustion_pos))
+  expected_exhausted = tf.cast(tf.greater(
+      tf.reshape(tf.cast(tf.range(length), dtype=tf.float32), [1, length, 1]),
+      expected_exhaustion_pos), dtype=tf.float32)
   masked_gates = gates - mask_1 - expected_exhausted
   # This section is similar to the section above.
   gate_2, index_2 = common_layers.top_1_tpu(masked_gates)
@@ -1325,17 +1325,17 @@ def local_moe_tpu(inputs,
   position_in_expert_2 = (
       common_layers.cumsum(mask_2, axis=1, exclusive=True) + mask_1_count)
   position_in_expert_2 *= mask_2
-  mask_2 *= tf.to_float(tf.less(position_in_expert_2, expert_capacity_f))
+  mask_2 *= tf.cast(tf.less(position_in_expert_2, expert_capacity_f), dtype=tf.float32)
   mask_2_count = tf.reduce_sum(mask_2, axis=1, keepdims=True)
   mask_2_flat = tf.reduce_sum(mask_2, axis=2)
   position_in_expert_2 = tf.reduce_sum(position_in_expert_2, axis=2)
   gate_2 *= mask_2_flat
 
   # What fraction didn't fit - show summaries
-  miss_rate_1 = 1.0 - tf.reduce_sum(mask_1_count) / tf.to_float(batch * length)
-  miss_rate_2 = 1.0 - tf.reduce_sum(mask_2_count) / tf.to_float(batch * length)
-  tf.summary.scalar("miss_rate_1", miss_rate_1)
-  tf.summary.scalar("miss_rate_2", miss_rate_2)
+  miss_rate_1 = 1.0 - tf.reduce_sum(mask_1_count) / tf.cast(batch * length, dtype=tf.float32)
+  miss_rate_2 = 1.0 - tf.reduce_sum(mask_2_count) / tf.cast(batch * length, dtype=tf.float32)
+  tf.compat.v1.summary.scalar("miss_rate_1", miss_rate_1)
+  tf.compat.v1.summary.scalar("miss_rate_2", miss_rate_2)
 
   # renormalize the two gate values to add up to 1
   denom = gate_1 + gate_2 + 1e-9
@@ -1348,13 +1348,13 @@ def local_moe_tpu(inputs,
 
   segment_ids_forward_1 = (
       (index_1 * expert_capacity) +
-      tf.to_int32(position_in_expert_1) +
-      tf.to_int32(1.0 - mask_1_flat) * (num_experts * expert_capacity))
+      tf.cast(position_in_expert_1, dtype=tf.int32) +
+      tf.cast(1.0 - mask_1_flat, dtype=tf.int32) * (num_experts * expert_capacity))
 
   segment_ids_forward_2 = (
       (index_2 * expert_capacity) +
-      tf.to_int32(position_in_expert_2) +
-      tf.to_int32(1.0 - mask_2_flat) * (num_experts * expert_capacity))
+      tf.cast(position_in_expert_2, dtype=tf.int32) +
+      tf.cast(1.0 - mask_2_flat, dtype=tf.int32) * (num_experts * expert_capacity))
 
   # Gather and scatter are painfully slow on TPU.
   # We will use one_hot and matmul instead.
@@ -1510,9 +1510,9 @@ def all_reduce_ring(x, parallelism, maybe_reduce=True, use_bfloat16=True):
         source = x_split[source_device][shard]
         if use_bfloat16:
           with tf.device(parallelism.devices[source_device]):
-            source = tf.to_bfloat16(source)
+            source = tf.cast(source, dtype=tf.bfloat16)
         with tf.device(parallelism.devices[target_device]):
-          source = tf.to_float(source)
+          source = tf.cast(source, dtype=tf.float32)
           if op == "plus_eq":
             x_split[target_device][shard] += source
           else:

@@ -37,10 +37,10 @@ class TranslateTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    tmp_dir = tf.test.get_temp_dir()
+    tmp_dir = tf.compat.v1.test.get_temp_dir()
     compressed_dir = os.path.join(tmp_dir, "compressed")
     shutil.rmtree(tmp_dir)
-    tf.gfile.MakeDirs(compressed_dir)
+    tf.io.gfile.makedirs(compressed_dir)
 
     en_data = [str(i) for i in range(10, 40)]
     de_data = [str(i) for i in range(100, 130)]
@@ -51,8 +51,8 @@ class TranslateTest(tf.test.TestCase):
       en_file, de_file = [
           os.path.join(compressed_dir, name) for name in dataset[1]
       ]
-      with tf.gfile.Open(en_file, "w") as en_f:
-        with tf.gfile.Open(de_file, "w") as de_f:
+      with tf.io.gfile.GFile(en_file, "w") as en_f:
+        with tf.io.gfile.GFile(de_file, "w") as de_f:
           start = i * 10
           end = start + 10
           for en_line, de_line in data[start:end]:

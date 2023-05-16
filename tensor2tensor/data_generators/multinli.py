@@ -73,7 +73,7 @@ class MultiNLI(text_problems.TextConcat2ClassProblem):
   def _maybe_download_corpora(self, tmp_dir):
     mnli_filename = "MNLI.zip"
     mnli_finalpath = os.path.join(tmp_dir, "MNLI")
-    if not tf.gfile.Exists(mnli_finalpath):
+    if not tf.io.gfile.exists(mnli_finalpath):
       zip_filepath = generator_utils.maybe_download(
           tmp_dir, mnli_filename, self._MNLI_URL)
       zip_ref = zipfile.ZipFile(zip_filepath, "r")
@@ -84,7 +84,7 @@ class MultiNLI(text_problems.TextConcat2ClassProblem):
 
   def example_generator(self, filename):
     label_list = self.class_labels(data_dir=None)
-    for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
+    for idx, line in enumerate(tf.io.gfile.GFile(filename, "rb")):
       if idx == 0: continue  # skip header
       if six.PY2:
         line = unicode(line.strip(), "utf-8")

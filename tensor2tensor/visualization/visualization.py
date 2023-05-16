@@ -135,8 +135,8 @@ def build_model(hparams_set, model_name, data_dir, problem_name, beam_size=1):
   translate_model = registry.model(model_name)(
       hparams, tf.estimator.ModeKeys.EVAL)
 
-  inputs = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name='inputs')
-  targets = tf.placeholder(tf.int32, shape=(1, None, 1, 1), name='targets')
+  inputs = tf.compat.v1.placeholder(tf.int32, shape=(1, None, 1, 1), name='inputs')
+  targets = tf.compat.v1.placeholder(tf.int32, shape=(1, None, 1, 1), name='targets')
   translate_model({
       'inputs': inputs,
       'targets': targets,
@@ -148,7 +148,7 @@ def build_model(hparams_set, model_name, data_dir, problem_name, beam_size=1):
   # inside a tf.while_loop from decoding and are marked unfetchable.
   att_mats = get_att_mats(translate_model)
 
-  with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+  with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=True):
     samples = translate_model.infer({
         'inputs': inputs,
     }, beam_size=beam_size)['outputs']

@@ -24,7 +24,7 @@ from tensor2tensor.utils import quantization
 import tensorflow as tf
 
 
-class AdafactorOptimizer(tf.train.Optimizer):
+class AdafactorOptimizer(tf.compat.v1.train.Optimizer):
   """Optimizer that implements the Adafactor algorithm.
 
   Adafactor is described in https://arxiv.org/abs/1804.04235.
@@ -209,16 +209,16 @@ class AdafactorOptimizer(tf.train.Optimizer):
 
   def _resource_apply_dense(self, grad, handle):
     var = handle
-    grad = tf.to_float(grad)
+    grad = tf.cast(grad, dtype=tf.float32)
     grad_squared = tf.square(grad) + self._epsilon1
     grad_squared_mean = tf.reduce_mean(grad_squared)
     decay_rate = self._decay_rate
     update_scale = self._learning_rate
     old_val = var
     if var.dtype.base_dtype == tf.bfloat16:
-      old_val = tf.to_float(self._parameter_encoding.decode(old_val))
+      old_val = tf.cast(self._parameter_encoding.decode(old_val), dtype=tf.float32)
     if self._multiply_by_parameter_scale:
-      update_scale *= tf.to_float(self._parameter_scale(old_val))
+      update_scale *= tf.cast(self._parameter_scale(old_val), dtype=tf.float32)
     # HACK: Make things dependent on grad.
     # This confounds the XLA rewriter and keeps it from fusing computations
     # across different variables.  This fusion is a bad for HBM usage, since
@@ -236,30 +236,30 @@ class AdafactorOptimizer(tf.train.Optimizer):
       new_vr = (decay_rate * vr + mixing_rate * grad_squared_row_mean)
       vc = self.get_slot(var, "vc")
       new_vc = (decay_rate * vc + mixing_rate * grad_squared_col_mean)
-      vr_update = tf.assign(vr, new_vr, use_locking=self._use_locking)
-      vc_update = tf.assign(vc, new_vc, use_locking=self._use_locking)
+      vr_update = tf.compat.v1.assign(vr, new_vr, use_locking=self._use_locking)
+      vc_update = tf.compat.v1.assign(vc, new_vc, use_locking=self._use_locking)
       updates = [vr_update, vc_update]
       long_term_mean = tf.reduce_mean(new_vr, -1, keepdims=True)
-      r_factor = tf.rsqrt(new_vr / long_term_mean)
-      c_factor = tf.rsqrt(new_vc)
+      r_factor = tf.math.rsqrt(new_vr / long_term_mean)
+      c_factor = tf.math.rsqrt(new_vc)
       x = grad * tf.expand_dims(r_factor, -1) * tf.expand_dims(c_factor, -2)
     else:
       v = self.get_slot(var, "v")
       new_v = decay_rate * v + mixing_rate * grad_squared
-      v_update = tf.assign(v, new_v, use_locking=self._use_locking)
+      v_update = tf.compat.v1.assign(v, new_v, use_locking=self._use_locking)
       updates = [v_update]
-      x = grad * tf.rsqrt(new_v)
+      x = grad * tf.math.rsqrt(new_v)
     if self._clipping_threshold is not None:
       clipping_denom = tf.maximum(1.0, reduce_rms(x) / self._clipping_threshold)
       x /= clipping_denom
     subtrahend = update_scale * x
     if self._beta1:
       m = self.get_slot(var, "m")
-      new_m = self._beta1 * tf.to_float(m) + (1.0 - self._beta1) * subtrahend
+      new_m = self._beta1 * tf.cast(m, dtype=tf.float32) + (1.0 - self._beta1) * subtrahend
       subtrahend = new_m
       new_m = common_layers.cast_like(new_m, var)
-      updates.append(tf.assign(m, new_m, use_locking=self._use_locking))
-    new_val = tf.to_float(old_val) - subtrahend
+      updates.append(tf.compat.v1.assign(m, new_m, use_locking=self._use_locking))
+    new_val = tf.cast(old_val, dtype=tf.float32) - subtrahend
     if var.dtype.base_dtype == tf.bfloat16:
       new_val = self._parameter_encoding.encode(
           new_val, self._quantization_noise)
@@ -267,7 +267,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
       new_val = quantization.simulated_quantize(
           var - subtrahend, self._simulated_quantize_bits,
           self._quantization_noise)
-    var_update = tf.assign(var, new_val, use_locking=self._use_locking)
+    var_update = tf.compat.v1.assign(var, new_val, use_locking=self._use_locking)
     updates = [var_update] + updates
     return tf.group(*updates)
 
@@ -275,7 +275,7 @@ class AdafactorOptimizer(tf.train.Optimizer):
     return adafactor_decay_rate_pow(0.8)
 
   def _learning_rate_default(self, multiply_by_parameter_scale):
-    learning_rate = tf.minimum(tf.rsqrt(step_num() + 1.0), 0.01)
+    learning_rate = tf.minimum(tf.math.rsqrt(step_num() + 1.0), 0.01)
     if not multiply_by_parameter_scale:
       learning_rate *= 0.05
     return learning_rate
@@ -289,7 +289,7 @@ def adafactor_decay_rate_adam(beta2):
   Returns:
     a scalar
   """
-  t = tf.to_float(tf.train.get_or_create_global_step()) + 1.0
+  t = tf.cast(tf.compat.v1.train.get_or_create_global_step(), dtype=tf.float32) + 1.0
   decay = beta2 * (1.0 - tf.pow(beta2, t - 1.0)) / (1.0 - tf.pow(beta2, t))
   # decay = tf.cond(tf.equal(t, 1.0), lambda: beta2, lambda: decay)
   return decay
@@ -307,7 +307,7 @@ def adafactor_decay_rate_pow(exponent):
 
 
 def step_num():
-  return tf.to_float(tf.train.get_or_create_global_step())
+  return tf.cast(tf.compat.v1.train.get_or_create_global_step(), dtype=tf.float32)
 
 
 def adafactor_optimizer_from_hparams(hparams, lr):

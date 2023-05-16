@@ -38,19 +38,19 @@ class GlowOpsTest(tf.test.TestCase):
 
   def test_get_variable_ddi(self):
     with tf.Graph().as_default():
-      x_t = tf.random_normal((5, 5))
+      x_t = tf.random.normal((5, 5))
       ddi = glow_ops.get_variable_ddi(
           "x", (5, 5), initial_value=x_t, init=True)
-      with tf.Session() as session:
+      with tf.compat.v1.Session() as session:
         diff = ddi - x_t
         self.assertTrue(np.allclose(session.run(diff), 0.0))
 
   def test_actnorm(self):
     """Test that actnorm provides activations with zero channel-mean."""
     with tf.Graph().as_default():
-      x_t = tf.random_normal((16, 32, 32, 3), mean=50.0, stddev=2.0)
+      x_t = tf.random.normal((16, 32, 32, 3), mean=50.0, stddev=2.0)
       x_act = glow_ops.actnorm("actnorm", x_t, init=True)
-      with tf.Session() as session:
+      with tf.compat.v1.Session() as session:
         x_act_np, _ = session.run(x_act)
         channel_mean = np.mean(x_act_np, axis=(0, 1, 2))
         channel_var = np.var(x_act_np, axis=(0, 1, 2))
@@ -59,12 +59,12 @@ class GlowOpsTest(tf.test.TestCase):
 
   def check_invertibility(self, op, name):
     with tf.Graph().as_default():
-      x = tf.random_uniform(shape=(16, 32, 32, 4))
+      x = tf.random.uniform(shape=(16, 32, 32, 4))
 
       x_inv, _ = op(name, x, reverse=False)
       x_inv_inv, _ = op(name, x_inv, reverse=True)
-      with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        session.run(tf.compat.v1.global_variables_initializer())
         diff = session.run(x - x_inv_inv)
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-5))
 
@@ -77,9 +77,9 @@ class GlowOpsTest(tf.test.TestCase):
 
   def test_add_edge_bias(self):
     with tf.Graph().as_default():
-      x = tf.random_uniform(shape=(16, 32, 32, 3))
+      x = tf.random.uniform(shape=(16, 32, 32, 3))
       x_pad = glow_ops.add_edge_bias(x, [3, 3])
-      with tf.Session() as session:
+      with tf.compat.v1.Session() as session:
         x_pad_np = session.run(x_pad)
 
         # Test expected output shape.
@@ -87,7 +87,7 @@ class GlowOpsTest(tf.test.TestCase):
 
   def test_conv2d(self):
     with tf.Graph().as_default():
-      x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
+      x = 10.0 * tf.random.uniform(shape=(16, 5, 5, 32))
 
       with arg_scope([glow_ops.actnorm], init=True):
         actnorm_conv2d = glow_ops.conv2d(
@@ -95,8 +95,8 @@ class GlowOpsTest(tf.test.TestCase):
         actnorm_zeros2d = glow_ops.conv2d(
             "actnorm_zeros2d", x, output_channels=64, apply_actnorm=False)
 
-      with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        session.run(tf.compat.v1.global_variables_initializer())
 
         # test if apply_actnorm is set to True, the first minibatch has
         # zero mean and unit variance.
@@ -113,11 +113,11 @@ class GlowOpsTest(tf.test.TestCase):
   def test_affine_coupling_network(self):
     """Test output shape."""
     with tf.Graph().as_default():
-      x = 10.0 * tf.random_uniform(shape=(16, 5, 5, 32))
+      x = 10.0 * tf.random.uniform(shape=(16, 5, 5, 32))
       nn = glow_ops.affine_coupling_network("nn", x, 512, 64)
 
-      with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        session.run(tf.compat.v1.global_variables_initializer())
         nn_np = session.run(nn)
         self.assertEqual(nn_np.shape, (16, 5, 5, 64))
 
@@ -126,13 +126,13 @@ class GlowOpsTest(tf.test.TestCase):
 
   def check_tensor_to_dist(self, architecture):
     with tf.Graph().as_default():
-      x = tf.random_uniform(shape=(16, 5, 5, 32))
+      x = tf.random.uniform(shape=(16, 5, 5, 32))
       x_prior = glow_ops.tensor_to_dist("split_prior", x,
                                         architecture=architecture,
                                         output_channels=64)
       mean_t, scale_t = x_prior.loc, x_prior.scale
-      with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        session.run(tf.compat.v1.global_variables_initializer())
         mean, scale = session.run([mean_t, scale_t])
         self.assertEqual(mean.shape, (16, 5, 5, 64))
         self.assertEqual(scale.shape, (16, 5, 5, 64))
@@ -145,11 +145,11 @@ class GlowOpsTest(tf.test.TestCase):
 
   def test_split(self):
     with tf.Graph().as_default():
-      x = tf.random_uniform(shape=(16, 5, 5, 32))
+      x = tf.random.uniform(shape=(16, 5, 5, 32))
       x_inv, _, eps, z, _ = glow_ops.split("split", x)
       x_inv_inv, _, _ = glow_ops.split("split", x_inv, reverse=True, eps=eps)
-      with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        session.run(tf.compat.v1.global_variables_initializer())
         x_inv_np, diff, z_np = session.run([x_inv, x - x_inv_inv, z])
         self.assertEqual(z_np.shape, (16, 5, 5, 16))
         self.assertEqual(x_inv_np.shape, (16, 5, 5, 16))
@@ -159,11 +159,11 @@ class GlowOpsTest(tf.test.TestCase):
     with tf.Graph().as_default():
       hparams = glow.glow_hparams()
       hparams.depth = 2
-      x = tf.random_uniform(shape=(16, 32, 32, 4), seed=0)
+      x = tf.random.uniform(shape=(16, 32, 32, 4), seed=0)
       x_inv, _ = op(name, x, hparams, reverse=False)
       x_inv_inv, _ = op(name, x_inv, hparams, reverse=True)
-      with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        session.run(tf.compat.v1.global_variables_initializer())
         diff = session.run(x - x_inv_inv)
         self.assertTrue(np.allclose(diff, 0.0, atol=1e-2))
 
@@ -179,14 +179,14 @@ class GlowOpsTest(tf.test.TestCase):
       hparams.n_levels = 3
       hparams.depth = 2
 
-      x = tf.random_uniform(shape=(16, 64, 64, 4), seed=0)
+      x = tf.random.uniform(shape=(16, 64, 64, 4), seed=0)
       x_inv, _, eps, z_levels, _ = glow_ops.encoder_decoder(
           "encoder_decoder", x, hparams, reverse=False)
       x_inv_inv, _, z_inv_levels, _ = glow_ops.encoder_decoder(
           "encoder_decoder", x_inv, hparams, eps=eps, reverse=True)
 
-      with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        session.run(tf.compat.v1.global_variables_initializer())
         diff, x_inv_np, z_levels_np, z_inv_levels_np = session.run(
             [x - x_inv_inv, x_inv, z_levels, z_inv_levels])
 
@@ -224,9 +224,9 @@ class GlowOpsTest(tf.test.TestCase):
       curr_dir = tempfile.mkdtemp()
       model_path = os.path.join(curr_dir, "model")
 
-      with tf.Session() as session:
-        saver = tf.train.Saver()
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        saver = tf.compat.v1.train.Saver()
+        session.run(tf.compat.v1.global_variables_initializer())
         session.run(x_inv)
         saver.save(session, model_path)
 
@@ -241,8 +241,8 @@ class GlowOpsTest(tf.test.TestCase):
         x_inv_inv_, _, _, _ = glow_ops.encoder_decoder(
             "revnet", x_inv2, hparams, eps=all_eps, reverse=True)
 
-      with tf.Session() as session:
-        saver = tf.train.Saver()
+      with tf.compat.v1.Session() as session:
+        saver = tf.compat.v1.train.Saver()
         saver.restore(session, model_path)
         x_inv_inv_np = session.run(x_inv_inv_)
         diff = np.abs(x_inv_inv_np - x_rand)
@@ -258,8 +258,8 @@ class GlowOpsTest(tf.test.TestCase):
       z_t = tf.convert_to_tensor(z_rand)
       dist = glow_ops.scale_gaussian_prior(
           "scale_gaussian_prior", z_t, x_t, trainable=True)
-      with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as sess:
+        sess.run(tf.compat.v1.global_variables_initializer())
         mean, scale = sess.run([dist.loc, dist.scale])
         self.assertTrue(np.allclose(mean, z_rand))
         self.assertTrue(np.allclose(scale, 1.0))
@@ -286,8 +286,8 @@ class GlowOpsTest(tf.test.TestCase):
       x_inv_inv, _, _ = glow_ops.split(
           merge_std, x_inv, cond_latents=latent_t, eps=eps, reverse=True,
           hparams=hparams, condition=True)
-      with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as sess:
+        sess.run(tf.compat.v1.global_variables_initializer())
         actual_eps, actual_x2, diff_np = sess.run([eps, x2_t, x_inv_inv - x_t])
         self.assertTrue(np.allclose(diff_np, 0.0, atol=1e-5))
         self.assertTrue(np.allclose(actual_eps, exp_eps))
@@ -307,7 +307,7 @@ class GlowOpsTest(tf.test.TestCase):
       x_t = tf.convert_to_tensor(x_rand)
       latent_t = tf.convert_to_tensor(latent_rand)
       state_t = tf.convert_to_tensor(state_rand)
-      init_state = tf.contrib.rnn.LSTMStateTuple(state_t, state_t)
+      init_state = tf.nn.rnn_cell.LSTMStateTuple(state_t, state_t)
       hparams = glow.glow_hparams()
       hparams.add_hparam("latent_dist_encoder", "conv_lstm")
       hparams.add_hparam("latent_skip", True)
@@ -315,8 +315,8 @@ class GlowOpsTest(tf.test.TestCase):
       prior_dist, new_state = glow_ops.compute_prior(
           "lstm_prior", x_t, latent=latent_t, hparams=hparams, state=init_state,
           condition=True)
-      with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as sess:
+        sess.run(tf.compat.v1.global_variables_initializer())
         # Test initialization (mu, sigma) = (z, 1.0)
         ops = [prior_dist.loc, prior_dist.scale, new_state.h - init_state.h]
         mean, scale, diff_np = sess.run(ops)

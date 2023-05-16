@@ -74,7 +74,7 @@ class VqaRecurrentSelfAttention(vqa_attention.VqaAttentionBaseline):
          image_feat, question, hp)
 
     encoder_input = tf.nn.dropout(
-        encoder_input, keep_prob=1.-hp.layer_prepostprocess_dropout)
+        encoder_input, rate=1 - (1.-hp.layer_prepostprocess_dropout))
 
     encoder_output, _ = recurrent_transformer_decoder(
         encoder_input, None, encoder_self_attention_bias, None,
@@ -83,12 +83,12 @@ class VqaRecurrentSelfAttention(vqa_attention.VqaAttentionBaseline):
         "norms", "encoder_output", tf.norm(encoder_output, axis=-1))
 
     # scale query by sqrt(hidden_size)
-    query = tf.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
+    query = tf.compat.v1.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
     query = tf.expand_dims(tf.expand_dims(query, axis=0), axis=0)
     batch_size = common_layers.shape_list(encoder_input)[0]
     query = tf.tile(query, [batch_size, 1, 1])
     query = tf.nn.dropout(
-        query, keep_prob=1.-hp.layer_prepostprocess_dropout)
+        query, rate=1 - (1.-hp.layer_prepostprocess_dropout))
 
     decoder_output, _ = recurrent_transformer_decoder(
         query, encoder_output, None, encoder_decoder_attention_bias,
@@ -150,7 +150,7 @@ def recurrent_transformer_decoder(
   attention_dropout_broadcast_dims = (
       common_layers.comma_separated_string_to_integer_list(
           getattr(hparams, "attention_dropout_broadcast_dims", "")))
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     ffn_unit = functools.partial(
         # use encoder ffn, since decoder ffn use left padding
         universal_transformer_util.transformer_encoder_ffn_unit,

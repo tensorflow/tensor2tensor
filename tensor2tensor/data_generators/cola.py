@@ -72,7 +72,7 @@ class Cola(text_problems.Text2ClassProblem):
   def _maybe_download_corpora(self, tmp_dir):
     cola_filename = "CoLA.zip"
     cola_finalpath = os.path.join(tmp_dir, "CoLA")
-    if not tf.gfile.Exists(cola_finalpath):
+    if not tf.io.gfile.exists(cola_finalpath):
       zip_filepath = generator_utils.maybe_download(
           tmp_dir, cola_filename, self._COLA_URL)
       zip_ref = zipfile.ZipFile(zip_filepath, "r")
@@ -82,7 +82,7 @@ class Cola(text_problems.Text2ClassProblem):
     return cola_finalpath
 
   def example_generator(self, filename):
-    for line in tf.gfile.Open(filename, "rb"):
+    for line in tf.io.gfile.GFile(filename, "rb"):
       if six.PY2:
         line = unicode(line.strip(), "utf-8")
       else:

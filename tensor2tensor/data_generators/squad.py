@@ -59,7 +59,7 @@ class Squad(text_problems.QuestionAndContext2TextProblem):
     squad_file = generator_utils.maybe_download(tmp_dir,
                                                 file_name,
                                                 os.path.join(url, file_name))
-    with tf.gfile.GFile(squad_file, mode='r') as fp:
+    with tf.io.gfile.GFile(squad_file, mode='r') as fp:
       squad = json.load(fp)
 
     version = squad['version']

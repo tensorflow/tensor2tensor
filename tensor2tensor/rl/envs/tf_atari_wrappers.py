@@ -61,7 +61,7 @@ class WrapperBase(InGraphBatchEnv):
     # pylint: disable=protected-access
     new_values = self._batch_env._reset_non_empty(indices)
     # pylint: enable=protected-access
-    assign_op = tf.scatter_update(self._observ, indices, new_values)
+    assign_op = tf.compat.v1.scatter_update(self._observ, indices, new_values)
     with tf.control_dependencies([assign_op]):
       return tf.identity(new_values)
 
@@ -129,7 +129,7 @@ class MaxAndSkipWrapper(WrapperBase):
     return "MaxAndSkipWrapper(%s)" % str(self._batch_env)
 
   def simulate(self, action):
-    with tf.name_scope("environment/simulate"):  # Do we need this?
+    with tf.compat.v1.name_scope("environment/simulate"):  # Do we need this?
       initializer = (tf.zeros_like(self._observ),
                      tf.fill((len(self),), 0.0), tf.fill((len(self),), False))
 
@@ -210,7 +210,7 @@ class StackWrapper(WrapperBase):
           ],
           axis=0)
       initial_frames = tf.tile(new_values, inx)
-    assign_op = tf.scatter_update(self._observ, indices, initial_frames)
+    assign_op = tf.compat.v1.scatter_update(self._observ, indices, initial_frames)
     with tf.control_dependencies([assign_op]):
       return tf.gather(self.observ, indices)
 
@@ -228,7 +228,7 @@ class AutoencoderWrapper(WrapperBase):
     self._observ = tf.Variable(
         tf.zeros((len(self),) + self.observ_shape, self.observ_dtype),
         trainable=False)
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=tf.compat.v1.AUTO_REUSE):
       autoencoder_hparams = registry.hparams(self.ae_hparams_set)
       problem = registry.problem("dummy_autoencoder_problem")
       autoencoder_hparams.problem_hparams = problem.get_hparams(
@@ -257,7 +257,7 @@ class AutoencoderWrapper(WrapperBase):
   def simulate(self, action):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
-      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=tf.compat.v1.AUTO_REUSE):
         observ = tf.cast(self._batch_env.observ, tf.int64)
         ret = self.autoencoder_model.encode(observ)
         ret = tf.cast(ret, self.observ_dtype)
@@ -266,12 +266,12 @@ class AutoencoderWrapper(WrapperBase):
           return tf.identity(reward), tf.identity(done)
 
   def _reset_non_empty(self, indices):
-    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=tf.compat.v1.AUTO_REUSE):
       new_values = self._batch_env._reset_non_empty(indices)  # pylint: disable=protected-access
       new_values = tf.cast(new_values, tf.int64)
       ret = self.autoencoder_model.encode(new_values)
       ret = tf.cast(ret, self.observ_dtype)
-      assign_op = tf.scatter_update(self._observ, indices, ret)
+      assign_op = tf.compat.v1.scatter_update(self._observ, indices, ret)
       with tf.control_dependencies([assign_op]):
         return tf.gather(self.observ, indices)
 
@@ -311,8 +311,8 @@ class ResizeWrapper(WrapperBase):
     if self._is_identity:
       return tensor
     height, width, _ = self.observ_shape
-    observ = tf.to_float(tensor)
-    resized = tf.image.resize_images(
+    observ = tf.cast(tensor, dtype=tf.float32)
+    resized = tf.image.resize(
         observ, [height, width], tf.image.ResizeMethod.AREA)
     if self._do_grayscale:
       resized = tf.image.rgb_to_grayscale(resized)
@@ -342,7 +342,7 @@ class ResizeWrapper(WrapperBase):
     if self._is_identity:
       return new_values
     ret = self._resize(new_values)
-    assign_op = tf.scatter_update(self._observ, indices, ret)
+    assign_op = tf.compat.v1.scatter_update(self._observ, indices, ret)
     with tf.control_dependencies([assign_op]):
       return tf.gather(self.observ, indices)
 
@@ -374,7 +374,7 @@ class IntToBitWrapper(WrapperBase):
   def simulate(self, action):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
-      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=tf.compat.v1.AUTO_REUSE):
         unpacked = discretization.int_to_bit(self._batch_env.observ, 8)
         unpacked = tf.reshape(unpacked, (-1,)+self.observ_shape)
         unpacked = tf.cast(unpacked, self.observ_dtype)
@@ -390,7 +390,7 @@ class IntToBitWrapper(WrapperBase):
                                      +self.observ_shape)
     new_values_unpacked = tf.cast(new_values_unpacked, self.observ_dtype)
     # pylint: enable=protected-access
-    assign_op = tf.scatter_update(self._observ, indices, new_values_unpacked)
+    assign_op = tf.compat.v1.scatter_update(self._observ, indices, new_values_unpacked)
     with tf.control_dependencies([assign_op]):
       return tf.identity(new_values_unpacked)
 
@@ -420,7 +420,7 @@ class PyFuncWrapper(WrapperBase):
     reward, done = self._batch_env.simulate(action)
     with tf.control_dependencies([reward, done]):
       inputs = [self._observ.read_value(), reward, done, action]
-      ret = tf.py_func(self.process_fun, inputs, tf.double)
+      ret = tf.compat.v1.py_func(self.process_fun, inputs, tf.double)
     with tf.control_dependencies([ret]):
       assign = self._observ.assign(self._batch_env.observ)
     with tf.control_dependencies([assign]):

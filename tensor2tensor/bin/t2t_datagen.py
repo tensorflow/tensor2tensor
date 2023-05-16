@@ -156,7 +156,7 @@ _SUPPORTED_PROBLEM_GENERATORS = {
 
 def set_random_seed():
   """Set the random seed from flag everywhere."""
-  tf.set_random_seed(FLAGS.random_seed)
+  tf.compat.v1.set_random_seed(FLAGS.random_seed)
   random.seed(FLAGS.random_seed)
   np.random.seed(FLAGS.random_seed)
 
@@ -164,7 +164,7 @@ def set_random_seed():
 def main(_):
   # Fathom
 
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
 
   # Fathom
@@ -203,11 +203,11 @@ def main(_):
 
   if not FLAGS.data_dir:
     FLAGS.data_dir = tempfile.gettempdir()
-    tf.logging.warning("It is strongly recommended to specify --data_dir. "
+    tf.compat.v1.logging.warning("It is strongly recommended to specify --data_dir. "
                        "Data will be written to default data_dir=%s.",
                        FLAGS.data_dir)
 
-  tf.logging.info("Generating problems:\n%s"
+  tf.compat.v1.logging.info("Generating problems:\n%s"
                   % registry.display_list_by_prefix(problems,
                                                     starting_spaces=4))
   if FLAGS.only_list:
@@ -229,14 +229,14 @@ def generate_data_for_problem(problem):
   training_gen, dev_gen, test_gen = _SUPPORTED_PROBLEM_GENERATORS[problem]
 
   num_train_shards = FLAGS.num_shards or 10
-  tf.logging.info("Generating training data for %s.", problem)
+  tf.compat.v1.logging.info("Generating training data for %s.", problem)
   train_output_files = generator_utils.train_data_filenames(
       problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
       num_train_shards)
   generator_utils.generate_files(training_gen(), train_output_files,
                                  FLAGS.max_cases)
   num_dev_shards = int(num_train_shards * 0.1)
-  tf.logging.info("Generating development data for %s.", problem)
+  tf.compat.v1.logging.info("Generating development data for %s.", problem)
   dev_output_files = generator_utils.dev_data_filenames(
       problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
       num_dev_shards)
@@ -245,7 +245,7 @@ def generate_data_for_problem(problem):
   test_output_files = []
   test_gen_data = test_gen()
   if test_gen_data is not None:
-    tf.logging.info("Generating test data for %s.", problem)
+    tf.compat.v1.logging.info("Generating test data for %s.", problem)
     test_output_files = generator_utils.test_data_filenames(
         problem + generator_utils.UNSHUFFLED_SUFFIX, FLAGS.data_dir,
         num_test_shards)
@@ -262,7 +262,7 @@ def generate_data_in_process(arg):
 
 def generate_data_for_registered_problem(problem_name):
   """Generate data for a registered problem."""
-  tf.logging.info("Generating data for %s.", problem_name)
+  tf.compat.v1.logging.info("Generating data for %s.", problem_name)
   if FLAGS.num_shards:
     raise ValueError("--num_shards should not be set for registered Problem.")
   problem = registry.problem(problem_name)
@@ -286,5 +286,5 @@ def generate_data_for_registered_problem(problem_name):
     problem.generate_data(data_dir, tmp_dir, task_id)
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

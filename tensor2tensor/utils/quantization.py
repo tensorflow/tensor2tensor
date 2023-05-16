@@ -106,7 +106,7 @@ def noise_from_step_num():
   Returns:
     a float32 scalar
   """
-  step = tf.to_int32(tf.train.get_or_create_global_step()) + 1
+  step = tf.cast(tf.compat.v1.train.get_or_create_global_step(), dtype=tf.int32) + 1
   phi = ((5 ** 0.5) - 1) / 2
   # Naive computation tf.mod(phi * step, 1.0) in float32 would be disastrous
   # due to loss of precision when the step number gets large.
@@ -115,8 +115,8 @@ def noise_from_step_num():
   ret = 0.0
   for i in range(30):
     ret += (((phi * (2 ** i)) % 1.0)  # double-precision computation in python
-            * tf.to_float(tf.mod(step // (2 ** i), 2)))
-  return tf.mod(ret, 1.0)
+            * tf.cast(tf.math.floormod(step // (2 ** i), 2), dtype=tf.float32))
+  return tf.math.floormod(ret, 1.0)
 
 
 def _randomized_roundoff_to_bfloat16(x, noise, cand1, cand2):
@@ -137,11 +137,11 @@ def _randomized_roundoff_to_bfloat16(x, noise, cand1, cand2):
   Returns:
     A bfloat16 Tensor.
   """
-  cand1_f = tf.to_float(cand1)
-  cand2_f = tf.to_float(cand2)
+  cand1_f = tf.cast(cand1, dtype=tf.float32)
+  cand2_f = tf.cast(cand2, dtype=tf.float32)
   step_size = cand2_f - cand1_f
   fpart = (x - cand1_f) / step_size
-  ret = tf.where(tf.greater(fpart, noise), cand2, cand1)
+  ret = tf.compat.v1.where(tf.greater(fpart, noise), cand2, cand1)
   return ret
 
 
@@ -157,15 +157,15 @@ def _to_bfloat16_unbiased(x, noise):
   x_sign = tf.sign(x)
   # Make sure x is positive.  If it is zero, the two candidates are identical.
   x = x * x_sign + 1e-30
-  cand1 = tf.to_bfloat16(x)
-  cand1_f = tf.to_float(cand1)
+  cand1 = tf.cast(x, dtype=tf.bfloat16)
+  cand1_f = tf.cast(cand1, dtype=tf.float32)
   # This relies on the fact that for a positive bfloat16 b,
   # b * 1.005 gives you the next higher bfloat16 and b*0.995 gives you the
   # next lower one. Both 1.005 and 0.995 are ballpark estimation.
-  cand2 = tf.to_bfloat16(
-      tf.where(tf.greater(x, cand1_f), cand1_f * 1.005, cand1_f * 0.995))
+  cand2 = tf.cast(
+      tf.compat.v1.where(tf.greater(x, cand1_f), cand1_f * 1.005, cand1_f * 0.995), dtype=tf.bfloat16)
   ret = _randomized_roundoff_to_bfloat16(x, noise, cand1, cand2)
-  return ret * tf.to_bfloat16(x_sign)
+  return ret * tf.cast(x_sign, dtype=tf.bfloat16)
 
 
 class ParameterEncoding(object):
@@ -244,7 +244,7 @@ class _EncodingInitializer(object):
     if self._base_initializer is None:
       # mimic default initialization in tf.get_variable()
       if dtype.is_floating:
-        ret = tf.glorot_uniform_initializer()(shape, dtype)
+        ret = tf.compat.v1.glorot_uniform_initializer()(shape, dtype)
       else:
         ret = tf.zeros(shape, dtype)
     else:
@@ -262,7 +262,7 @@ class EighthPowerEncoding(ParameterEncoding):
   """
 
   def encode(self, x, noise):
-    x = tf.to_float(x)
+    x = tf.cast(x, dtype=tf.float32)
     # we can't use tf.pow(..., 8.0) because of a high-error approximation
     # on TPU.  Instead we square three times.
     x = tf.sign(x) * tf.square(tf.square(tf.square(tf.abs(x) * 128.0)))
@@ -270,7 +270,7 @@ class EighthPowerEncoding(ParameterEncoding):
     return x
 
   def decode(self, x):
-    x = tf.to_float(x)
+    x = tf.cast(x, dtype=tf.float32)
     # we can't use tf.pow(..., 0.125) because of a high-error approximation
     # on TPU.  Instead we sqrt three times.
     return tf.sign(x) * (tf.sqrt(tf.sqrt(tf.sqrt(tf.abs(x)))) / 128.0)

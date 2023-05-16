@@ -85,8 +85,8 @@ def compute_bleu_summaries(hook_args):
   values = []
   bleu = 100 * bleu_hook.bleu_wrapper(
       decode_hparams.decode_reference, decode_hparams.decode_to_file)
-  values.append(tf.Summary.Value(tag="BLEU", simple_value=bleu))
-  tf.logging.info("%s: BLEU = %6.2f" % (decode_hparams.decode_to_file, bleu))
+  values.append(tf.compat.v1.Summary.Value(tag="BLEU", simple_value=bleu))
+  tf.compat.v1.logging.info("%s: BLEU = %6.2f" % (decode_hparams.decode_to_file, bleu))
   return values
 
 
@@ -113,12 +113,12 @@ def compile_data(tmp_dir, datasets, filename):
   filename = os.path.join(tmp_dir, filename)
   lang1_fname = filename + ".lang1"
   lang2_fname = filename + ".lang2"
-  if tf.gfile.Exists(lang1_fname) and tf.gfile.Exists(lang2_fname):
-    tf.logging.info("Skipping compile data, found files:\n%s\n%s", lang1_fname,
+  if tf.io.gfile.exists(lang1_fname) and tf.io.gfile.exists(lang2_fname):
+    tf.compat.v1.logging.info("Skipping compile data, found files:\n%s\n%s", lang1_fname,
                     lang2_fname)
     return filename
-  with tf.gfile.GFile(lang1_fname, mode="w") as lang1_resfile:
-    with tf.gfile.GFile(lang2_fname, mode="w") as lang2_resfile:
+  with tf.io.gfile.GFile(lang1_fname, mode="w") as lang1_resfile:
+    with tf.io.gfile.GFile(lang2_fname, mode="w") as lang2_resfile:
       for dataset in datasets:
         url = dataset[0]
         compressed_filename = os.path.basename(url)
@@ -128,19 +128,19 @@ def compile_data(tmp_dir, datasets, filename):
 
         if dataset[1][0] == "tsv":
           _, src_column, trg_column, glob_pattern = dataset[1]
-          filenames = tf.gfile.Glob(os.path.join(tmp_dir, glob_pattern))
+          filenames = tf.io.gfile.glob(os.path.join(tmp_dir, glob_pattern))
           if not filenames:
             # Capture *.tgz and *.tar.gz too.
             mode = "r:gz" if compressed_filepath.endswith("gz") else "r"
             with tarfile.open(compressed_filepath, mode) as corpus_tar:
               corpus_tar.extractall(tmp_dir)
-            filenames = tf.gfile.Glob(os.path.join(tmp_dir, glob_pattern))
+            filenames = tf.io.gfile.glob(os.path.join(tmp_dir, glob_pattern))
           for tsv_filename in filenames:
             if tsv_filename.endswith(".gz"):
               new_filename = tsv_filename.strip(".gz")
               generator_utils.gunzip_file(tsv_filename, new_filename)
               tsv_filename = new_filename
-            with tf.gfile.Open(tsv_filename) as tsv_file:
+            with tf.io.gfile.GFile(tsv_filename) as tsv_file:
               for line in tsv_file:
                 if line and "\t" in line:
                   parts = line.split("\t")
@@ -158,8 +158,8 @@ def compile_data(tmp_dir, datasets, filename):
           is_sgm = (
               lang1_filename.endswith("sgm") and lang2_filename.endswith("sgm"))
 
-          if not (tf.gfile.Exists(lang1_filepath) and
-                  tf.gfile.Exists(lang2_filepath)):
+          if not (tf.io.gfile.exists(lang1_filepath) and
+                  tf.io.gfile.exists(lang2_filepath)):
             # For .tar.gz and .tgz files, we read compressed.
             mode = "r:gz" if compressed_filepath.endswith("gz") else "r"
             with tarfile.open(compressed_filepath, mode) as corpus_tar:
@@ -193,10 +193,10 @@ class TranslateDistillProblem(TranslateProblem):
     return True
 
   def example_reading_spec(self):
-    data_fields = {"dist_targets": tf.VarLenFeature(tf.int64)}
+    data_fields = {"dist_targets": tf.io.VarLenFeature(tf.int64)}
 
     if self.has_inputs:
-      data_fields["inputs"] = tf.VarLenFeature(tf.int64)
+      data_fields["inputs"] = tf.io.VarLenFeature(tf.int64)
 
     # hack: ignoring true targets and putting dist_targets in targets
     data_items_to_decoders = {
@@ -230,7 +230,7 @@ class TranslateDistillProblem(TranslateProblem):
 
   def generate_samples(self, data_dir, tmp_dir, dataset_split):
     data_path = self.source_data_files(dataset_split)
-    assert tf.gfile.Exists(data_path)
+    assert tf.io.gfile.exists(data_path)
     return text_problems.text2text_distill_iterator(data_path + "inputs",
                                                     data_path + "gold",
                                                     data_path + "prediction")

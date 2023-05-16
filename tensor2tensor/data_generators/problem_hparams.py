@@ -37,10 +37,10 @@ class AudioTimitProblem(problem.Problem):
 
   def example_reading_spec(self):
     data_fields = {
-        "inputs": tf.VarLenFeature(tf.int64),
-        "audio/sample_count": tf.FixedLenFeature((), tf.int64),
-        "audio/sample_width": tf.FixedLenFeature((), tf.int64),
-        "targets": tf.VarLenFeature(tf.int64),
+        "inputs": tf.io.VarLenFeature(tf.int64),
+        "audio/sample_count": tf.io.FixedLenFeature((), tf.int64),
+        "audio/sample_width": tf.io.FixedLenFeature((), tf.int64),
+        "targets": tf.io.VarLenFeature(tf.int64),
     }
     return data_fields, None
 
@@ -48,8 +48,8 @@ class AudioTimitProblem(problem.Problem):
     example = super(AudioTimitProblem, self).preprocess_example(
         example, mode, hparams)
     # Reshape audio to proper shape
-    sample_count = tf.to_int32(example.pop("audio/sample_count"))
-    sample_width = tf.to_int32(example.pop("audio/sample_width"))
+    sample_count = tf.cast(example.pop("audio/sample_count"), dtype=tf.int32)
+    sample_width = tf.cast(example.pop("audio/sample_width"), dtype=tf.int32)
     channel_count = 1
     example["inputs"] = tf.reshape(example["inputs"],
                                    [sample_count, sample_width, channel_count])

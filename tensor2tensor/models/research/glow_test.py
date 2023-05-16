@@ -49,13 +49,13 @@ class GlowModelTest(tf.test.TestCase):
       model = glow.Glow(hparams, tf.estimator.ModeKeys.TRAIN)
       cifar_problem = problems.problem('image_cifar10_plain_random_shift')
       train_dataset = cifar_problem.dataset(MODES.TRAIN)
-      one_shot = train_dataset.make_one_shot_iterator()
+      one_shot = tf.compat.v1.data.make_one_shot_iterator(train_dataset)
       x_batch, y_batch = self.batch(one_shot)
       features = {'inputs': x_batch, 'targets': y_batch}
       _, obj_dict = model.body(features)
       objective = obj_dict['training']
-      with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as sess:
+        sess.run(tf.compat.v1.global_variables_initializer())
         obj_np = sess.run(objective)
         mean_obj = np.mean(obj_np)
 
@@ -75,15 +75,15 @@ class GlowModelTest(tf.test.TestCase):
       model = glow.Glow(hparams, tf.estimator.ModeKeys.TRAIN)
       cifar_problem = problems.problem('image_cifar10_plain_random_shift')
       train_dataset = cifar_problem.dataset(MODES.TRAIN)
-      one_shot = train_dataset.make_one_shot_iterator()
+      one_shot = tf.compat.v1.data.make_one_shot_iterator(train_dataset)
       x_batch, y_batch = self.batch(one_shot)
       features = {'inputs': x_batch, 'targets': y_batch}
       model_path = os.path.join(curr_dir, 'model')
 
       model(features)
-      with tf.Session() as session:
-        saver = tf.train.Saver()
-        session.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as session:
+        saver = tf.compat.v1.train.Saver()
+        session.run(tf.compat.v1.global_variables_initializer())
         z = session.run([model.z])
         mean_z = np.mean(z)
         is_undefined = np.isnan(mean_z) or np.isinf(mean_z)
@@ -95,14 +95,14 @@ class GlowModelTest(tf.test.TestCase):
       model = glow.Glow(hparams, tf.estimator.ModeKeys.PREDICT)
       cifar_problem = problems.problem('image_cifar10_plain_random_shift')
       test_dataset = cifar_problem.dataset(MODES.EVAL)
-      one_shot = test_dataset.make_one_shot_iterator()
+      one_shot = tf.compat.v1.data.make_one_shot_iterator(test_dataset)
       x_batch, y_batch = self.batch(one_shot)
       features = {'inputs': x_batch, 'targets': y_batch}
       model_path = os.path.join(curr_dir, 'model')
 
       predictions = model.infer(features)
-      with tf.Session() as session:
-        saver = tf.train.Saver()
+      with tf.compat.v1.Session() as session:
+        saver = tf.compat.v1.train.Saver()
         saver.restore(session, model_path)
         predictions_np = session.run(predictions)
         self.assertTrue(np.all(predictions_np <= 255))

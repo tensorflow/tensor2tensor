@@ -73,19 +73,19 @@ def _maybe_download_corpora(tmp_dir, dataset_split):
   cnn_finalpath = os.path.join(tmp_dir, "cnn/stories/")
   dailymail_filename = "dailymail_stories.tgz"
   dailymail_finalpath = os.path.join(tmp_dir, "dailymail/stories/")
-  if not tf.gfile.Exists(cnn_finalpath):
+  if not tf.io.gfile.exists(cnn_finalpath):
     cnn_file = generator_utils.maybe_download_from_drive(
         tmp_dir, cnn_filename, _CNN_STORIES_DRIVE_URL)
     with tarfile.open(cnn_file, "r:gz") as cnn_tar:
       cnn_tar.extractall(tmp_dir)
-  if not tf.gfile.Exists(dailymail_finalpath):
+  if not tf.io.gfile.exists(dailymail_finalpath):
     dailymail_file = generator_utils.maybe_download_from_drive(
         tmp_dir, dailymail_filename, _DAILYMAIL_STORIES_DRIVE_URL)
     with tarfile.open(dailymail_file, "r:gz") as dailymail_tar:
       dailymail_tar.extractall(tmp_dir)
 
-  cnn_files = tf.gfile.Glob(cnn_finalpath + "*")
-  dailymail_files = tf.gfile.Glob(dailymail_finalpath + "*")
+  cnn_files = tf.io.gfile.glob(cnn_finalpath + "*")
+  dailymail_files = tf.io.gfile.glob(dailymail_finalpath + "*")
   all_files = cnn_files + dailymail_files
 
   if dataset_split == problem.DatasetSplit.TRAIN:
@@ -113,7 +113,7 @@ def example_splits(url_file, all_files):
   all_files_map = {f.split("/")[-1]: f for f in all_files}
 
   urls = []
-  for line in tf.gfile.Open(url_file):
+  for line in tf.io.gfile.GFile(url_file):
     urls.append(line.strip().encode("utf-8"))
 
   filelist = []
@@ -121,11 +121,11 @@ def example_splits(url_file, all_files):
     url_hash = generate_hash(url)
     filename = url_hash + ".story"
     if filename not in all_files_map:
-      tf.logging.info("Missing file: %s" % url)
+      tf.compat.v1.logging.info("Missing file: %s" % url)
       continue
     filelist.append(all_files_map[filename])
 
-  tf.logging.info("Found %d examples" % len(filelist))
+  tf.compat.v1.logging.info("Found %d examples" % len(filelist))
 
   return filelist
 
@@ -149,7 +149,7 @@ def example_generator(all_files, urls_path, sum_token):
     story = []
     summary = []
     reading_highlights = False
-    for line in tf.gfile.Open(story_file, "rb"):
+    for line in tf.io.gfile.GFile(story_file, "rb"):
       if six.PY2:
         line = unicode(line.strip(), "utf-8")
       else:
@@ -202,7 +202,7 @@ def write_raw_text_to_files(all_files, urls_path, dataset_split, tmp_dir):
   else:
     filename = "cnndm.test"
 
-  tf.logging.info("Writing %s" % filename)
+  tf.compat.v1.logging.info("Writing %s" % filename)
   write_to_file(all_files, urls_path, tmp_dir, filename)
 
 

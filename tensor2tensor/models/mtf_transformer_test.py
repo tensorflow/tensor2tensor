@@ -89,7 +89,7 @@ class MtfTransformerTest(tf.test.TestCase):
     tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       session.run(tf_group)
       res = session.run(tf_logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, VOCAB_SIZE))
@@ -108,7 +108,7 @@ class MtfTransformerTest(tf.test.TestCase):
     tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       session.run(tf_group)
       res = session.run(tf_logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, VOCAB_SIZE))
@@ -127,7 +127,7 @@ class MtfTransformerTest(tf.test.TestCase):
     tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       session.run(tf_group)
       res = session.run(tf_logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, VOCAB_SIZE))
@@ -146,7 +146,7 @@ class MtfTransformerTest(tf.test.TestCase):
     tf_logits = lowering.export_to_tf_tensor(logits)
 
     with self.test_session() as session:
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       session.run(tf_group)
       res = session.run(tf_logits)
     self.assertEqual(res.shape, (BATCH_SIZE, TARGET_LENGTH, VOCAB_SIZE))

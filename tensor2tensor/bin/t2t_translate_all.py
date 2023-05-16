@@ -64,12 +64,12 @@ flags.DEFINE_string("hparams_set", "transformer_big_single_gpu",
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   # pylint: disable=unused-variable
   model_dir = os.path.expanduser(FLAGS.model_dir)
   translations_dir = os.path.expanduser(FLAGS.translations_dir)
   source = os.path.expanduser(FLAGS.source)
-  tf.gfile.MakeDirs(translations_dir)
+  tf.io.gfile.makedirs(translations_dir)
   translated_base_file = os.path.join(translations_dir, FLAGS.problem)
 
   # Copy flags.txt with the original time, so t2t-bleu can report correct
@@ -81,13 +81,13 @@ def main(_):
   locals_and_flags = {"FLAGS": FLAGS}
   for model in bleu_hook.stepfiles_iterator(model_dir, FLAGS.wait_minutes,
                                             FLAGS.min_steps):
-    tf.logging.info("Translating " + model.filename)
+    tf.compat.v1.logging.info("Translating " + model.filename)
     out_file = translated_base_file + "-" + str(model.steps)
     locals_and_flags.update(locals())
     if os.path.exists(out_file):
-      tf.logging.info(out_file + " already exists, so skipping it.")
+      tf.compat.v1.logging.info(out_file + " already exists, so skipping it.")
     else:
-      tf.logging.info("Translating " + out_file)
+      tf.compat.v1.logging.info("Translating " + out_file)
       params = (
           "--t2t_usr_dir={FLAGS.t2t_usr_dir} --output_dir={model_dir} "
           "--data_dir={FLAGS.data_dir} --problem={FLAGS.problem} "
@@ -97,11 +97,11 @@ def main(_):
           "--decode_to_file={out_file} --keep_timestamp"
       ).format(**locals_and_flags)
       command = FLAGS.decoder_command.format(**locals())
-      tf.logging.info("Running:\n" + command)
+      tf.compat.v1.logging.info("Running:\n" + command)
       os.system(command)
   # pylint: enable=unused-variable
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

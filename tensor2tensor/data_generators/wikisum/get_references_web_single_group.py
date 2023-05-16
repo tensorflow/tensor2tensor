@@ -72,16 +72,16 @@ URLS_PER_CLIENT = 5000
 
 
 def concat_tfrecord_files(fnames, out_fname, rm_after=True):
-  with tf.gfile.Open(out_fname, "wb") as out_f:
+  with tf.io.gfile.GFile(out_fname, "wb") as out_f:
     for fname in fnames:
-      with tf.gfile.Open(fname, "rb") as in_f:
+      with tf.io.gfile.GFile(fname, "rb") as in_f:
         while True:
           read = in_f.read(1000)
           if not read:
             break
           out_f.write(read)
       if rm_after:
-        tf.gfile.Remove(fname)
+        tf.io.gfile.remove(fname)
 
 
 def shard(items, num_shards):
@@ -135,8 +135,8 @@ def tfrecord_fname(out_dir, shard_id, idx=None):
 
 
 def make_tfrecord_writer(fname):
-  opts = tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.GZIP)
-  return tf.python_io.TFRecordWriter(fname, opts)
+  opts = tf.io.TFRecordOptions(tf.compat.v1.python_io.TFRecordCompressionType.GZIP)
+  return tf.io.TFRecordWriter(fname, opts)
 
 
 def write_ref_content(url, ref, f):
@@ -156,7 +156,7 @@ async def fetch_url(url, session, side_data):
       if response.status == 200:
         text = await response.text()
       else:
-        tf.logging.error("Status %d, url: %s", response.status, url)
+        tf.compat.v1.logging.error("Status %d, url: %s", response.status, url)
   except:
     # Request can fail for many reasons.
     pass
@@ -183,7 +183,7 @@ async def fetch_urls(urls,
       task = asyncio.ensure_future(
           throttled_fetch_url(url, sem, session, side_data))
       tasks.append(task)
-    tf.logging.info("Async requested %d urls", len(urls))
+    tf.compat.v1.logging.info("Async requested %d urls", len(urls))
 
     # Setup output files
     file_handles = []
@@ -194,7 +194,7 @@ async def fetch_urls(urls,
 
     samples_f = None
     if "samples" in logging_fnames:
-      samples_f = tf.gfile.Open(logging_fnames["samples"], "w")
+      samples_f = tf.io.gfile.GFile(logging_fnames["samples"], "w")
       file_handles.append(samples_f)
 
     refs_written = [0]  # Made a list so can be mutated
@@ -206,7 +206,7 @@ async def fetch_urls(urls,
         return
       if not refs_written[0] % FLAGS.log_every:
         timestamp = datetime.datetime.now().strftime("%H:%M")
-        tf.logging.info("%s: Wrote ref %d in group", timestamp, refs_written[0])
+        tf.compat.v1.logging.info("%s: Wrote ref %d in group", timestamp, refs_written[0])
         if samples_f is not None:
           samples_f.write(url)
           samples_f.write("\n")
@@ -246,7 +246,7 @@ def get_urls_per_shard(urls_files):
   for urls_file in urls_files:
     ref_urls = set()
     shard_id = int(os.path.basename(urls_file)[15:20])
-    with tf.gfile.Open(urls_file) as f:
+    with tf.io.gfile.GFile(urls_file) as f:
       wiki_urls = json.loads(f.read())
     for _, wiki_info in wiki_urls.items():
       ref_urls |= set(wiki_info["refs"])
@@ -280,10 +280,10 @@ def get_urls_for_shard_group(urls_dir, shard_id, group_id):
 def main(_):
   urls = get_urls_for_shard_group(
       FLAGS.urls_dir, FLAGS.shard_id, FLAGS.group_id)
-  tf.logging.info("Fetching %d URLs for shard %d, group %d",
+  tf.compat.v1.logging.info("Fetching %d URLs for shard %d, group %d",
                   len(urls), FLAGS.shard_id, FLAGS.group_id)
 
-  tf.gfile.MakeDirs(FLAGS.out_dir)
+  tf.io.gfile.makedirs(FLAGS.out_dir)
   out_fname = tfrecord_fname(FLAGS.out_dir, FLAGS.shard_id)
 
   with utils.timing("group_fetch"):
@@ -297,11 +297,11 @@ def main(_):
                    out_fname,
                    logging_fnames)))
 
-  tf.logging.info("Total URLs: %d", len(urls))
-  tf.logging.info("Num written: %d", num_written)
-  tf.logging.info("Coverage: %.1f", (num_written / len(urls)) * 100)
+  tf.compat.v1.logging.info("Total URLs: %d", len(urls))
+  tf.compat.v1.logging.info("Num written: %d", num_written)
+  tf.compat.v1.logging.info("Coverage: %.1f", (num_written / len(urls)) * 100)
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

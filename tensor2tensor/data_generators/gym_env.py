@@ -85,12 +85,12 @@ class T2TEnv(video_utils.VideoProblem):
     with tf.Graph().as_default() as tf_graph:
       self._tf_graph = _Noncopyable(tf_graph)
       self._image_t = _Noncopyable(
-          tf.placeholder(dtype=tf.uint8, shape=(None, None, None))
+          tf.compat.v1.placeholder(dtype=tf.uint8, shape=(None, None, None))
       )
       self._encoded_image_t = _Noncopyable(
           tf.image.encode_png(self._image_t.obj)
       )
-      self._session = _Noncopyable(tf.Session())
+      self._session = _Noncopyable(tf.compat.v1.Session())
 
   def __str__(self):
     """Returns a string representation of the environment for debug purposes."""
@@ -269,7 +269,7 @@ class T2TEnv(video_utils.VideoProblem):
     """Additional data fields to store on disk and their decoders."""
     field_names = ("frame_number", "action", "reward", "done")
     data_fields = {
-        name: tf.FixedLenFeature([1], tf.int64) for name in field_names
+        name: tf.io.FixedLenFeature([1], tf.int64) for name in field_names
     }
     decoders = {
         name: tf.contrib.slim.tfexample_decoder.Tensor(tensor_key=name)
@@ -454,10 +454,10 @@ class T2TGymEnv(T2TEnv):
     with self._tf_graph.obj.as_default():
       self._resize = dict()
       orig_height, orig_width = orig_observ_space.shape[:2]
-      self._img_batch_t = _Noncopyable(tf.placeholder(
+      self._img_batch_t = _Noncopyable(tf.compat.v1.placeholder(
           dtype=tf.uint8, shape=(None, orig_height, orig_width, 3)))
       height, width = self.observation_space.shape[:2]
-      resized = tf.image.resize_images(self._img_batch_t.obj,
+      resized = tf.image.resize(self._img_batch_t.obj,
                                        [height, width],
                                        tf.image.ResizeMethod.AREA)
       resized = tf.cast(resized, tf.as_dtype(self.observation_space.dtype))

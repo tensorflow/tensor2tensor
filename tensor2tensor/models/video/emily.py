@@ -206,28 +206,28 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     predictor_states = [None] * predictor_rnn_layers
     posterior_states = [None] * posterior_rnn_layers
 
-    tf.logging.info(">>>> Encoding")
+    tf.compat.v1.logging.info(">>>> Encoding")
     # Encoding:
     enc_images, enc_skips = [], []
     images = tf.unstack(images, axis=0)
     for i, image in enumerate(images):
-      with tf.variable_scope("encoder", reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope("encoder", reuse=tf.compat.v1.AUTO_REUSE):
         enc, skips = self.encoder(image, rnn_size)
         enc = tfcl.flatten(enc)
         enc_images.append(enc)
         enc_skips.append(skips)
 
-    tf.logging.info(">>>> Prediction")
+    tf.compat.v1.logging.info(">>>> Prediction")
     # Prediction
     pred_enc, pred_mu, pred_logvar = [], [], []
     for i in range(1, seq_len):
-      with tf.variable_scope("prediction", reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope("prediction", reuse=tf.compat.v1.AUTO_REUSE):
         # current encoding
         h_current = enc_images[i-1]
         # target encoding
         h_target = enc_images[i]
 
-        z = tf.random_normal([batch_size, z_dim], 0, 1, dtype=tf.float32)
+        z = tf.random.normal([batch_size, z_dim], 0, 1, dtype=tf.float32)
         mu, logvar = tf.zeros_like(z), tf.zeros_like(z)
 
         # Only use Posterior if it's training time
@@ -248,11 +248,11 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
         pred_mu.append(mu)
         pred_logvar.append(logvar)
 
-    tf.logging.info(">>>> Decoding")
+    tf.compat.v1.logging.info(">>>> Decoding")
     # Decoding
     gen_images = []
     for i in range(seq_len-1):
-      with tf.variable_scope("decoding", reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope("decoding", reuse=tf.compat.v1.AUTO_REUSE):
         # use skip values of last available frame
         skip_index = min(context_frames-1, i)
 
@@ -260,7 +260,7 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
         x_pred = self.decoder(h_pred, enc_skips[skip_index], color_channels)
         gen_images.append(x_pred)
 
-    tf.logging.info(">>>> Done")
+    tf.compat.v1.logging.info(">>>> Done")
     gen_images = tf.stack(gen_images, axis=0)
     return gen_images, fake_reward_prediction, pred_mu, pred_logvar
 

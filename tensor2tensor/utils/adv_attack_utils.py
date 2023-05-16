@@ -60,9 +60,9 @@ class T2TAttackModel(model.Model):
     self._additional_features['inputs'] = x
 
     if self._scope is None:
-      scope = tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE)
+      scope = tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=tf.compat.v1.AUTO_REUSE)
     else:
-      scope = tf.variable_scope(self._scope, reuse=tf.AUTO_REUSE)
+      scope = tf.compat.v1.variable_scope(self._scope, reuse=tf.compat.v1.AUTO_REUSE)
 
     with scope:
       logits = self._model_fn(
@@ -110,7 +110,7 @@ class RandomAttack(attacks.FastGradientMethod):
 
     def body(i, old_adv_x, old_loss, labels=labels):
       """Find example with max loss value amongst batch of perturbations."""
-      deltas = tf.random_uniform(deltas_shape)
+      deltas = tf.random.uniform(deltas_shape)
 
       # generate uniform samples from the l^p unit ball interior
       if self.ord == np.inf:
@@ -118,8 +118,8 @@ class RandomAttack(attacks.FastGradientMethod):
         deltas -= self.eps
       elif self.ord == 1:
         # ref: https://mathoverflow.net/questions/9185/how-to-generate-random-points-in-ell-p-balls  pylint: disable=line-too-long
-        exp = -tf.log(deltas)
-        shift = -tf.log(tf.random_uniform(deltas_shape[:2]))
+        exp = -tf.math.log(deltas)
+        shift = -tf.math.log(tf.random.uniform(deltas_shape[:2]))
         norm = tf.reduce_sum(tf.abs(exp), range(2, len(deltas_shape) - 2))
         scale = tf.reshape(shift + norm,
                            deltas_shape[:2] + [1] * (len(deltas_shape) - 2))
@@ -128,7 +128,7 @@ class RandomAttack(attacks.FastGradientMethod):
         # ref: https://blogs.sas.com/content/iml/2016/04/06/generate-points-uniformly-in-ball.html  pylint: disable=line-too-long
         dims = tf.reduce_prod(deltas_shape[2:])
         deltas = tf.pow(deltas, 1. / dims)
-        normal = tf.random_normal(deltas)
+        normal = tf.random.normal(deltas)
         normal /= tf.sqrt(
             tf.reduce_sum(normal**2, axis=range(2,
                                                 len(deltas_shape) - 2)),
@@ -152,10 +152,10 @@ class RandomAttack(attacks.FastGradientMethod):
 
       if labels is None:
         # Using model predictions as ground truth to avoid label leaking
-        preds_max = tf.reduce_max(preds, -1, keep_dims=True)
-        labels = tf.to_float(tf.equal(preds, preds_max))
+        preds_max = tf.reduce_max(preds, -1, keepdims=True)
+        labels = tf.cast(tf.equal(preds, preds_max), dtype=tf.float32)
         labels = tf.stop_gradient(labels)
-      labels = labels / tf.reduce_sum(labels, -1, keep_dims=True)
+      labels = labels / tf.reduce_sum(labels, -1, keepdims=True)
 
       # Compute loss
       loss = utils_tf.model_loss(labels, preds, mean=False)
@@ -170,15 +170,15 @@ class RandomAttack(attacks.FastGradientMethod):
       adv_x = tf.reduce_sum(adv_x * input_idx, axis=1)
 
       condition = tf.greater(old_loss, loss)
-      new_loss = tf.where(condition, old_loss, loss)
-      new_adv_x = tf.where(condition, old_adv_x, adv_x)
+      new_loss = tf.compat.v1.where(condition, old_loss, loss)
+      new_adv_x = tf.compat.v1.where(condition, old_adv_x, adv_x)
       print(new_loss, new_adv_x)
 
       return i + 1, new_adv_x, new_loss
 
     _, adv_x, _ = tf.while_loop(
-        cond, body,
-        [tf.zeros([]),
+        cond=cond, body=body,
+        loop_vars=[tf.zeros([]),
          tf.zeros_like(x), -1e10 * tf.ones(x_shape[0])], back_prop=False)
 
     return adv_x

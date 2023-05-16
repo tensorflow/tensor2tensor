@@ -56,7 +56,7 @@ class _MemoryWrapper(WrapperBase):
     # thus we only need the first 4 entries of meta_data
     shapes = meta_data[0][:4]
     dtypes = meta_data[1][:4]
-    self.speculum = tf.FIFOQueue(infinity, shapes=shapes, dtypes=dtypes)
+    self.speculum = tf.queue.FIFOQueue(infinity, shapes=shapes, dtypes=dtypes)
     observs_shape = batch_env.observ.shape
     # TODO(piotrmilos): possibly retrieve the observation type for batch_env
     self._observ = tf.Variable(tf.zeros(observs_shape, self.observ_dtype),
@@ -105,7 +105,7 @@ def define_collect(hparams, scope, eval_phase,
   """
 
   to_initialize = []
-  with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+  with tf.compat.v1.variable_scope(scope, reuse=tf.compat.v1.AUTO_REUSE):
     environment_spec = hparams.environment_spec
     num_agents = hparams.num_agents
     if eval_phase:
@@ -130,7 +130,7 @@ def define_collect(hparams, scope, eval_phase,
     rollout_metadata = None
     speculum = None
     for w in wrappers:
-      tf.logging.info("Applying wrapper %s(%s) to env %s."
+      tf.compat.v1.logging.info("Applying wrapper %s(%s) to env %s."
                       % (str(w[0]), str(w[1]), str(batch_env)))
       batch_env = w[0](batch_env, **w[1])
       to_initialize.append(batch_env)
@@ -143,14 +143,14 @@ def define_collect(hparams, scope, eval_phase,
         batch_env.initialize(sess)
 
     memory = [
-        tf.get_variable("collect_memory_%d_%s" % (hparams.epoch_length, name),
+        tf.compat.v1.get_variable("collect_memory_%d_%s" % (hparams.epoch_length, name),
                         shape=[hparams.epoch_length] + shape,
                         dtype=dtype,
-                        initializer=tf.zeros_initializer(),
+                        initializer=tf.compat.v1.zeros_initializer(),
                         trainable=False)
         for (shape, dtype, name) in rollout_metadata]
 
-    cumulative_rewards = tf.get_variable("cumulative_rewards", len(batch_env),
+    cumulative_rewards = tf.compat.v1.get_variable("cumulative_rewards", len(batch_env),
                                          trainable=False)
 
     eval_phase_t = tf.convert_to_tensor(eval_phase)
@@ -165,14 +165,14 @@ def define_collect(hparams, scope, eval_phase,
 
   def reset_ops_group():
     return tf.group(batch_env.reset(tf.range(len(batch_env))),
-                    tf.assign(cumulative_rewards, zeros_tensor))
+                    tf.compat.v1.assign(cumulative_rewards, zeros_tensor))
 
   reset_op = tf.cond(
       tf.logical_or(should_reset_var.read_value(), force_beginning_resets),
       reset_ops_group, tf.no_op)
 
   with tf.control_dependencies([reset_op]):
-    reset_once_op = tf.assign(should_reset_var, False)
+    reset_once_op = tf.compat.v1.assign(should_reset_var, False)
 
   with tf.control_dependencies([reset_once_op]):
 
@@ -211,9 +211,9 @@ def define_collect(hparams, scope, eval_phase,
       # TODO(piotrmilos): while_body is executed at most once,
       # thus should be replaced with tf.cond
       pdf, value_function, top_level_done = tf.while_loop(
-          lambda _1, _2, _3: tf.equal(speculum.size(), 0),
-          env_step,
-          [
+          cond=lambda _1, _2, _3: tf.equal(speculum.size(), 0),
+          body=env_step,
+          loop_vars=[
               tf.constant(0.0, shape=(num_agents,)),
               tf.constant(0.0, shape=(num_agents,)),
               tf.constant(False, shape=(num_agents,))
@@ -227,20 +227,20 @@ def define_collect(hparams, scope, eval_phase,
 
         to_save = [obs, reward, done, action,
                    pdf, value_function]
-        save_ops = [tf.scatter_update(memory_slot, index, value)
+        save_ops = [tf.compat.v1.scatter_update(memory_slot, index, value)
                     for memory_slot, value in zip(memory, to_save)]
         cumulate_rewards_op = cumulative_rewards.assign_add(reward)
 
-        agent_indices_to_reset = tf.where(top_level_done)[:, 0]
+        agent_indices_to_reset = tf.compat.v1.where(top_level_done)[:, 0]
       with tf.control_dependencies([cumulate_rewards_op]):
         # TODO(piotrmilos): possibly we need cumulative_rewards.read_value()
         scores_sum_delta = tf.reduce_sum(
             tf.gather(cumulative_rewards.read_value(), agent_indices_to_reset))
-        scores_num_delta = tf.count_nonzero(done, dtype=tf.int32)
+        scores_num_delta = tf.math.count_nonzero(done, dtype=tf.int32)
       with tf.control_dependencies(save_ops + [scores_sum_delta,
                                                scores_num_delta]):
         reset_env_op = batch_env.reset(agent_indices_to_reset)
-        reset_cumulative_rewards_op = tf.scatter_update(
+        reset_cumulative_rewards_op = tf.compat.v1.scatter_update(
             cumulative_rewards, agent_indices_to_reset,
             tf.gather(zeros_tensor, agent_indices_to_reset))
       with tf.control_dependencies([reset_env_op,
@@ -255,9 +255,9 @@ def define_collect(hparams, scope, eval_phase,
 
     init = [tf.constant(0), tf.constant(0.0), tf.constant(0)]
     index, scores_sum, scores_num = tf.while_loop(
-        stop_condition,
-        step,
-        init,
+        cond=stop_condition,
+        body=step,
+        loop_vars=init,
         parallel_iterations=1,
         back_prop=False)
 
@@ -276,7 +276,7 @@ def define_collect(hparams, scope, eval_phase,
   mean_score = tf.cond(tf.greater(scores_num, 0),
                        lambda: scores_sum / tf.cast(scores_num, tf.float32),
                        lambda: 0.)
-  printing = tf.Print(0, [mean_score, scores_sum, scores_num], "mean_score: ")
+  printing = tf.compat.v1.Print(0, [mean_score, scores_sum, scores_num], "mean_score: ")
   with tf.control_dependencies([index, printing]):
     memory = [mem.read_value() for mem in memory]
     # When generating real data together with PPO training we must use single
@@ -305,9 +305,9 @@ def define_collect(hparams, scope, eval_phase,
 
     mean_score_summary = tf.cond(
         tf.greater(scores_num, 0),
-        lambda: tf.summary.scalar("mean_score_this_iter", mean_score),
+        lambda: tf.compat.v1.summary.scalar("mean_score_this_iter", mean_score),
         str)
-    summaries = tf.summary.merge(
+    summaries = tf.compat.v1.summary.merge(
         [mean_score_summary,
-         tf.summary.scalar("episodes_finished_this_iter", scores_num)])
+         tf.compat.v1.summary.scalar("episodes_finished_this_iter", scores_num)])
     return memory, summaries, initialization_lambda

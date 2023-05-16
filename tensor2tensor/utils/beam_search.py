@@ -123,13 +123,13 @@ def fast_tpu_gather(params, indices, name=None):
     gather_result: A tensor that has the same rank as params.
       [batch_size, selected_size, ...]
   """
-  with tf.name_scope(name):
+  with tf.compat.v1.name_scope(name):
     dtype = params.dtype
 
     def _gather(params, indices):
       """Fast gather using one_hot and batch matmul."""
       if dtype != tf.float32:
-        params = tf.to_float(params)
+        params = tf.cast(params, dtype=tf.float32)
       shape = common_layers.shape_list(params)
       indices_shape = common_layers.shape_list(indices)
       ndims = params.shape.ndims
@@ -155,7 +155,7 @@ def fast_tpu_gather(params, indices, name=None):
     # 256, which is smaller than the possible id values. Encoding/decoding can
     # potentially used to make it work, but the benenfit is small right now.
     if dtype == tf.int32:
-      gather_result = tf.batch_gather(params, indices)
+      gather_result = tf.compat.v1.batch_gather(params, indices)
     else:
       gather_result = _gather(params, indices)
 
@@ -361,7 +361,7 @@ def beam_search(symbols_to_logits_fn,
 
     # Set the scores of the unfinished seq in curr_seq to large negative
     # values
-    curr_scores += (1. - tf.to_float(curr_finished)) * -INF
+    curr_scores += (1. - tf.cast(curr_finished, dtype=tf.float32)) * -INF
     # concatenating the sequences and scores along beam axis
     curr_finished_seq = tf.concat([finished_seq, curr_seq], axis=1)
     curr_finished_scores = tf.concat([finished_scores, curr_scores], axis=1)
@@ -391,7 +391,7 @@ def beam_search(symbols_to_logits_fn,
     """
     # Set the scores of the finished seq in curr_seq to large negative
     # values
-    curr_scores += tf.to_float(curr_finished) * -INF
+    curr_scores += tf.cast(curr_finished, dtype=tf.float32) * -INF
     return compute_topk_scores_and_seq(curr_seq, curr_scores, curr_log_probs,
                                        curr_finished, beam_size, batch_size,
                                        "grow_alive", states, use_tpu=use_tpu)
@@ -448,7 +448,7 @@ def beam_search(symbols_to_logits_fn,
     # (batch_size, beam_size, vocab_size) + (batch_size, beam_size, 1)
     log_probs = candidate_log_probs + tf.expand_dims(alive_log_probs, axis=2)
 
-    length_penalty = tf.pow(((5. + tf.to_float(i + 1)) / 6.), alpha)
+    length_penalty = tf.pow(((5. + tf.cast(i + 1, dtype=tf.float32)) / 6.), alpha)
 
     curr_scores = log_probs / length_penalty
     # Flatten out (beam_size, vocab_size) probs in to a list of possibilities
@@ -584,7 +584,7 @@ def beam_search(symbols_to_logits_fn,
     """
     if not stop_early:
       return tf.less(i, decode_length)
-    max_length_penalty = tf.pow(((5. + tf.to_float(decode_length)) / 6.), alpha)
+    max_length_penalty = tf.pow(((5. + tf.cast(decode_length, dtype=tf.float32)) / 6.), alpha)
     # The best possible score of the most likely alive sequence.
     lower_bound_alive_scores = alive_log_probs[:, 0] / max_length_penalty
 
@@ -593,13 +593,13 @@ def beam_search(symbols_to_logits_fn,
     # scores are all -ve, taking the min will give us the score of the lowest
     # finished item.
     lowest_score_of_finished_in_finished = tf.reduce_min(
-        finished_scores * tf.to_float(finished_in_finished), axis=1)
+        finished_scores * tf.cast(finished_in_finished, dtype=tf.float32), axis=1)
     # If none of the sequences have finished, then the min will be 0 and
     # we have to replace it by -ve INF if it is. The score of any seq in alive
     # will be much higher than -ve INF and the termination condition will not
     # be met.
     lowest_score_of_finished_in_finished += (
-        (1. - tf.to_float(tf.reduce_any(finished_in_finished, 1))) * -INF)
+        (1. - tf.cast(tf.reduce_any(finished_in_finished, 1), dtype=tf.float32)) * -INF)
 
     bound_is_met = tf.reduce_all(
         tf.greater(lowest_score_of_finished_in_finished,
@@ -610,8 +610,8 @@ def beam_search(symbols_to_logits_fn,
 
   (_, alive_seq, alive_log_probs, finished_seq, finished_scores,
    finished_flags, _) = tf.while_loop(
-       _is_finished,
-       inner_loop, [
+       cond=_is_finished,
+       body=inner_loop, loop_vars=[
            tf.constant(0), alive_seq, alive_log_probs, finished_seq,
            finished_scores, finished_flags, states
        ],
@@ -639,8 +639,8 @@ def beam_search(symbols_to_logits_fn,
   # the contents of alive for that batch item. tf.reduce_any(finished_flags, 1)
   # if 0, means that no sequence for that batch index had reached EOS. We need
   # to do the same for the scores as well.
-  finished_seq = tf.where(
+  finished_seq = tf.compat.v1.where(
       tf.reduce_any(finished_flags, 1), finished_seq, alive_seq)
-  finished_scores = tf.where(
+  finished_scores = tf.compat.v1.where(
       tf.reduce_any(finished_flags, 1), finished_scores, alive_log_probs)
   return finished_seq, finished_scores

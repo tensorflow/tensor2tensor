@@ -27,37 +27,37 @@ import tensorflow as tf
 
 
 def discriminator(x, compress, hparams, name, reuse=None):
-  with tf.variable_scope(name, reuse=reuse):
+  with tf.compat.v1.variable_scope(name, reuse=reuse):
     x = tf.stop_gradient(2 * x) - x  # Reverse gradient.
     if compress:
       x = transformer_vae.compress(x, None, False, hparams, "compress")
     else:
       x = transformer_vae.residual_conv(x, 1, 3, hparams, "compress_rc")
     y = tf.reduce_mean(x, axis=1)
-    return tf.tanh(tf.layers.dense(y, 1, name="reduce"))
+    return tf.tanh(tf.compat.v1.layers.dense(y, 1, name="reduce"))
 
 
 def generator(x, hparams, name, reuse=False):
-  with tf.variable_scope(name, reuse=reuse):
+  with tf.compat.v1.variable_scope(name, reuse=reuse):
     return transformer_vae.residual_conv(x, 1, 3, hparams, "generator")
 
 
 def lossfn(real_input, fake_input, compress, hparams, lsgan, name):
   """Loss function."""
   eps = 1e-12
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     d1 = discriminator(real_input, compress, hparams, "discriminator")
     d2 = discriminator(fake_input, compress, hparams, "discriminator",
                        reuse=True)
     if lsgan:
       dloss = tf.reduce_mean(
-          tf.squared_difference(d1, 0.9)) + tf.reduce_mean(tf.square(d2))
-      gloss = tf.reduce_mean(tf.squared_difference(d2, 0.9))
+          tf.math.squared_difference(d1, 0.9)) + tf.reduce_mean(tf.square(d2))
+      gloss = tf.reduce_mean(tf.math.squared_difference(d2, 0.9))
       loss = (dloss + gloss)/2
     else:  # cross_entropy
       dloss = -tf.reduce_mean(
-          tf.log(d1 + eps)) - tf.reduce_mean(tf.log(1 - d2 + eps))
-      gloss = -tf.reduce_mean(tf.log(d2 + eps))
+          tf.math.log(d1 + eps)) - tf.reduce_mean(tf.math.log(1 - d2 + eps))
+      gloss = -tf.reduce_mean(tf.math.log(d2 + eps))
       loss = (dloss + gloss)/2
     return loss
 
@@ -70,9 +70,9 @@ def split_on_batch(x):
 
 def cycle_gan_internal(inputs, targets, _, hparams):
   """Cycle GAN, main step used for training."""
-  with tf.variable_scope("cycle_gan"):
+  with tf.compat.v1.variable_scope("cycle_gan"):
     # Embed inputs and targets.
-    inputs_orig, targets_orig = tf.to_int32(inputs), tf.to_int32(targets)
+    inputs_orig, targets_orig = tf.cast(inputs, dtype=tf.int32), tf.cast(targets, dtype=tf.int32)
     inputs = common_layers.embedding(
         inputs_orig, hparams.vocab_size, hparams.hidden_size, "embed")
     targets = common_layers.embedding(
@@ -100,7 +100,7 @@ def cycle_gan_internal(inputs, targets, _, hparams):
     cycloss = x_to_x_loss + y_to_y_loss
 
     sample_generated = generator(inputs, hparams, "Gx", reuse=True)
-    sample_generated = tf.layers.dense(
+    sample_generated = tf.compat.v1.layers.dense(
         sample_generated, hparams.vocab_size, name="softmax", reuse=None)
     sample_generated = tf.stop_gradient(
         tf.expand_dims(sample_generated, axis=2))

@@ -147,7 +147,7 @@ class TransformerModel(query_processor.QueryProcessor):
     Returns:
       A dictionary of results with processing and graph visualizations.
     """
-    tf.logging.info("Processing new query [%s]" %query)
+    tf.compat.v1.logging.info("Processing new query [%s]" %query)
 
     # Create the new TFDBG hook directory.
     hook_dir = "/tmp/t2t_server_dump/request_%d" %int(time.time())

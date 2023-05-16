@@ -104,7 +104,7 @@ def remote_run(cmd, instance_name, detach=False, retries=1):
   for i in range(retries + 1):
     try:
       if i > 0:
-        tf.logging.info("Retry %d for %s", i, args)
+        tf.compat.v1.logging.info("Retry %d for %s", i, args)
       return sp.check_call(args)
     except sp.CalledProcessError as e:
       if i == retries:
@@ -139,7 +139,7 @@ def wait_for_ssh(ip):
 
 
 def create_instance(instance_name, cpu=1, mem=4):
-  tf.logging.info("Creating instance %s", instance_name)
+  tf.compat.v1.logging.info("Creating instance %s", instance_name)
   out = cloud.shell_output(CREATE_INSTANCE, instance_name=instance_name,
                            cpu=cpu, mem=mem)
   return out.split("\n")[1:-1][0].split()[8]
@@ -156,7 +156,7 @@ def shell_run_with_retry(cmd, retries=1, **kwargs):
   for i in range(retries + 1):
     try:
       if i > 0:
-        tf.logging.info("Retry %d for %s", i, cmd)
+        tf.compat.v1.logging.info("Retry %d for %s", i, cmd)
       cloud.shell_run(cmd, **kwargs)
       return
     except sp.CalledProcessError as e:
@@ -178,7 +178,7 @@ def launch_instance(instance_name,
   """Launch a GCE instance."""
   # Create instance
   ip = existing_ip or create_instance(instance_name, cpu=cpu, mem=mem)
-  tf.logging.info("Waiting for SSH %s", instance_name)
+  tf.compat.v1.logging.info("Waiting for SSH %s", instance_name)
   ready = wait_for_ssh(ip)
   if not ready:
     raise ValueError("Instance %s never ready for SSH" % instance_name)
@@ -190,11 +190,11 @@ def launch_instance(instance_name,
 
   # Run setup
   if setup_command:
-    tf.logging.info("Running setup on %s", instance_name)
+    tf.compat.v1.logging.info("Running setup on %s", instance_name)
     remote_run(setup_command, instance_name)
 
   # Run command
-  tf.logging.info("Running command on %s", instance_name)
+  tf.compat.v1.logging.info("Running command on %s", instance_name)
   remote_run(command, instance_name, detach=True)
 
 
@@ -210,7 +210,7 @@ def main(_):
 
   # Suffixes per instance
   if FLAGS.per_instance_suffix_file:
-    with tf.gfile.Open(FLAGS.per_instance_suffix_file) as f:
+    with tf.io.gfile.GFile(FLAGS.per_instance_suffix_file) as f:
       suffixes = [l.strip() for l in f.readlines()]
   else:
     suffixes = list(range(FLAGS.num_instances))
@@ -224,20 +224,20 @@ def main(_):
 
   assert FLAGS.log_dir
   log_dir = os.path.join(FLAGS.log_dir, FLAGS.name)
-  tf.gfile.MakeDirs(log_dir)
+  tf.io.gfile.makedirs(log_dir)
   assert log_dir.startswith("gs://")
   if not log_dir.endswith("/"):
     log_dir += "/"
   # Write a test file to make sure gcloud GCS APIs are enabled
   test_filename = os.path.join(log_dir, "check_write")
-  with tf.gfile.Open(test_filename, "w") as f:
+  with tf.io.gfile.GFile(test_filename, "w") as f:
     f.write("testing GCS write")
-  tf.gfile.Remove(test_filename)
+  tf.io.gfile.remove(test_filename)
 
   instance_ids = list(range(FLAGS.num_instances))
   if FLAGS.instance_ids:
     instance_ids = [int(i) for i in FLAGS.instance_ids.split(",")]
-  tf.logging.info("Launching %d instances", len(instance_ids))
+  tf.compat.v1.logging.info("Launching %d instances", len(instance_ids))
 
   for i in instance_ids:
     instance_name = "%s-%d" % (FLAGS.name, i)
@@ -265,13 +265,13 @@ def main(_):
       res.get()
     except Exception as e:  # pylint: disable=broad-except
       failed.append((instance_name, i))
-      tf.logging.error("Failed to launch task %s due to exception %s",
+      tf.compat.v1.logging.error("Failed to launch task %s due to exception %s",
                        instance_name, str(e))
 
   results = []
   if failed:
     ids_for_flag = ",".join([str(i) for i in list(zip(*failed))[1]])
-    tf.logging.error("Failed to launch %d jobs. Tasks: %s. "
+    tf.compat.v1.logging.error("Failed to launch %d jobs. Tasks: %s. "
                      "Attempting delete in case they are still up. Rerun with "
                      "--instance_ids='%s' to attempt relaunch.",
                      len(failed), str(failed), ids_for_flag)
@@ -285,9 +285,9 @@ def main(_):
     except:  # pylint: disable=bare-except
       pass
 
-  tf.logging.info("Launching complete.")
+  tf.compat.v1.logging.info("Launching complete.")
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

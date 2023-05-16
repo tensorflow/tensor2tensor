@@ -58,7 +58,7 @@ def create_pruning_strategy(name):
 
 
 def main(argv):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   t2t_trainer.maybe_log_registry_and_exit()
@@ -82,9 +82,9 @@ def main(argv):
   input_fn = problem.make_estimator_input_fn(tf.estimator.ModeKeys.EVAL,
                                              hparams)
   dataset = input_fn(params, config).repeat()
-  features, labels = dataset.make_one_shot_iterator().get_next()
+  features, labels = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
 
-  sess = tf.Session()
+  sess = tf.compat.v1.Session()
 
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       FLAGS.model, hparams)
@@ -96,7 +96,7 @@ def main(argv):
       config=config)
 
   # Restore weights
-  saver = tf.train.Saver()
+  saver = tf.compat.v1.train.Saver()
   checkpoint_path = os.path.expanduser(FLAGS.output_dir or
                                        FLAGS.checkpoint_path)
   saver.restore(sess, tf.train.latest_checkpoint(checkpoint_path))
@@ -104,8 +104,8 @@ def main(argv):
   def eval_model():
     preds = spec.predictions["predictions"]
     preds = tf.argmax(preds, -1, output_type=labels.dtype)
-    _, acc_update_op = tf.metrics.accuracy(labels=labels, predictions=preds)
-    sess.run(tf.initialize_local_variables())
+    _, acc_update_op = tf.compat.v1.metrics.accuracy(labels=labels, predictions=preds)
+    sess.run(tf.compat.v1.initialize_local_variables())
     for _ in range(FLAGS.eval_steps):
       acc = sess.run(acc_update_op)
     return acc
@@ -114,5 +114,5 @@ def main(argv):
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

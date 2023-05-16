@@ -30,12 +30,12 @@ class T2TModelTest(tf.test.TestCase):
   def testSummarizeLosses(self):
     with tf.Graph().as_default():
       model = t2t_model.T2TModel(tf.contrib.training.HParams())
-      losses = {"training": tf.random_normal([]),
-                "extra": tf.random_normal([])}
+      losses = {"training": tf.random.normal([]),
+                "extra": tf.random.normal([])}
       outputs = model._summarize_losses(losses)
       self.assertIsNone(outputs, None)
       self.assertEquals(
-          len(tf.get_collection(tf.GraphKeys.SUMMARIES, scope="losses")),
+          len(tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.SUMMARIES, scope="losses")),
           len(losses))
 
 if __name__ == "__main__":

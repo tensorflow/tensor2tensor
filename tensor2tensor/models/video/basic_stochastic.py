@@ -84,8 +84,8 @@ class NextFrameBasicStochasticDiscrete(
 
     if self.is_predicting:
       if hparams.full_latent_tower:
-        rand = tf.random_uniform(layer_shape[:-1] + [hparams.bottleneck_bits])
-        bits = 2.0 * tf.to_float(tf.less(0.5, rand)) - 1.0
+        rand = tf.random.uniform(layer_shape[:-1] + [hparams.bottleneck_bits])
+        bits = 2.0 * tf.cast(tf.less(0.5, rand), dtype=tf.float32) - 1.0
       else:
         bits, _ = discretization.predict_bits_with_lstm(
             layer, hparams.latent_predictor_state_size, hparams.bottleneck_bits,
@@ -97,12 +97,12 @@ class NextFrameBasicStochasticDiscrete(
     frames = tf.concat(inputs + [target], axis=-1)
     x = tfl.dense(
         frames, filters, name="latent_embed",
-        bias_initializer=tf.random_normal_initializer(stddev=0.01))
+        bias_initializer=tf.compat.v1.random_normal_initializer(stddev=0.01))
     x = common_attention.add_timing_signal_nd(x)
 
     if hparams.full_latent_tower:
       for i in range(hparams.num_compress_steps):
-        with tf.variable_scope("latent_downstride%d" % i):
+        with tf.compat.v1.variable_scope("latent_downstride%d" % i):
           x = common_layers.make_even_size(x)
           if i < hparams.filter_double_steps:
             filters *= 2

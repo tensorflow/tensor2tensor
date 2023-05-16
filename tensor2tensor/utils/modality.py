@@ -134,7 +134,7 @@ class Modality(object):
     Returns:
       A float32 Tensor with shape [batch, p0, p1, body_input_depth]
     """
-    with tf.variable_scope("targets_bottom"):
+    with tf.compat.v1.variable_scope("targets_bottom"):
       return self.bottom(x)
 
   def targets_bottom_sharded(self, xs, data_parallelism):

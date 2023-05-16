@@ -44,7 +44,7 @@ class MetricsHookTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    cls.base_checkpoint_dir = tf.test.get_temp_dir()
+    cls.base_checkpoint_dir = tf.compat.v1.test.get_temp_dir()
     shutil.rmtree(cls.base_checkpoint_dir, ignore_errors=True)
 
   def ckpt_dir(self, name):
@@ -52,7 +52,7 @@ class MetricsHookTest(tf.test.TestCase):
 
   @contextlib.contextmanager
   def sess(self, hook, ckpt_dir):
-    with tf.train.MonitoredTrainingSession(
+    with tf.compat.v1.train.MonitoredTrainingSession(
         checkpoint_dir=ckpt_dir,
         save_checkpoint_secs=0,
         save_summaries_steps=10,
@@ -64,9 +64,9 @@ class MetricsHookTest(tf.test.TestCase):
     self._sess._hooks[1]._summary_writer.flush()
 
   def testStop(self):
-    global_step = tf.train.create_global_step()
-    tf.summary.scalar("global_step", global_step)
-    incr_global_step = tf.assign_add(global_step, 1)
+    global_step = tf.compat.v1.train.create_global_step()
+    tf.compat.v1.summary.scalar("global_step", global_step)
+    incr_global_step = tf.compat.v1.assign_add(global_step, 1)
 
     ckpt_dir = self.ckpt_dir("stop")
     dummy = DummyHook(ckpt_dir, every_n_steps=10)
@@ -97,11 +97,11 @@ class MetricsHookTest(tf.test.TestCase):
         sess.run(incr_global_step)
 
   def testEarlyStoppingHook(self):
-    global_step = tf.train.create_global_step()
-    counter = tf.get_variable("count", initializer=0, dtype=tf.int32)
-    tf.summary.scalar("count", counter)
-    incr_global_step = tf.assign_add(global_step, 1)
-    incr_counter = tf.assign_add(counter, 1)
+    global_step = tf.compat.v1.train.create_global_step()
+    counter = tf.compat.v1.get_variable("count", initializer=0, dtype=tf.int32)
+    tf.compat.v1.summary.scalar("count", counter)
+    incr_global_step = tf.compat.v1.assign_add(global_step, 1)
+    incr_counter = tf.compat.v1.assign_add(counter, 1)
 
     # Stop if the global step has not gone up by more than 1 in 20 steps.
 
@@ -141,13 +141,13 @@ class MetricsHookTest(tf.test.TestCase):
           sess.run(incr_global_step)
 
   def testPlateauOpHook(self):
-    global_step = tf.train.create_global_step()
-    counter = tf.get_variable("count", initializer=0, dtype=tf.int32)
-    indicator = tf.get_variable("indicator", initializer=0, dtype=tf.int32)
-    tf.summary.scalar("count", counter)
-    incr_global_step = tf.assign_add(global_step, 1)
-    incr_counter = tf.assign_add(counter, 1)
-    incr_indicator = tf.assign_add(indicator, 1)
+    global_step = tf.compat.v1.train.create_global_step()
+    counter = tf.compat.v1.get_variable("count", initializer=0, dtype=tf.int32)
+    indicator = tf.compat.v1.get_variable("indicator", initializer=0, dtype=tf.int32)
+    tf.compat.v1.summary.scalar("count", counter)
+    incr_global_step = tf.compat.v1.assign_add(global_step, 1)
+    incr_counter = tf.compat.v1.assign_add(counter, 1)
+    incr_indicator = tf.compat.v1.assign_add(indicator, 1)
 
     # Stop if the global step has not gone up by more than 1 in 20 steps.
 

@@ -46,8 +46,8 @@ def _build_vocab(filename, vocab_dir, vocab_name):
     text encoder.
   """
   vocab_path = os.path.join(vocab_dir, vocab_name)
-  if not tf.gfile.Exists(vocab_path):
-    with tf.gfile.GFile(filename, "r") as f:
+  if not tf.io.gfile.exists(vocab_path):
+    with tf.io.gfile.GFile(filename, "r") as f:
       data = f.read().split()
     counter = collections.Counter(data)
     count_pairs = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
@@ -88,7 +88,7 @@ def _maybe_download_corpus(tmp_dir, vocab_type):
 
   files = os.path.join(tmp_dir, dir_name, "*")
   train_file, valid_file, test_file = None, None, None
-  for f in tf.gfile.Glob(files):
+  for f in tf.io.gfile.glob(files):
     fname = os.path.basename(f)
     if "train" in fname:
       train_file = f
@@ -145,7 +145,7 @@ class LanguagemodelWikitext103(text_problems.Text2SelfProblem):
       filepath = test_file
 
     def _generate_samples():
-      with tf.gfile.GFile(filepath, "r") as f:
+      with tf.io.gfile.GFile(filepath, "r") as f:
         for line in f:
           line = " ".join(line.strip().split())
           if line:

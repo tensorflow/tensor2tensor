@@ -42,7 +42,7 @@ def aggregate_stats(stats_files):
   """Aggregate stats in per-shard stats files."""
   all_stats = {}
   for fname in stats_files:
-    with tf.gfile.Open(fname) as f:
+    with tf.io.gfile.GFile(fname) as f:
       stats = json.loads(f.read())
       for k, v in stats.iteritems():
         if k not in all_stats:
@@ -108,7 +108,7 @@ def filename_to_task_id(fname):
 
 
 def get_length(fname):
-  return tf.gfile.Stat(fname).length
+  return tf.io.gfile.stat(fname).length
 
 
 def validate_data_files(problem, data_files, min_size):
@@ -118,7 +118,7 @@ def validate_data_files(problem, data_files, min_size):
   out_filepaths = problem.out_filepaths(data_dir)
   missing_filepaths = set(out_filepaths) - set(data_files)
   if missing_filepaths:
-    tf.logging.error("Missing %d data files", len(missing_filepaths))
+    tf.compat.v1.logging.error("Missing %d data files", len(missing_filepaths))
 
   # Check that each file is at least 100M
   too_small = []
@@ -127,7 +127,7 @@ def validate_data_files(problem, data_files, min_size):
     if length < min_size:
       too_small.append(data_file)
   if too_small:
-    tf.logging.error("%d files too small", len(too_small))
+    tf.compat.v1.logging.error("%d files too small", len(too_small))
 
   bad_files = too_small + list(missing_filepaths)
   return bad_files
@@ -139,33 +139,33 @@ def main(_):
   else:
     problem = wikisum.WikisumWeb()
   prefix = problem.dataset_filename()
-  data_files = tf.gfile.Glob(os.path.join(FLAGS.out_dir, "%s*" % prefix))
+  data_files = tf.io.gfile.glob(os.path.join(FLAGS.out_dir, "%s*" % prefix))
   missing_files = validate_data_files(
       problem, data_files,
       min_size=(60 if FLAGS.for_commoncrawl else 120) * 1e6)
 
   task_ids = [filename_to_task_id(fname) for fname in missing_files]
   ids_for_flag = ",".join([str(i) for i in task_ids])
-  tf.logging.error("You should (re)generate %d of the data files. "
+  tf.compat.v1.logging.error("You should (re)generate %d of the data files. "
                    "Rerun produce_examples with --instance_ids='%s'.",
                    len(missing_files), ids_for_flag)
 
   # Compute and write out aggregated stats
-  stats_files = tf.gfile.Glob(os.path.join(FLAGS.out_dir, "stats*"))
+  stats_files = tf.io.gfile.glob(os.path.join(FLAGS.out_dir, "stats*"))
   agg_stats = aggregate_stats(stats_files)
   if not FLAGS.for_commoncrawl:
     coverage = agg_stats["overall_ref_coverage"] * 100
     if not coverage > 80:
-      tf.logging.error("Overall reference coverage is expected to be > 80%. "
+      tf.compat.v1.logging.error("Overall reference coverage is expected to be > 80%. "
                        "It is %0.1f. You may want to rerun get_references_web.",
                        coverage)
-  with tf.gfile.Open(
+  with tf.io.gfile.GFile(
       os.path.join(FLAGS.out_dir, "stats.json"), "w") as f:
     f.write(json.dumps(agg_stats))
   if FLAGS.rm_per_shard_stats and not missing_files:
     for fname in stats_files:
-      tf.gfile.Remove(fname)
+      tf.io.gfile.remove(fname)
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  tf.compat.v1.app.run()

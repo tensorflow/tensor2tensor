@@ -80,7 +80,7 @@ class TrainerLibTest(tf.test.TestCase):
     dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN,
                               algorithmic.TinyAlgo.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
-    features = dataset.make_one_shot_iterator().get_next()
+    features = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
     features = problem_lib.standardize_shapes(features)
 
     # Model
@@ -91,7 +91,7 @@ class TrainerLibTest(tf.test.TestCase):
     loss = losses["training"]
 
     with self.test_session() as sess:
-      sess.run(tf.global_variables_initializer())
+      sess.run(tf.compat.v1.global_variables_initializer())
       logits_val, loss_val = sess.run([logits, loss])
       logits_shape = list(logits_val.shape)
       logits_shape[1] = None
@@ -117,7 +117,7 @@ class TrainerLibTest(tf.test.TestCase):
     dataset = problem.dataset(tf.estimator.ModeKeys.TRAIN,
                               algorithmic.TinyAlgo.data_dir)
     dataset = dataset.repeat(None).padded_batch(10, dataset.output_shapes)
-    features = dataset.make_one_shot_iterator().get_next()
+    features = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
     features = problem_lib.standardize_shapes(features)
     features["A"] = features["B"] = features["targets"]
 
@@ -136,7 +136,7 @@ class TrainerLibTest(tf.test.TestCase):
     loss = losses["training"]
 
     with self.test_session() as sess:
-      sess.run(tf.global_variables_initializer())
+      sess.run(tf.compat.v1.global_variables_initializer())
       sess.run([logits, loss])
 
 

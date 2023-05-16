@@ -113,7 +113,7 @@ class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):
             "gif", tf.convert_to_tensor(images), fps=10)
         summary_string = summary.eval()
 
-      summary = tf.Summary()
+      summary = tf.compat.v1.Summary()
       summary.ParseFromString(summary_string)
 
       self.assertEqual(1, len(summary.value))
@@ -141,7 +141,7 @@ class CommonVideoTest(parameterized.TestCase, tf.test.TestCase):
       video = tf.convert_to_tensor(video_np)
       video_patch = common_video.extract_random_video_patch(
           video, num_frames=num_frames)
-      with tf.Session() as sess:
+      with tf.compat.v1.Session() as sess:
         video_patch_np = sess.run(video_patch)
         if num_frames != -1:
           self.assertEqual(video_patch_np.shape, (12, num_frames, 256, 256, 3))

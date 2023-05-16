@@ -89,7 +89,7 @@ flags.DEFINE_bool("report_zero", None,
 
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   if FLAGS.translation:
     if FLAGS.translations_dir:
       raise ValueError(
@@ -110,7 +110,7 @@ def main(_):
   transl_dir = os.path.expanduser(FLAGS.translations_dir)
   if not os.path.exists(transl_dir):
     exit_time = time.time() + FLAGS.wait_minutes * 60
-    tf.logging.info("Translation dir %s does not exist, waiting till %s.",
+    tf.compat.v1.logging.info("Translation dir %s does not exist, waiting till %s.",
                     transl_dir, time.asctime(time.localtime(exit_time)))
     while not os.path.exists(transl_dir):
       time.sleep(10)
@@ -119,7 +119,7 @@ def main(_):
 
   last_step_file = os.path.join(FLAGS.event_dir, "last_evaluated_step.txt")
   if FLAGS.min_steps == -1:
-    if tf.gfile.Exists(last_step_file):
+    if tf.io.gfile.exists(last_step_file):
       with open(last_step_file) as ls_file:
         FLAGS.min_steps = int(ls_file.read())
     else:
@@ -127,7 +127,7 @@ def main(_):
   if FLAGS.report_zero is None:
     FLAGS.report_zero = FLAGS.min_steps == 0
 
-  writer = tf.summary.FileWriter(FLAGS.event_dir)
+  writer = tf.compat.v1.summary.FileWriter(FLAGS.event_dir)
   for transl_file in bleu_hook.stepfiles_iterator(
       transl_dir, FLAGS.wait_minutes, FLAGS.min_steps, path_suffix=""):
     # report_zero handling must be inside the for-loop,
@@ -138,32 +138,32 @@ def main(_):
           os.path.getmtime(f) for f in all_files if os.path.isfile(f))
       values = []
       if FLAGS.bleu_variant in ("uncased", "both"):
-        values.append(tf.Summary.Value(
+        values.append(tf.compat.v1.Summary.Value(
             tag="BLEU_uncased" + FLAGS.tag_suffix, simple_value=0))
       if FLAGS.bleu_variant in ("cased", "both"):
-        values.append(tf.Summary.Value(
+        values.append(tf.compat.v1.Summary.Value(
             tag="BLEU_cased" + FLAGS.tag_suffix, simple_value=0))
-      writer.add_event(tf.summary.Event(summary=tf.Summary(value=values),
+      writer.add_event(tf.compat.v1.summary.Event(summary=tf.compat.v1.Summary(value=values),
                                         wall_time=start_time, step=0))
       FLAGS.report_zero = False
 
     filename = transl_file.filename
-    tf.logging.info("Evaluating " + filename)
+    tf.compat.v1.logging.info("Evaluating " + filename)
     values = []
     if FLAGS.bleu_variant in ("uncased", "both"):
       bleu = 100 * bleu_hook.bleu_wrapper(FLAGS.reference, filename,
                                           case_sensitive=False)
-      values.append(tf.Summary.Value(tag="BLEU_uncased" + FLAGS.tag_suffix,
+      values.append(tf.compat.v1.Summary.Value(tag="BLEU_uncased" + FLAGS.tag_suffix,
                                      simple_value=bleu))
-      tf.logging.info("%s: BLEU_uncased = %6.2f" % (filename, bleu))
+      tf.compat.v1.logging.info("%s: BLEU_uncased = %6.2f" % (filename, bleu))
     if FLAGS.bleu_variant in ("cased", "both"):
       bleu = 100 * bleu_hook.bleu_wrapper(FLAGS.reference, filename,
                                           case_sensitive=True)
-      values.append(tf.Summary.Value(tag="BLEU_cased" + FLAGS.tag_suffix,
+      values.append(tf.compat.v1.Summary.Value(tag="BLEU_cased" + FLAGS.tag_suffix,
                                      simple_value=bleu))
-      tf.logging.info("%s: BLEU_cased = %6.2f" % (transl_file.filename, bleu))
-    writer.add_event(tf.summary.Event(
-        summary=tf.Summary(value=values),
+      tf.compat.v1.logging.info("%s: BLEU_cased = %6.2f" % (transl_file.filename, bleu))
+    writer.add_event(tf.compat.v1.summary.Event(
+        summary=tf.compat.v1.Summary(value=values),
         wall_time=transl_file.mtime, step=transl_file.steps))
     writer.flush()
     with open(last_step_file, "w") as ls_file:
@@ -171,5 +171,5 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

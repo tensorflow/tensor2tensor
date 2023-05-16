@@ -27,7 +27,7 @@ import tensorflow as tf
 
 def get_optimiser(config):
   if config.optimizer == "Adam":
-    return tf.train.AdamOptimizer(learning_rate=config.learning_rate)
+    return tf.compat.v1.train.AdamOptimizer(learning_rate=config.learning_rate)
   return config.optimizer(learning_rate=config.learning_rate)
 
 
@@ -56,7 +56,7 @@ def define_ppo_step(data_points, optimizer, hparams):
   gradients = [list(zip(*optimizer.compute_gradients(loss)))
                for loss in losses]
 
-  gradients_norms = [tf.global_norm(gradient[0]) for gradient in gradients]
+  gradients_norms = [tf.linalg.global_norm(gradient[0]) for gradient in gradients]
 
   gradients_flat = sum([gradient[0] for gradient in gradients], ())
   gradients_variables_flat = sum([gradient[1] for gradient in gradients], ())
@@ -92,7 +92,7 @@ def define_ppo_epoch(memory, hparams):
   discounted_reward = tf.stop_gradient(advantage + value)
 
   advantage_mean, advantage_variance = tf.nn.moments(advantage, axes=[0, 1],
-                                                     keep_dims=True)
+                                                     keepdims=True)
   advantage_normalized = tf.stop_gradient(
       (advantage - advantage_mean)/(tf.sqrt(advantage_variance) + 1e-8))
 
@@ -111,7 +111,7 @@ def define_ppo_epoch(memory, hparams):
                             reshuffle_each_iteration=True)
   dataset = dataset.repeat(hparams.optimization_epochs)
   dataset = dataset.batch(hparams.optimization_batch_size)
-  iterator = dataset.make_initializable_iterator()
+  iterator = tf.compat.v1.data.make_initializable_iterator(dataset)
   optimizer = get_optimiser(hparams)
 
   with tf.control_dependencies([iterator.initializer]):
@@ -127,12 +127,12 @@ def define_ppo_epoch(memory, hparams):
   summaries_names = ["policy_loss", "value_loss", "entropy_loss",
                      "policy_gradient", "value_gradient", "entropy_gradient"]
 
-  summaries = [tf.summary.scalar(summary_name, summary)
+  summaries = [tf.compat.v1.summary.scalar(summary_name, summary)
                for summary_name, summary in zip(summaries_names, ppo_summaries)]
-  losses_summary = tf.summary.merge(summaries)
+  losses_summary = tf.compat.v1.summary.merge(summaries)
 
   for summary_name, summary in zip(summaries_names, ppo_summaries):
-    losses_summary = tf.Print(losses_summary, [summary], summary_name + ": ")
+    losses_summary = tf.compat.v1.Print(losses_summary, [summary], summary_name + ": ")
 
   return losses_summary
 
@@ -155,4 +155,4 @@ def calculate_generalized_advantage_estimator(
       [tf.reverse(delta, [0]), tf.reverse(next_not_done, [0])],
       tf.zeros_like(delta[0, :]),
       parallel_iterations=1), [0])
-  return tf.check_numerics(return_, "return")
+  return tf.debugging.check_numerics(return_, "return")

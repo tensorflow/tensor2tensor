@@ -113,7 +113,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
       # should not either way)
       assert hparams.norm_type != "batch"
 
-      tf.logging.info("Applying Padding Remover for the attention experts")
+      tf.compat.v1.logging.info("Applying Padding Remover for the attention experts")
 
       dp_remove_pad = functools.partial(
           dp, remove_pad, pad_remover=pad_remover, mode=hparams.mode)
@@ -125,7 +125,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
       dp_restore_pad = lambda x: x
 
     if hparams.attention_exp_factor != 0:
-      tf.logging.info("Expand/compress tokens before sending them to experts")
+      tf.compat.v1.logging.info("Expand/compress tokens before sending them to experts")
       dp_expand_bc = lambda x: dp(  # pylint: disable=g-long-lambda
           expand_batch_coordinates,
           x,
@@ -151,9 +151,9 @@ class AttentionLmMoe(t2t_model.T2TModel):
       # see the progression of the generation
       if not debug and hparams.mode == ModeKeys.TRAIN:
         return x
-      return tf.Print(x, [tf.shape(x)], "shape_x_{}".format(suffix))
+      return tf.compat.v1.Print(x, [tf.shape(x)], "shape_x_{}".format(suffix))
 
-    with tf.name_scope("batch_coordinate_preprocess"):
+    with tf.compat.v1.name_scope("batch_coordinate_preprocess"):
       batch_coordinate = dp(get_batch_coordinate, x)
       batch_coordinate = dp_remove_pad(batch_coordinate)
       batch_coordinate = dp_expand_bc(batch_coordinate)
@@ -168,7 +168,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
     num_hidden_layers = (
         len(hparams.attention_layers) or hparams.num_hidden_layers)
     for layer in range(num_hidden_layers):
-      with tf.variable_scope("layer_%d" % layer):
+      with tf.compat.v1.variable_scope("layer_%d" % layer):
 
         # Use the layer type defined in attention_layers
         if hparams.attention_layers:
@@ -176,7 +176,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
         else:
           attention_type = hparams.attention_type
 
-        with tf.variable_scope(
+        with tf.compat.v1.variable_scope(
             "attention_{}".format(attention_type)):
           if attention_type in [
               AttentionType.MULTIHEAD, AttentionType.MULTIHEAD_FULL]:
@@ -300,7 +300,7 @@ class AttentionLmMoe(t2t_model.T2TModel):
             raise ValueError("Only {} supported for now.".format(
                 AttentionType.get_choices()))
           x = postprocess(x, y)
-        with tf.variable_scope("ffn"):
+        with tf.compat.v1.variable_scope("ffn"):
           if hparams.memory_efficient_ffn:
             assert hparams.layer_preprocess_sequence == "n"
             y = dp(
@@ -345,7 +345,7 @@ def attention_lm_moe_prepare_decoder(targets, hparams):
     pad_remover (expert_utils.PadRemover): an util object to remove padding
   """
   targets_pad_mask = common_attention.embedding_to_padding(targets)
-  with tf.name_scope("pad_remover"):
+  with tf.compat.v1.name_scope("pad_remover"):
     # Because of the shift_right, the <eos> token will be considered as
     # padding. In practice, it doesn't really matter, due to the triangular
     # mask, this token should never be attended.

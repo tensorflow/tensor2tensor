@@ -178,7 +178,7 @@ def main(_):
     return send_from_directory(FLAGS.static_path, "index.html")
 
   # Run the server.
-  tf.logging.info("############# READY ##################")
+  tf.compat.v1.logging.info("############# READY ##################")
   options = {
       "bind": ":8010",
       "timeout": 600,
@@ -191,4 +191,4 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  tf.compat.v1.app.run()

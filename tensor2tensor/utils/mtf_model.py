@@ -53,7 +53,7 @@ class MtfModel(t2t_model.T2TModel):
     if mode == tf.estimator.ModeKeys.PREDICT and decode_hparams is not None:
       for k, v in six.iteritems(decode_hparams.values()):
         if hasattr(hparams, k) and getattr(hparams, k) != v:
-          tf.logging.warning("Overriding hparams.%s with %s from decode_hparams"
+          tf.compat.v1.logging.warning("Overriding hparams.%s with %s from decode_hparams"
                              % (k, v))
         setattr(hparams, k, v)
 
@@ -67,7 +67,7 @@ class MtfModel(t2t_model.T2TModel):
         data_parallelism=data_parallelism,
         decode_hparams=decode_hparams)
 
-    global_step = tf.train.get_global_step()
+    global_step = tf.compat.v1.train.get_global_step()
 
     mesh_shape = mtf.convert_to_shape(hparams.mesh_shape)
     layout_rules = mtf.convert_to_layout_rules(hparams.layout)
@@ -121,29 +121,29 @@ class MtfModel(t2t_model.T2TModel):
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
     tf_loss = lowering.export_to_tf_tensor(loss)
-    tf_loss = tf.to_float(tf_loss)
+    tf_loss = tf.cast(tf_loss, dtype=tf.float32)
     if logits and mode != tf.estimator.ModeKeys.TRAIN:
       tf_logits = lowering.export_to_tf_tensor(logits)
 
     if mode == tf.estimator.ModeKeys.TRAIN:
       tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-      tf_update_ops.append(tf.assign_add(global_step, 1))
+      tf_update_ops.append(tf.compat.v1.assign_add(global_step, 1))
       # tf.logging.info("tf_update_ops: {}".format(tf_update_ops))
       train_op = tf.group(tf_update_ops)
 
     with mtf.utils.outside_all_rewrites():
       # Copy master variables to slices. Must be called first.
       restore_hook = mtf.MtfRestoreHook(lowering)
-      saver = tf.train.Saver(
-          tf.global_variables(),
+      saver = tf.compat.v1.train.Saver(
+          tf.compat.v1.global_variables(),
           sharded=True,
           max_to_keep=10,
           keep_checkpoint_every_n_hours=2,
           defer_build=False,
           save_relative_paths=True)
-      tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
+      tf.compat.v1.add_to_collection(tf.compat.v1.GraphKeys.SAVERS, saver)
       saver_listener = mtf.MtfCheckpointSaverListener(lowering)
-      saver_hook = tf.train.CheckpointSaverHook(
+      saver_hook = tf.estimator.CheckpointSaverHook(
           hparams.model_dir,
           save_steps=1000,
           saver=saver,
@@ -239,8 +239,8 @@ class MtfModel(t2t_model.T2TModel):
 
 
 def _remove_summaries():
-  g = tf.get_default_graph()
-  key = tf.GraphKeys.SUMMARIES
+  g = tf.compat.v1.get_default_graph()
+  key = tf.compat.v1.GraphKeys.SUMMARIES
   del g.get_collection_ref(key)[:]
   assert not g.get_collection(key)
 
@@ -254,10 +254,10 @@ def _create_host_call(model_dir):
   Returns:
     (fn, args) Pair to be called by TPUEstimator as the host_call.
   """
-  graph = tf.get_default_graph()
-  summaries = graph.get_collection(tf.GraphKeys.SUMMARIES)
+  graph = tf.compat.v1.get_default_graph()
+  summaries = graph.get_collection(tf.compat.v1.GraphKeys.SUMMARIES)
 
-  gs_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
+  gs_t = tf.reshape(tf.cast(tf.compat.v1.train.get_global_step(), dtype=tf.int32), [1])
   summary_kwargs = collections.OrderedDict()
   for t in summaries:
     if t.op.type != "ScalarSummary":
@@ -267,7 +267,7 @@ def _create_host_call(model_dir):
     tensor = t.op.inputs[1]
     assert tensor.shape.is_compatible_with([])
     if tensor.dtype == tf.int64:
-      tensor = tf.to_int32(tensor)
+      tensor = tf.cast(tensor, dtype=tf.int32)
     summary_kwargs[name] = tf.reshape(tensor, [1])
   summary_kwargs["global_step"] = gs_t
 
@@ -281,13 +281,13 @@ def _create_host_call(model_dir):
     Returns:
       List of summary ops to run on the CPU host.
     """
-    gs = tf.to_int64(kwargs.pop("global_step")[0])
-    with tf.contrib.summary.create_file_writer(model_dir).as_default():
-      with tf.contrib.summary.always_record_summaries():
+    gs = tf.cast(kwargs.pop("global_step")[0], dtype=tf.int64)
+    with tf.compat.v2.summary.create_file_writer(logdir=model_dir).as_default():
+      with tf.compat.v2.summary.record_if(True):
         for name, value in sorted(six.iteritems(kwargs)):
-          tf.contrib.summary.scalar(
-              name, tf.reduce_mean(tf.to_float(value)), step=gs)
+          tf.compat.v2.summary.scalar(
+              name=name, data=tf.reduce_mean(tf.cast(value, dtype=tf.float32)), step=gs)
 
-        return tf.contrib.summary.all_summary_ops()
+        return tf.compat.v1.summary.all_v2_summary_ops()
 
   return (host_call_fn, summary_kwargs)

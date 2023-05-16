@@ -31,7 +31,7 @@ class GymProblemsTest(tf.test.TestCase):
 
   @classmethod
   def setUpClass(cls):
-    cls.tmp_dir = tf.test.get_temp_dir()
+    cls.tmp_dir = tf.compat.v1.test.get_temp_dir()
     shutil.rmtree(cls.tmp_dir)
     os.mkdir(cls.tmp_dir)
 

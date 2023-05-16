@@ -65,60 +65,60 @@ def van_image_enc_2d(x, first_depth, reuse=False, hparams=None):
   Returns:
     The encoded image.
   """
-  with tf.variable_scope('van_image_enc', reuse=reuse):
+  with tf.compat.v1.variable_scope('van_image_enc', reuse=reuse):
     enc_history = [x]
 
-    enc = tf.layers.conv2d(
+    enc = tf.compat.v1.layers.conv2d(
         x, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
     enc = tf.contrib.layers.layer_norm(enc)
-    enc = tf.layers.conv2d(
+    enc = tf.compat.v1.layers.conv2d(
         enc, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
-    enc = tf.nn.max_pool(enc, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME')
-    enc = tf.nn.dropout(enc, hparams.van_keep_prob)
+    enc = tf.nn.max_pool2d(input=enc, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+    enc = tf.nn.dropout(enc, rate=1 - (hparams.van_keep_prob))
     enc = tf.contrib.layers.layer_norm(enc)
     enc_history.append(enc)
 
-    enc = tf.layers.conv2d(
+    enc = tf.compat.v1.layers.conv2d(
         enc,
         first_depth * 2,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    enc = tf.layers.conv2d(
+    enc = tf.compat.v1.layers.conv2d(
         enc,
         first_depth * 2,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    enc = tf.nn.max_pool(enc, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME')
-    enc = tf.nn.dropout(enc, hparams.van_keep_prob)
+    enc = tf.nn.max_pool2d(input=enc, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+    enc = tf.nn.dropout(enc, rate=1 - (hparams.van_keep_prob))
     enc = tf.contrib.layers.layer_norm(enc)
     enc_history.append(enc)
 
-    enc = tf.layers.conv2d(
+    enc = tf.compat.v1.layers.conv2d(
         enc,
         first_depth * 4,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    enc = tf.layers.conv2d(
+    enc = tf.compat.v1.layers.conv2d(
         enc,
         first_depth * 4,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    enc = tf.layers.conv2d(
+    enc = tf.compat.v1.layers.conv2d(
         enc,
         first_depth * 4,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    enc = tf.nn.max_pool(enc, [1, 2, 2, 1], [1, 2, 2, 1], 'SAME')
+    enc = tf.nn.max_pool2d(input=enc, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
     return enc, enc_history
 
@@ -137,20 +137,20 @@ def van_enc_2d(x, first_depth, reuse=False):
   Returns:
     The encoded image.
   """
-  with tf.variable_scope('van_enc', reuse=reuse):
+  with tf.compat.v1.variable_scope('van_enc', reuse=reuse):
     a = 4  # depends on the inputs size
     b = 4
     # a, b = 4,4
     enc = tf.nn.relu(x)
-    enc = tf.layers.dense(enc, first_depth * a * b, tf.nn.relu)
+    enc = tf.compat.v1.layers.dense(enc, first_depth * a * b, tf.nn.relu)
     enc = tf.contrib.layers.layer_norm(enc)
 
     enc = tf.reshape(enc, [-1, a, b, first_depth])
 
-    enc = tf.layers.conv2d_transpose(
+    enc = tf.compat.v1.layers.conv2d_transpose(
         enc, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
     enc = tf.contrib.layers.layer_norm(enc)
-    enc = tf.layers.conv2d_transpose(
+    enc = tf.compat.v1.layers.conv2d_transpose(
         enc,
         first_depth * 2,
         3,
@@ -159,7 +159,7 @@ def van_enc_2d(x, first_depth, reuse=False):
         strides=2)
     van_higher_level_2 = tf.reshape(enc, [-1, a * 2 * b * 2 * first_depth * 2])
 
-    enc = tf.layers.conv2d_transpose(
+    enc = tf.compat.v1.layers.conv2d_transpose(
         enc,
         first_depth * 2,
         3,
@@ -167,7 +167,7 @@ def van_enc_2d(x, first_depth, reuse=False):
         activation=tf.nn.relu,
         strides=1)
     enc = tf.contrib.layers.layer_norm(enc)
-    enc = tf.layers.conv2d_transpose(
+    enc = tf.compat.v1.layers.conv2d_transpose(
         enc,
         first_depth * 4,
         3,
@@ -194,52 +194,52 @@ def van_dec_2d(x, skip_connections, output_shape, first_depth, hparams=None):
   Returns:
     The decoded image prediction.
   """
-  with tf.variable_scope('van_dec'):
-    dec = tf.layers.conv2d_transpose(
+  with tf.compat.v1.variable_scope('van_dec'):
+    dec = tf.compat.v1.layers.conv2d_transpose(
         x, first_depth * 4, 3, padding='same', activation=tf.nn.relu, strides=2)
-    dec = tf.nn.dropout(dec, hparams.van_keep_prob)
+    dec = tf.nn.dropout(dec, rate=1 - (hparams.van_keep_prob))
     dec = tf.contrib.layers.layer_norm(dec)
-    dec = tf.layers.conv2d_transpose(
+    dec = tf.compat.v1.layers.conv2d_transpose(
         dec,
         first_depth * 4,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    dec = tf.nn.dropout(dec, hparams.van_keep_prob)
-    dec = tf.layers.conv2d_transpose(
+    dec = tf.nn.dropout(dec, rate=1 - (hparams.van_keep_prob))
+    dec = tf.compat.v1.layers.conv2d_transpose(
         dec,
         first_depth * 2,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    dec = tf.nn.dropout(dec, hparams.van_keep_prob)
+    dec = tf.nn.dropout(dec, rate=1 - (hparams.van_keep_prob))
     dec = tf.contrib.layers.layer_norm(dec)
 
-    dec = tf.layers.conv2d_transpose(
+    dec = tf.compat.v1.layers.conv2d_transpose(
         dec,
         first_depth * 2,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=2)
-    dec = tf.nn.dropout(dec, hparams.van_keep_prob)
-    dec = tf.layers.conv2d_transpose(
+    dec = tf.nn.dropout(dec, rate=1 - (hparams.van_keep_prob))
+    dec = tf.compat.v1.layers.conv2d_transpose(
         dec, first_depth, 3, padding='same', activation=tf.nn.relu, strides=1)
-    dec = tf.nn.dropout(dec, hparams.van_keep_prob)
+    dec = tf.nn.dropout(dec, rate=1 - (hparams.van_keep_prob))
     dec = tf.contrib.layers.layer_norm(dec)
 
-    dec = tf.layers.conv2d_transpose(
+    dec = tf.compat.v1.layers.conv2d_transpose(
         dec,
         output_shape[3] + 1,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=2)
-    dec = tf.nn.dropout(dec, hparams.van_keep_prob)
+    dec = tf.nn.dropout(dec, rate=1 - (hparams.van_keep_prob))
 
-    out_mask = tf.layers.conv2d_transpose(
+    out_mask = tf.compat.v1.layers.conv2d_transpose(
         dec, output_shape[3] + 1, 3, strides=1, padding='same', activation=None)
 
     mask = tf.nn.sigmoid(out_mask[:, :, :, 3:4])
@@ -253,18 +253,18 @@ def analogy_computation_2d(f_first_enc,
                            f_current_enc,
                            first_depth):
   """Implements the deep analogy computation."""
-  with tf.variable_scope('analogy_computation'):
+  with tf.compat.v1.variable_scope('analogy_computation'):
 
     frame_enc_diff = f_first_frame - f_first_enc
 
-    frame_enc_diff_enc = tf.layers.conv2d(
+    frame_enc_diff_enc = tf.compat.v1.layers.conv2d(
         frame_enc_diff,
         first_depth * 4,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    f_current_enc_enc = tf.layers.conv2d(
+    f_current_enc_enc = tf.compat.v1.layers.conv2d(
         f_current_enc,
         first_depth * 4,
         3,
@@ -273,7 +273,7 @@ def analogy_computation_2d(f_first_enc,
         strides=1)
 
     analogy = tf.concat([frame_enc_diff_enc, f_current_enc_enc], 3)
-    analogy = tf.layers.conv2d(
+    analogy = tf.compat.v1.layers.conv2d(
         analogy,
         first_depth * 4,
         3,
@@ -281,14 +281,14 @@ def analogy_computation_2d(f_first_enc,
         activation=tf.nn.relu,
         strides=1)
     analogy = tf.contrib.layers.layer_norm(analogy)
-    analogy = tf.layers.conv2d(
+    analogy = tf.compat.v1.layers.conv2d(
         analogy,
         first_depth * 4,
         3,
         padding='same',
         activation=tf.nn.relu,
         strides=1)
-    return tf.layers.conv2d(
+    return tf.compat.v1.layers.conv2d(
         analogy,
         first_depth * 4,
         3,
@@ -318,7 +318,7 @@ def van(first_enc,
   Returns:
     The generated image.
   """
-  with tf.variable_scope(scope_prefix + 'van', reuse=reuse):
+  with tf.compat.v1.variable_scope(scope_prefix + 'van', reuse=reuse):
     output_shape = first_frame.get_shape().as_list()
     output_shape[0] = -1
 
@@ -339,7 +339,7 @@ def van(first_enc,
     img = van_dec_2d(
         enc_img, image_enc_history, output_shape, first_depth, hparams=hparams)
 
-    batch_size = tf.to_float(tf.shape(first_enc)[0])
+    batch_size = tf.cast(tf.shape(first_enc)[0], dtype=tf.float32)
     r_loss = tf.nn.l2_loss(f_gt_image - f_current_enc - analogy_t) / batch_size
 
     return img, r_loss, van_higher_level
@@ -362,7 +362,7 @@ def encoder_vgg(x, enc_final_size, reuse=False, scope_prefix='', hparams=None,
   Returns:
     The generated image.
   """
-  with tf.variable_scope(scope_prefix + 'encoder', reuse=reuse):
+  with tf.compat.v1.variable_scope(scope_prefix + 'encoder', reuse=reuse):
 
     # Preprocess input
     x *= 256
@@ -387,12 +387,12 @@ def encoder_vgg(x, enc_final_size, reuse=False, scope_prefix='', hparams=None,
     enc_size = enc_shape[1] * enc_shape[2] * enc_shape[3]
 
     enc_flat = tf.reshape(enc, (-1, enc_size))
-    enc_flat = tf.nn.dropout(enc_flat, hparams.enc_keep_prob)
+    enc_flat = tf.nn.dropout(enc_flat, rate=1 - (hparams.enc_keep_prob))
 
-    enc_flat = tf.layers.dense(
+    enc_flat = tf.compat.v1.layers.dense(
         enc_flat,
         enc_final_size,
-        kernel_initializer=tf.truncated_normal_initializer(stddev=1e-4,))
+        kernel_initializer=tf.compat.v1.truncated_normal_initializer(stddev=1e-4,))
 
     if hparams.enc_pred_use_l2norm:
       enc_flat = tf.nn.l2_normalize(enc_flat, 1)
@@ -408,7 +408,7 @@ def predictor(enc_flat,
               scope_prefix='',
               hparams=None):
   """LSTM predictor network."""
-  with tf.variable_scope(scope_prefix + 'predict', reuse=reuse):
+  with tf.compat.v1.variable_scope(scope_prefix + 'predict', reuse=reuse):
 
     enc_final_size = enc_flat.get_shape().as_list()[1]
     action_size = action.get_shape().as_list()[1]
@@ -419,20 +419,20 @@ def predictor(enc_flat,
     init_stddev = 1e-2
 
     pre_pred = tf.concat([enc_flat, action], 1)
-    pre_pred = tf.layers.dense(
+    pre_pred = tf.compat.v1.layers.dense(
         pre_pred,
         initial_size,
-        kernel_initializer=tf.truncated_normal_initializer(stddev=init_stddev))
+        kernel_initializer=tf.compat.v1.truncated_normal_initializer(stddev=init_stddev))
 
     # This is only needed or the GAN version.
     if hparams.pred_noise_std > 0:
       # Add the noise like this so a pretrained model can be used.
-      pred_noise = tf.random_normal(
+      pred_noise = tf.random.normal(
           shape=[batch_size, 100], stddev=hparams.pred_noise_std)
-      pre_pred += tf.layers.dense(
+      pre_pred += tf.compat.v1.layers.dense(
           pred_noise,
           initial_size,
-          kernel_initializer=tf.truncated_normal_initializer(
+          kernel_initializer=tf.compat.v1.truncated_normal_initializer(
               stddev=init_stddev),
           name='noise_dense')
 
@@ -440,10 +440,10 @@ def predictor(enc_flat,
 
     if lstm_states[pred_depth - 2] is None:
       back_connect = tf.tile(
-          tf.get_variable(
+          tf.compat.v1.get_variable(
               'back_connect_init',
               shape=[1, initial_size * 2],
-              initializer=tf.truncated_normal_initializer(stddev=init_stddev))
+              initializer=tf.compat.v1.truncated_normal_initializer(stddev=init_stddev))
           , (batch_size, 1))
     else:
       back_connect = lstm_states[pred_depth - 2]
@@ -455,7 +455,7 @@ def predictor(enc_flat,
         lstm_states[0],
         initial_size,
         use_peepholes=True,
-        initializer=tf.truncated_normal_initializer(stddev=lstm_init_stddev),
+        initializer=tf.compat.v1.truncated_normal_initializer(stddev=lstm_init_stddev),
         num_proj=initial_size)
     part_pred = tf.contrib.layers.layer_norm(part_pred)
     pred = part_pred
@@ -466,7 +466,7 @@ def predictor(enc_flat,
           lstm_states[pred_layer_num],
           initial_size,
           use_peepholes=True,
-          initializer=tf.truncated_normal_initializer(stddev=lstm_init_stddev),
+          initializer=tf.compat.v1.truncated_normal_initializer(stddev=lstm_init_stddev),
           num_proj=initial_size)
       pred += part_pred
 
@@ -475,15 +475,15 @@ def predictor(enc_flat,
           lstm_states[pred_layer_num + 1],
           initial_size,
           use_peepholes=True,
-          initializer=tf.truncated_normal_initializer(stddev=lstm_init_stddev),
+          initializer=tf.compat.v1.truncated_normal_initializer(stddev=lstm_init_stddev),
           num_proj=initial_size)
       part_pred = tf.contrib.layers.layer_norm(part_pred)
       pred += part_pred
 
-    pred = tf.layers.dense(
+    pred = tf.compat.v1.layers.dense(
         pred,
         enc_final_size,
-        kernel_initializer=tf.truncated_normal_initializer(stddev=init_stddev))
+        kernel_initializer=tf.compat.v1.truncated_normal_initializer(stddev=init_stddev))
 
     if hparams.enc_pred_use_l2norm:
       pred = tf.nn.l2_normalize(pred, 1)
@@ -517,7 +517,7 @@ def construct_model(images,
   for timestep, action in zip(range(len(actions) - 1), actions[:-1]):
     done_warm_start = timestep > context_frames - 1
 
-    with tf.variable_scope('timestep', reuse=reuse):
+    with tf.compat.v1.variable_scope('timestep', reuse=reuse):
       if done_warm_start:
         pred_input = pred_out_all[-1]
       else:
@@ -526,17 +526,17 @@ def construct_model(images,
           pred_input, action, lstm_states, pred_depth, False, hparams=hparams)
       pred_out = tf.identity(pred_out, 'pred_out')
       if timestep % sum_freq == 0:  # and not hparams.use_tpu:
-        tf.summary.histogram('pred_out', pred_out)
+        tf.compat.v1.summary.histogram('pred_out', pred_out)
       pred_out_all.append(pred_out)
 
       if timestep % sum_freq == 0:  # and not hparams.use_tpu:
-        tf.summary.histogram('lstm_state', lstm_states[0])
+        tf.compat.v1.summary.histogram('lstm_state', lstm_states[0])
       van_out, _, _ = van(
           enc_out_all[0],
           images[0],
           pred_out,
           images[timestep + 1],
-          tf.AUTO_REUSE,
+          tf.compat.v1.AUTO_REUSE,
           hparams=hparams)
       van_out = tf.identity(van_out, 'van_out')
       van_out_all.append(van_out)
@@ -546,19 +546,19 @@ def construct_model(images,
           is_training=is_training)
       enc_out = tf.identity(enc_out, 'enc_out')
       if timestep % sum_freq == 0:  # and not hparams.use_tpu:
-        tf.summary.histogram('enc_out', enc_out)
+        tf.compat.v1.summary.histogram('enc_out', enc_out)
       enc_out_all.append(enc_out)
 
       van_input = images[0]
       enc_noise = tf.zeros_like(enc_out)
       if timestep % sum_freq == 0:  # and not hparams.use_tpu:
-        tf.summary.histogram('enc_noise', enc_noise)
+        tf.compat.v1.summary.histogram('enc_noise', enc_noise)
       van_on_enc, _, _ = van(
           enc_out_all[0],
           van_input,
           enc_out + enc_noise,
           images[timestep + 1],
-          tf.AUTO_REUSE,
+          tf.compat.v1.AUTO_REUSE,
           hparams=hparams)
       van_on_enc = tf.identity(van_on_enc, 'van_on_enc')
       van_on_enc_all.append(van_on_enc)
@@ -577,7 +577,7 @@ def peak_signal_to_noise_ratio(true, pred):
   Returns:
     peak signal to noise ratio (PSNR)
   """
-  return 10.0 * tf.log(1.0 / mean_squared_error(true, pred)) / tf.log(10.0)
+  return 10.0 * tf.math.log(1.0 / mean_squared_error(true, pred)) / tf.math.log(10.0)
 
 
 def mean_squared_error(true, pred):
@@ -589,19 +589,19 @@ def mean_squared_error(true, pred):
   Returns:
     mean squared error between ground truth and predicted image.
   """
-  result = tf.reduce_sum(tf.square(true - pred)) / tf.to_float(tf.size(pred))
+  result = tf.reduce_sum(tf.square(true - pred)) / tf.cast(tf.size(pred), dtype=tf.float32)
   return result
 
 
 def l1_error(true, pred):
   """L1 distance between tensors true and pred."""
-  return tf.reduce_sum(tf.abs(true - pred)) / tf.to_float(tf.size(pred))
+  return tf.reduce_sum(tf.abs(true - pred)) / tf.cast(tf.size(pred), dtype=tf.float32)
 
 
 def calc_loss_psnr(gen_images, images, name, hparams=None, use_l1_loss=False):
   """Calculates loss and psnr for predictions over multiple timesteps."""
   del hparams
-  with tf.name_scope(name):
+  with tf.compat.v1.name_scope(name):
     loss, error, psnr_all = 0.0, 0.0, 0.0
     for _, x, gx in zip(range(len(gen_images)), images, gen_images):
       recon_cost = mean_squared_error(x, gx)
@@ -614,13 +614,13 @@ def calc_loss_psnr(gen_images, images, name, hparams=None, use_l1_loss=False):
       error += error_i
       loss += recon_cost
 
-    psnr_all /= tf.to_float(len(gen_images))
-    loss /= tf.to_float(len(gen_images))
-    error /= tf.to_float(len(gen_images))
+    psnr_all /= tf.cast(len(gen_images), dtype=tf.float32)
+    loss /= tf.cast(len(gen_images), dtype=tf.float32)
+    error /= tf.cast(len(gen_images), dtype=tf.float32)
 
     # if not hparams.use_tpu:
-    tf.summary.scalar('psnr_all', psnr_all)
-    tf.summary.scalar('loss', loss)
+    tf.compat.v1.summary.scalar('psnr_all', psnr_all)
+    tf.compat.v1.summary.scalar('loss', loss)
 
     return loss, psnr_all
 
@@ -636,7 +636,7 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
 
     # Swap time and batch axes.
     input_frames = common_video.swap_time_and_batch_axes(
-        tf.to_float(features['inputs']))
+        tf.cast(features['inputs'], dtype=tf.float32))
     target_frames = common_video.swap_time_and_batch_axes(features['targets'])
 
     # Get actions if exist otherwise use zeros
@@ -662,7 +662,7 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
 
     # TODO(blazej) - most likely this downsize is too strong.
     all_frames = [
-        tf.image.resize_images(
+        tf.image.resize(
             image, (IMG_HEIGHT, IMG_WIDTH),
             method=tf.image.ResizeMethod.BICUBIC)
         for image in all_frames
@@ -690,12 +690,12 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
 
     enc_pred_loss_scale_delay = max(hparams.enc_pred_loss_scale_delay, 1)
     enc_pred_loss_scale = tf.nn.sigmoid(
-        (tf.to_float(tf.train.get_or_create_global_step()
+        (tf.cast(tf.compat.v1.train.get_or_create_global_step(), dtype=tf.float32
                     ) - enc_pred_loss_scale_delay) /
         (enc_pred_loss_scale_delay * .1)) * hparams.enc_pred_loss_scale
-    tf.summary.scalar('enc_pred_loss_scale', enc_pred_loss_scale)
+    tf.compat.v1.summary.scalar('enc_pred_loss_scale', enc_pred_loss_scale)
     epva_loss = enc_pred_loss * enc_pred_loss_scale + van_on_enc_loss
-    tf.summary.scalar('epva_loss', epva_loss)
+    tf.compat.v1.summary.scalar('epva_loss', epva_loss)
 
     predictions = tf.stack(van_on_enc_all)
 
@@ -709,7 +709,7 @@ class NextFrameEpva(sv2p.NextFrameSv2pLegacy):
     frames_gd = fix_video_dims_and_concat_on_x_axis(target_frames)
     frames_pd = fix_video_dims_and_concat_on_x_axis(predictions)
     side_by_side_video = tf.concat([frames_gd, frames_pd], axis=1)
-    tf.summary.image('full_video', side_by_side_video)
+    tf.compat.v1.summary.image('full_video', side_by_side_video)
 
     predictions = common_video.swap_time_and_batch_axes(predictions)
     predictions = tf.slice(predictions,

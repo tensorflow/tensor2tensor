@@ -47,7 +47,7 @@ class SliceNetTest(tf.test.TestCase):
       model = slicenet.SliceNet(hparams, tf.estimator.ModeKeys.TRAIN,
                                 p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 1, 1, 1, 10))
 

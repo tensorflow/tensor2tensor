@@ -188,7 +188,7 @@ class InitialFrameChooser(object):
   def batch_size(self, batch_size):
     self._batch_size = batch_size
     self._iterator = \
-        self._create_initial_frame_dataset().make_initializable_iterator()
+        tf.compat.v1.data.make_initializable_iterator(self._create_initial_frame_dataset())
 
     def fix_and_shorten(shape):
       shape = shape.as_list()
@@ -219,7 +219,7 @@ class InitialFrameChooser(object):
       ordered_dataset = self._create_dataset(shuffle_files=False)
       # Later flip the first random frame in PPO batch for the true beginning.
       self._start_frames = self._extract_input(
-          ordered_dataset.make_one_shot_iterator().get_next()
+          tf.compat.v1.data.make_one_shot_iterator(ordered_dataset).get_next()
       )
 
     all_frames = self._extract_input(self._iterator.get_next())
@@ -232,7 +232,7 @@ class InitialFrameChooser(object):
           for (key, value) in six.iteritems(all_frames)
       }
     scatter_ops = [
-        tf.scatter_update(
+        tf.compat.v1.scatter_update(
             self.trajectory[key], tf.range(tf.shape(value)[0]),
             value[:, (self._num_initial_frames - 1):, ...]
         )

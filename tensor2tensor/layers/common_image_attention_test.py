@@ -41,7 +41,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
         mode=tf.estimator.ModeKeys.TRAIN,
         num_mixtures=num_mixtures,
     )
-    inputs = tf.random_uniform([batch, rows, cols, hparams.hidden_size],
+    inputs = tf.random.uniform([batch, rows, cols, hparams.hidden_size],
                                minval=-1., maxval=1.)
     outputs = common_image_attention.postprocess_image(
         inputs, rows, cols, hparams)
@@ -65,7 +65,7 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
         num_mixtures=num_mixtures,
         query_shape=[block_length, block_width],
     )
-    inputs = tf.random_uniform([batch, rows, cols, hparams.hidden_size],
+    inputs = tf.random.uniform([batch, rows, cols, hparams.hidden_size],
                                minval=-1., maxval=1.)
     outputs = common_image_attention.postprocess_image(
         inputs, rows, cols, hparams)
@@ -95,8 +95,8 @@ class CommonImageAttentionTest(parameterized.TestCase, tf.test.TestCase):
         mode=tf.estimator.ModeKeys.TRAIN,
         num_mixtures=num_mixtures,
     )
-    decoder_output = tf.random_normal([batch, rows, cols, hparams.hidden_size])
-    targets = tf.random_uniform([batch, height, width, channels],
+    decoder_output = tf.random.normal([batch, rows, cols, hparams.hidden_size])
+    targets = tf.random.uniform([batch, height, width, channels],
                                 minval=-1., maxval=1.)
     output = common_image_attention.create_output(
         decoder_output, rows, cols, targets, hparams)

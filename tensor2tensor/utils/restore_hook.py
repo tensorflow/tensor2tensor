@@ -24,7 +24,7 @@ import six
 import tensorflow as tf
 
 
-class RestoreHook(tf.train.SessionRunHook):
+class RestoreHook(tf.estimator.SessionRunHook):
   """Restore variables from a checkpoint path."""
 
   def __init__(self, checkpoint_path="", new_model_scope="", old_model_scope="",
@@ -56,6 +56,6 @@ class RestoreHook(tf.train.SessionRunHook):
                       if name.startswith(self._old_model_scope)}
     self._assignment_map = assignment_map
 
-    tf.logging.info("restoring %d variables from checkpoint %s"%(
+    tf.compat.v1.logging.info("restoring %d variables from checkpoint %s"%(
         len(assignment_map), self._checkpoint_path))
-    tf.train.init_from_checkpoint(self._checkpoint_path, self._assignment_map)
+    tf.compat.v1.train.init_from_checkpoint(self._checkpoint_path, self._assignment_map)

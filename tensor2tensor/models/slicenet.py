@@ -82,7 +82,7 @@ def attention(targets_shifted, inputs_encoded, norm_fn, hparams, bias=None):
 
 def multi_conv_res(x, padding, name, layers, hparams, mask=None, source=None):
   """A stack of separable convolution blocks with residual connections."""
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     padding_bias = None
     if mask is not None:
       padding_bias = (1.0 - mask) * -1e9  # Bias to not attend to padding.
@@ -110,12 +110,12 @@ def multi_conv_res(x, padding, name, layers, hparams, mask=None, source=None):
       ]
 
     def norm_fn(x, name):
-      with tf.variable_scope(name, default_name="norm"):
+      with tf.compat.v1.variable_scope(name, default_name="norm"):
         return common_layers.apply_norm(
             x, hparams.norm_type, hparams.hidden_size, hparams.norm_epsilon)
 
     for layer in range(layers):
-      with tf.variable_scope("layer_%d" % layer):
+      with tf.compat.v1.variable_scope("layer_%d" % layer):
         y = common_layers.subseparable_conv_block(
             x,
             hparams.hidden_size,
@@ -138,18 +138,18 @@ def multi_conv_res(x, padding, name, layers, hparams, mask=None, source=None):
           x += attention(x, source, norm_fn, hparams, bias=padding_bias)
         if mask is not None:
           x *= mask
-    return tf.nn.dropout(x, 1.0 - hparams.dropout)
+    return tf.nn.dropout(x, rate=1 - (1.0 - hparams.dropout))
 
 
 def rank_loss(sentence_emb, image_emb, margin=0.2):
   """Experimental rank loss, thanks to kkurach@ for the code."""
-  with tf.name_scope("rank_loss"):
+  with tf.compat.v1.name_scope("rank_loss"):
     # Normalize first as this is assumed in cosine similarity later.
     sentence_emb = tf.nn.l2_normalize(sentence_emb, 1)
     image_emb = tf.nn.l2_normalize(image_emb, 1)
     # Both sentence_emb and image_emb have size [batch, depth].
     scores = tf.matmul(image_emb, tf.transpose(sentence_emb))  # [batch, batch]
-    diagonal = tf.diag_part(scores)  # [batch]
+    diagonal = tf.linalg.tensor_diag_part(scores)  # [batch]
     cost_s = tf.maximum(0.0, margin - diagonal + scores)  # [batch, batch]
     cost_im = tf.maximum(
         0.0, margin - tf.reshape(diagonal, [-1, 1]) + scores)  # [batch, batch]
@@ -175,7 +175,7 @@ def slicenet_middle(inputs_encoded, targets, target_space_emb, mask, hparams):
   """Middle part of slicenet, connecting encoder and decoder."""
 
   def norm_fn(x, name):
-    with tf.variable_scope(name, default_name="norm"):
+    with tf.compat.v1.variable_scope(name, default_name="norm"):
       return common_layers.apply_norm(x, hparams.norm_type, hparams.hidden_size,
                                       hparams.norm_epsilon)
 
@@ -219,13 +219,13 @@ def embed_target_space(target_space_id, hidden_size):
 
 def embedding_to_padding(emb):
   """Input embeddings -> is_padding."""
-  emb_sum = tf.reduce_sum(tf.abs(emb), axis=-1, keep_dims=True)
-  return tf.to_float(tf.equal(emb_sum, 0.0))
+  emb_sum = tf.reduce_sum(tf.abs(emb), axis=-1, keepdims=True)
+  return tf.cast(tf.equal(emb_sum, 0.0), dtype=tf.float32)
 
 
 def slicenet_internal(inputs, targets, target_space, hparams, run_decoder=True):
   """The slicenet model, main step used for training."""
-  with tf.variable_scope("slicenet"):
+  with tf.compat.v1.variable_scope("slicenet"):
     # Project to hidden size if necessary
     if inputs.get_shape().as_list()[-1] != hparams.hidden_size:
       inputs = common_layers.conv_block(

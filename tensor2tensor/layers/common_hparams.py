@@ -320,7 +320,7 @@ class RangedHParams(object):
     """Check if name is in orig_ctr or in one of the other type containers."""
     # Resetting a hyperparameter
     if name in orig_ctr:
-      tf.logging.warning("Overwriting hparam %s", name)
+      tf.compat.v1.logging.warning("Overwriting hparam %s", name)
 
     ctr_names = [
         (self._categorical_params, "categorical"),

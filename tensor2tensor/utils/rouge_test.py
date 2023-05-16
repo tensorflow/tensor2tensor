@@ -92,7 +92,7 @@ class TestRougeMetricsE2E(tf.test.TestCase):
       scores, _ = rouge.rouge_2_fscore(predictions,
                                        tf.constant(targets, dtype=tf.int32))
       a = tf.reduce_mean(scores)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       session.run(a)
 
   def testRougeLMetricE2E(self):
@@ -109,7 +109,7 @@ class TestRougeMetricsE2E(tf.test.TestCase):
           predictions,
           tf.constant(targets, dtype=tf.int32))
       a = tf.reduce_mean(scores)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       session.run(a)
 
 

@@ -38,7 +38,7 @@ def swap_time_and_batch_axes(inputs):
 
 def encode_to_shape(inputs, shape, scope):
   """Encode the given tensor to given image shape."""
-  with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+  with tf.compat.v1.variable_scope(scope, reuse=tf.compat.v1.AUTO_REUSE):
     w, h = shape[1], shape[2]
     x = inputs
     x = tf.contrib.layers.flatten(x)
@@ -49,7 +49,7 @@ def encode_to_shape(inputs, shape, scope):
 
 def decode_to_shape(inputs, shape, scope):
   """Encode the given tensor to given image shape."""
-  with tf.variable_scope(scope, reuse=tf.AUTO_REUSE):
+  with tf.compat.v1.variable_scope(scope, reuse=tf.compat.v1.AUTO_REUSE):
     x = inputs
     x = tf.contrib.layers.flatten(x)
     x = tfl.dense(x, shape[2], activation=None, name="dec_dense")
@@ -60,7 +60,7 @@ def decode_to_shape(inputs, shape, scope):
 def basic_lstm(inputs, state, num_units, name=None):
   """Basic LSTM."""
   input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.BasicLSTMCell(num_units, name=name)
+  cell = tf.compat.v1.nn.rnn_cell.BasicLSTMCell(num_units, name=name)
   if state is None:
     state = cell.zero_state(input_shape[0], tf.float32)
   outputs, new_state = cell(inputs, state)
@@ -80,7 +80,7 @@ def lstm_cell(inputs,
               name=None):
   """Full LSTM cell."""
   input_shape = common_layers.shape_list(inputs)
-  cell = tf.contrib.rnn.LSTMCell(num_units,
+  cell = tf.compat.v1.nn.rnn_cell.LSTMCell(num_units,
                                  use_peepholes=use_peepholes,
                                  cell_clip=cell_clip,
                                  initializer=initializer,
@@ -131,7 +131,7 @@ def scheduled_sample_count(ground_truth_x,
     from generated_x.
   """
   num_ground_truth = scheduled_sample_var
-  idx = tf.random_shuffle(tf.range(batch_size))
+  idx = tf.random.shuffle(tf.range(batch_size))
   ground_truth_idx = tf.gather(idx, tf.range(num_ground_truth))
   generated_idx = tf.gather(idx, tf.range(num_ground_truth, batch_size))
 
@@ -173,15 +173,15 @@ def inject_additional_input(layer, inputs, name, mode="concat"):
   elif mode == "multiplicative":
     filters = layer_shape[-1]
     input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
-    input_mask = tf.layers.dense(input_reshaped, filters, name=name)
+    input_mask = tf.compat.v1.layers.dense(input_reshaped, filters, name=name)
     input_broad = input_mask + zeros_mask
     layer *= input_broad
   elif mode == "multi_additive":
     filters = layer_shape[-1]
     input_reshaped = tf.reshape(inputs, [-1, 1, 1, input_shape[-1]])
-    input_mul = tf.layers.dense(input_reshaped, filters, name=name + "_mul")
+    input_mul = tf.compat.v1.layers.dense(input_reshaped, filters, name=name + "_mul")
     layer *= tf.nn.sigmoid(input_mul)
-    input_add = tf.layers.dense(input_reshaped, filters, name=name + "_add")
+    input_add = tf.compat.v1.layers.dense(input_reshaped, filters, name=name + "_add")
     layer += input_add
   else:
     raise ValueError("Unknown injection mode: %s" % mode)
@@ -204,8 +204,8 @@ def scheduled_sample_prob(ground_truth_x,
     New batch with randomly selected data points.
   """
   probability_threshold = scheduled_sample_var
-  probability_of_generated = tf.random_uniform([batch_size])
-  array_ind = tf.to_int32(probability_of_generated > probability_threshold)
+  probability_of_generated = tf.random.uniform([batch_size])
+  array_ind = tf.cast(probability_of_generated > probability_threshold, dtype=tf.int32)
   indices = tf.range(batch_size) + array_ind * batch_size
   xy = tf.concat([ground_truth_x, generated_x], axis=0)
   output = tf.gather(xy, indices)
@@ -240,8 +240,8 @@ def dna_transformation(prev_image, dna_input, dna_kernel_size, relu_shift):
   # Normalize channels to 1.
   kernel = tf.nn.relu(dna_input - relu_shift) + relu_shift
   kernel = tf.expand_dims(
-      kernel / tf.reduce_sum(kernel, [3], keep_dims=True), [4])
-  return tf.reduce_sum(kernel * inputs, [3], keep_dims=False)
+      kernel / tf.reduce_sum(kernel, [3], keepdims=True), [4])
+  return tf.reduce_sum(kernel * inputs, [3], keepdims=False)
 
 
 def cdna_transformation(prev_image, cdna_input, num_masks, color_channels,
@@ -272,7 +272,7 @@ def cdna_transformation(prev_image, cdna_input, num_masks, color_channels,
   cdna_kerns = tf.reshape(
       cdna_kerns, [batch_size, dna_kernel_size, dna_kernel_size, 1, num_masks])
   cdna_kerns = (tf.nn.relu(cdna_kerns - relu_shift) + relu_shift)
-  norm_factor = tf.reduce_sum(cdna_kerns, [1, 2, 3], keep_dims=True)
+  norm_factor = tf.reduce_sum(cdna_kerns, [1, 2, 3], keepdims=True)
   cdna_kerns /= norm_factor
 
   # Treat the color channel dimension as the batch dimension since the same
@@ -317,7 +317,7 @@ def vgg_layer(inputs,
   Returns:
     net: output of layer
   """
-  with tf.variable_scope(scope):
+  with tf.compat.v1.variable_scope(scope):
     net = tfl.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
                      activation=None, name="conv")
     net = tfl.batch_normalization(net, training=is_training, name="bn")
@@ -398,18 +398,18 @@ def py_gif_summary(tag, images, max_outputs, fps, return_summary_value=False):
   if channels not in (1, 3):
     raise ValueError("Tensors must have 1 or 3 channels for gif summary.")
 
-  summ = tf.Summary()
+  summ = tf.compat.v1.Summary()
   all_summ_values = []
   num_outputs = min(batch_size, max_outputs)
   for i in range(num_outputs):
-    image_summ = tf.Summary.Image()
+    image_summ = tf.compat.v1.Summary.Image()
     image_summ.height = height
     image_summ.width = width
     image_summ.colorspace = channels  # 1: grayscale, 3: RGB
     try:
       image_summ.encoded_image_string = _encode_gif(images[i], fps)
     except (IOError, OSError) as e:
-      tf.logging.warning(
+      tf.compat.v1.logging.warning(
           "Unable to encode images to a gif string because either ffmpeg is "
           "not installed or ffmpeg returned an error: %s. Falling back to an "
           "image summary of the first frame in the sequence.", e)
@@ -420,14 +420,14 @@ def py_gif_summary(tag, images, max_outputs, fps, return_summary_value=False):
           Image.fromarray(images[i][0]).save(output, "PNG")
           image_summ.encoded_image_string = output.getvalue()
       except ImportError as e:
-        tf.logging.warning(
+        tf.compat.v1.logging.warning(
             "Gif summaries requires ffmpeg or PIL to be installed: %s", e)
         image_summ.encoded_image_string = ""
     if num_outputs == 1:
       summ_tag = "{}/gif".format(tag)
     else:
       summ_tag = "{}/gif/{}".format(tag, i)
-    curr_summ_value = tf.Summary.Value(tag=summ_tag, image=image_summ)
+    curr_summ_value = tf.compat.v1.Summary.Value(tag=summ_tag, image=image_summ)
     all_summ_values.append(curr_summ_value)
     summ.value.add(tag=summ_tag, image=image_summ)
   summ_str = summ.SerializeToString()
@@ -468,13 +468,13 @@ def gif_summary(name, tensor, max_outputs=3, fps=10, collections=None,
     return tf.constant("")
   with summary_op_util.summary_scope(
       name, family, values=[tensor]) as (tag, scope):
-    val = tf.py_func(
+    val = tf.compat.v1.py_func(
         py_gif_summary,
         [tag, tensor, max_outputs, fps],
         tf.string,
         stateful=False,
         name=scope)
-    summary_op_util.collect(val, collections, [tf.GraphKeys.SUMMARIES])
+    summary_op_util.collect(val, collections, [tf.compat.v1.GraphKeys.SUMMARIES])
   return val
 
 
@@ -489,7 +489,7 @@ def tinyify(array, tiny_mode, small_mode):
 
 
 def get_gaussian_tensor(mean, log_var):
-  z = tf.random_normal(tf.shape(mean), 0, 1, dtype=tf.float32)
+  z = tf.random.normal(tf.shape(mean), 0, 1, dtype=tf.float32)
   z = mean + tf.exp(log_var / 2.0) * z
   return z
 
@@ -525,8 +525,8 @@ def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
     latent_logvar: predicted latent log variance
   """
   conv_size = tinyify([32, 64, 64], tiny_mode, small_mode)
-  with tf.variable_scope("latent", reuse=tf.AUTO_REUSE):
-    images = tf.to_float(images)
+  with tf.compat.v1.variable_scope("latent", reuse=tf.compat.v1.AUTO_REUSE):
+    images = tf.cast(images, dtype=tf.float32)
     images = tf.unstack(images, axis=time_axis)
     images = tf.concat(images, axis=3)
 
@@ -574,13 +574,13 @@ def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):
   if schedule == "constant":
     decayed_value = 0.0
   elif schedule == "linear":
-    decayed_value = tf.train.polynomial_decay(
+    decayed_value = tf.compat.v1.train.polynomial_decay(
         learning_rate=final_beta,
         global_step=global_step - decay_start,
         decay_steps=decay_end - decay_start,
         end_learning_rate=0.0)
   elif schedule == "noisy_linear_cosine_decay":
-    decayed_value = tf.train.noisy_linear_cosine_decay(
+    decayed_value = tf.compat.v1.train.noisy_linear_cosine_decay(
         learning_rate=final_beta,
         global_step=global_step - decay_start,
         decay_steps=decay_end - decay_start)
@@ -619,7 +619,7 @@ def extract_random_video_patch(videos, num_frames=-1):
                      (num_total_frames, num_frames))
 
   # Randomly choose start_inds for each video.
-  frame_start = tf.random_uniform(
+  frame_start = tf.random.uniform(
       shape=(batch_size,), minval=0, maxval=num_total_frames - num_frames + 1,
       dtype=tf.int32)
 
@@ -784,7 +784,7 @@ class WholeVideoWriter(VideoWriter):
           "This writer doesn't support saving to disk (output_path not "
           "specified)."
       )
-    with tf.gfile.Open(self.output_path, "w") as f:
+    with tf.io.gfile.GFile(self.output_path, "w") as f:
       f.write(output)
 
 
@@ -830,6 +830,6 @@ class IndividualFrameWriter(VideoWriter):
     if encoded_frame is None:
       raise ValueError("This writer only supports encoded frames.")
     path = os.path.join(self.output_dir, "frame_%05d.png" % self._counter)
-    with tf.gfile.Open(path, "wb") as f:
+    with tf.io.gfile.GFile(path, "wb") as f:
       f.write(encoded_frame)
       self._counter += 1

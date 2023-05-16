@@ -44,7 +44,7 @@ class LSTMTest(tf.test.TestCase):
       model = lstm.LSTMSeq2seq(hparams, tf.estimator.ModeKeys.TRAIN,
                                p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))
 
@@ -58,7 +58,7 @@ class LSTMTest(tf.test.TestCase):
                                                      vocab_size,
                                                      hparams)
     x = tf.constant(x, dtype=tf.int32)
-    x = tf.placeholder_with_default(x, shape=[None, None, 1, 1])
+    x = tf.compat.v1.placeholder_with_default(x, shape=[None, None, 1, 1])
 
     with self.test_session() as session:
       features = {
@@ -68,7 +68,7 @@ class LSTMTest(tf.test.TestCase):
       model = lstm.LSTMSeq2seqAttention(
           hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))
 
@@ -88,7 +88,7 @@ class LSTMTest(tf.test.TestCase):
       model = lstm.LSTMSeq2seqBidirectionalEncoder(
           hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))
 
@@ -100,7 +100,7 @@ class LSTMTest(tf.test.TestCase):
 
     p_hparams = problem_hparams.test_problem_hparams(vocab_size, vocab_size)
     x = tf.constant(x, dtype=tf.int32)
-    x = tf.placeholder_with_default(x, shape=[None, None, 1, 1])
+    x = tf.compat.v1.placeholder_with_default(x, shape=[None, None, 1, 1])
 
     with self.test_session() as session:
       features = {
@@ -110,7 +110,7 @@ class LSTMTest(tf.test.TestCase):
       model = lstm.LSTMSeq2seqAttentionBidirectionalEncoder(
           hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (3, 6, 1, 1, vocab_size))
 

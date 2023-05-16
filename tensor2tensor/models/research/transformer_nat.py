@@ -30,17 +30,17 @@ from tensorflow.python.training import moving_averages
 
 def init_vq_bottleneck(bottleneck_size, hidden_size):
   """Get lookup table for VQ bottleneck."""
-  means = tf.get_variable(
+  means = tf.compat.v1.get_variable(
       name="means",
       shape=[bottleneck_size, hidden_size],
-      initializer=tf.uniform_unit_scaling_initializer())
-  ema_count = tf.get_variable(
+      initializer=tf.compat.v1.keras.initializers.VarianceScaling(distribution="uniform"))
+  ema_count = tf.compat.v1.get_variable(
       name="ema_count",
       shape=[bottleneck_size],
-      initializer=tf.constant_initializer(0),
+      initializer=tf.compat.v1.constant_initializer(0),
       trainable=False)
-  with tf.colocate_with(means):
-    ema_means = tf.get_variable(
+  with tf.compat.v1.colocate_with(means):
+    ema_means = tf.compat.v1.get_variable(
         name="ema_means",
         initializer=means.initialized_value(),
         trainable=False)
@@ -57,7 +57,7 @@ def vq_nearest_neighbor(x, hparams):
   scalar_prod = tf.matmul(x, means, transpose_b=True)
   dist = x_norm_sq + tf.transpose(means_norm_sq) - 2 * scalar_prod
   if hparams.bottleneck_kind == "em":
-    x_means_idx = tf.multinomial(-dist, num_samples=hparams.num_samples)
+    x_means_idx = tf.random.categorical(-dist, num_samples=hparams.num_samples)
     x_means_hot = tf.one_hot(
         x_means_idx, depth=bottleneck_size)
     x_means_hot = tf.reduce_mean(x_means_hot, axis=1)
@@ -71,7 +71,7 @@ def vq_nearest_neighbor(x, hparams):
 
 def vq_discrete_bottleneck(x, hparams):
   """Simple vector quantized discrete bottleneck."""
-  tf.logging.info("Using EMA with beta = {}".format(hparams.beta))
+  tf.compat.v1.logging.info("Using EMA with beta = {}".format(hparams.beta))
   bottleneck_size = 2**hparams.bottleneck_bits
   x_shape = common_layers.shape_list(x)
   x = tf.reshape(x, [-1, hparams.hidden_size])
@@ -99,7 +99,7 @@ def vq_discrete_bottleneck(x, hparams):
       updated_ema_count, axis=-1)
   # pylint: enable=g-no-augmented-assignment
   with tf.control_dependencies([e_loss]):
-    update_means = tf.assign(means, updated_ema_means)
+    update_means = tf.compat.v1.assign(means, updated_ema_means)
     with tf.control_dependencies([update_means]):
       loss = hparams.beta * e_loss
 
@@ -120,24 +120,24 @@ def vq_discrete_unbottleneck(x, hparams):
 
 def residual_conv(x, repeat, k, hparams, name, reuse=None):
   """A stack of convolution blocks with residual connections."""
-  with tf.variable_scope(name, reuse=reuse):
+  with tf.compat.v1.variable_scope(name, reuse=reuse):
     dilations_and_kernels = [((1, 1), k) for _ in range(3)]
     for i in range(repeat):
-      with tf.variable_scope("repeat_%d" % i):
+      with tf.compat.v1.variable_scope("repeat_%d" % i):
         y = common_layers.conv_block(
             common_layers.layer_norm(x, hparams.hidden_size, name="lnorm"),
             hparams.hidden_size,
             dilations_and_kernels,
             padding="SAME",
             name="residual_conv")
-        y = tf.nn.dropout(y, 1.0 - hparams.dropout)
+        y = tf.nn.dropout(y, rate=1 - (1.0 - hparams.dropout))
         x += y
     return x
 
 
 def decompress_step(source, hparams, first_relu, name):
   """Decompression function."""
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     shape = common_layers.shape_list(source)
     multiplier = 2
     kernel = (1, 1)
@@ -151,7 +151,7 @@ def decompress_step(source, hparams, first_relu, name):
 
 def compress(x, hparams, name):
   """Compress."""
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     # Run compression by strided convs.
     cur = x
     k1 = (3, 1)
@@ -168,10 +168,10 @@ def compress(x, hparams, name):
 
 def encode(x, x_space, hparams, name):
   """Transformer preparations and encoder."""
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     (encoder_input, encoder_self_attention_bias,
      ed) = transformer.transformer_prepare_encoder(x, x_space, hparams)
-    encoder_input = tf.nn.dropout(encoder_input, 1.0 - hparams.dropout)
+    encoder_input = tf.nn.dropout(encoder_input, rate=1 - (1.0 - hparams.dropout))
     return transformer.transformer_encoder(
         encoder_input, encoder_self_attention_bias, hparams), ed
 
@@ -179,14 +179,14 @@ def encode(x, x_space, hparams, name):
 def decode_transformer(encoder_output, encoder_decoder_attention_bias, targets,
                        hparams, name):
   """Original Transformer decoder."""
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     targets = common_layers.flatten4d3d(targets)
 
     decoder_input, decoder_self_bias = (
         transformer.transformer_prepare_decoder(targets, hparams))
 
     decoder_input = tf.nn.dropout(decoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
+                                  rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
 
     decoder_output = transformer.transformer_decoder(
         decoder_input, encoder_output, decoder_self_bias,
@@ -201,9 +201,9 @@ def decode_transformer(encoder_output, encoder_decoder_attention_bias, targets,
 
 def get_latent_pred_loss(latents_pred, latents_discrete_hot, hparams):
   """Latent prediction and loss."""
-  latents_logits = tf.layers.dense(
+  latents_logits = tf.compat.v1.layers.dense(
       latents_pred, 2**hparams.bottleneck_bits, name="extra_logits")
-  loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+  loss = tf.nn.softmax_cross_entropy_with_logits(
       labels=tf.stop_gradient(latents_discrete_hot), logits=latents_logits)
   return loss
 
@@ -215,12 +215,12 @@ def ae_latent_sample_beam(latents_dense_in, inputs, ed, embed, hparams):
     ids = tf.expand_dims(ids, axis=2)  # Ids start with added all-zeros.
     latents_discrete = tf.pad(ids[:, 1:], [[0, 0], [0, 1], [0, 0]])
 
-    with tf.variable_scope(tf.get_variable_scope(), reuse=False):
+    with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=False):
       latents_dense = embed(
           tf.one_hot(latents_discrete, depth=2**hparams.bottleneck_bits))
       latents_pred = decode_transformer(inputs, ed, latents_dense, hparams,
                                         "extra")
-      logits = tf.layers.dense(
+      logits = tf.compat.v1.layers.dense(
           latents_pred, 2**hparams.bottleneck_bits, name="extra_logits")
       current_output_position = common_layers.shape_list(ids)[1] - 1
       logits = logits[:, current_output_position, :, :]
@@ -265,7 +265,7 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
         latents_discrete_hot, hparams=hparams)
     latents_dense = targets_c + tf.stop_gradient(latents_dense - targets_c)
     latents_discrete = tf.argmax(latents_discrete_hot, axis=-1)
-    tf.summary.histogram("codes", tf.reshape(latents_discrete[:, 0, :], [-1]))
+    tf.compat.v1.summary.histogram("codes", tf.reshape(latents_discrete[:, 0, :], [-1]))
     losses["extra"] = extra_loss
 
     # Extra loss predicting latent code from input.
@@ -286,7 +286,7 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
 
   # Postprocess.
   d = latents_dense
-  pos = tf.get_variable("pos", [1, 1000, 1, hparams.hidden_size])
+  pos = tf.compat.v1.get_variable("pos", [1, 1000, 1, hparams.hidden_size])
   pos = pos[:, :common_layers.shape_list(latents_dense)[1] + 1, :, :]
   latents_dense = tf.pad(latents_dense, [[0, 0], [1, 0], [0, 0], [0, 0]]) + pos
 
@@ -303,16 +303,16 @@ def ae_transformer_internal(inputs, targets, target_space, hparams, cache=None):
   if hparams.mode == tf.estimator.ModeKeys.PREDICT:
     masking = 1.0
   mask = tf.less(masking,
-                 tf.random_uniform(common_layers.shape_list(targets)[:-1]))
-  mask = tf.expand_dims(tf.to_float(mask), 3)
+                 tf.random.uniform(common_layers.shape_list(targets)[:-1]))
+  mask = tf.expand_dims(tf.cast(mask, dtype=tf.float32), 3)
 
   # targets is always [batch, length, 1, depth]
   targets = mask * targets + (1.0 - mask) * d
 
   res = decode_transformer(inputs, ed, targets, hparams, "decoder")
   latent_time = tf.less(hparams.mask_startup_steps,
-                        tf.to_int32(tf.train.get_global_step()))
-  losses["latent_pred"] *= tf.to_float(latent_time)
+                        tf.cast(tf.compat.v1.train.get_global_step(), dtype=tf.int32))
+  losses["latent_pred"] *= tf.cast(latent_time, dtype=tf.float32)
   return res, losses, cache
 
 
@@ -335,7 +335,7 @@ class TransformerNAT(t2t_model.T2TModel):
   def body(self, features):
     inputs = features["inputs"] if "inputs" in features else None
     reuse = "cache_raw" in features
-    with tf.variable_scope(tf.get_variable_scope(), reuse=reuse):
+    with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=reuse):
       res, loss, _ = ae_transformer_internal(
           inputs, features["targets"], features["target_space_id"],
           self._hparams, features.get("cache_raw", None))
@@ -346,7 +346,7 @@ class TransformerNAT(t2t_model.T2TModel):
     inputs = tf.zeros([batch_size, 1, 1, self._hparams.hidden_size])
     inputs = inputs if "inputs" in features else None
     targets = tf.zeros([batch_size, 1, 1, self._hparams.hidden_size])
-    with tf.variable_scope("transformer_nat/body"):
+    with tf.compat.v1.variable_scope("transformer_nat/body"):
       _, _, cache = ae_transformer_internal(
           inputs, targets, features["target_space_id"], self._hparams)
     features["cache_raw"] = cache
@@ -372,7 +372,7 @@ class TransformerNAT(t2t_model.T2TModel):
     else:
       batch_size = common_layers.shape_list(features["inputs"])[0]
       length = common_layers.shape_list(features["inputs"])[1]
-      target_length = tf.to_int32(2.0 * tf.to_float(length))
+      target_length = tf.cast(2.0 * tf.cast(length, dtype=tf.float32), dtype=tf.int32)
       initial_output = tf.zeros((batch_size, target_length, 1, 1),
                                 dtype=tf.int64)
 

@@ -36,8 +36,8 @@ class ImageCelebahq128(image_utils.ImageProblem):
 
   def example_reading_spec(self):
     data_fields = {
-        "image/encoded": tf.FixedLenFeature((), tf.string),
-        "image/format": tf.FixedLenFeature((), tf.string, default_value="png"),
+        "image/encoded": tf.io.FixedLenFeature((), tf.string),
+        "image/format": tf.io.FixedLenFeature((), tf.string, default_value="png"),
     }
     _, data_items_to_decoders = super(
         ImageCelebahq128, self).example_reading_spec()

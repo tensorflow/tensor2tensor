@@ -47,14 +47,14 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
     # Test accumulating gradients for n=1..4 steps
     for n in range(1, 5):
       with tf.Graph().as_default():
-        with tf.Session():
+        with tf.compat.v1.Session():
           singlestep_var0 = tf.Variable(var0_np)
           singlestep_var1 = tf.Variable(var1_np)
 
           multistep_var0 = tf.Variable(var0_np)
           multistep_var1 = tf.Variable(var1_np)
 
-          singlestep_opt = tf.train.AdamOptimizer(
+          singlestep_opt = tf.compat.v1.train.AdamOptimizer(
               beta1=beta1, beta2=beta2, learning_rate=alpha)
           multistep_opt = multistep_optimizer.MultistepAdamOptimizer(
               n=n, beta1=beta1, beta2=beta2, learning_rate=alpha)
@@ -67,7 +67,7 @@ class MultistepAdamOptimizerTest(tf.test.TestCase):
                                              (tf.constant(g1), multistep_var1)])
               for g0, g1 in zip(grads0_np_lst, grads1_np_lst)][:n]
 
-          self.evaluate(tf.global_variables_initializer())
+          self.evaluate(tf.compat.v1.global_variables_initializer())
           (singlestep_beta1_power,
            singlestep_beta2_power) = singlestep_opt._get_beta_accumulators()
           (multistep_beta1_power,

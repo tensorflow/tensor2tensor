@@ -143,12 +143,12 @@ def bleu_score(predictions, labels, **unused_kwargs):
   Returns:
     bleu: int, approx bleu score
   """
-  outputs = tf.to_int32(tf.argmax(predictions, axis=-1))
+  outputs = tf.cast(tf.argmax(predictions, axis=-1), dtype=tf.int32)
   # Convert the outputs and labels to a [batch_size, input_length] tensor.
   outputs = tf.squeeze(outputs, axis=[-1, -2])
   labels = tf.squeeze(labels, axis=[-1, -2])
 
-  bleu = tf.py_func(compute_bleu, (labels, outputs), tf.float32)
+  bleu = tf.compat.v1.py_func(compute_bleu, (labels, outputs), tf.float32)
   return bleu, tf.constant(1.0)
 
 
@@ -202,9 +202,9 @@ def bleu_tokenize(string):
 def bleu_wrapper(ref_filename, hyp_filename, case_sensitive=False):
   """Compute BLEU for two files (reference and hypothesis translation)."""
   ref_lines = text_encoder.native_to_unicode(
-      tf.gfile.Open(ref_filename, "r").read()).split("\n")
+      tf.io.gfile.GFile(ref_filename, "r").read()).split("\n")
   hyp_lines = text_encoder.native_to_unicode(
-      tf.gfile.Open(hyp_filename, "r").read()).split("\n")
+      tf.io.gfile.GFile(hyp_filename, "r").read()).split("\n")
   assert len(ref_lines) == len(hyp_lines), ("{} != {}".format(
       len(ref_lines), len(hyp_lines)))
   if not case_sensitive:
@@ -240,9 +240,9 @@ def _try_twice_tf_glob(pattern):
     list<str> matching filepaths.
   """
   try:
-    return tf.gfile.Glob(pattern)
+    return tf.io.gfile.glob(pattern)
   except tf.errors.NotFoundError:
-    return tf.gfile.Glob(pattern)
+    return tf.io.gfile.glob(pattern)
 
 
 def _read_stepfiles_list(path_prefix, path_suffix=".index", min_steps=0):
@@ -257,7 +257,7 @@ def _read_stepfiles_list(path_prefix, path_suffix=".index", min_steps=0):
     if steps < min_steps:
       continue
     if not os.path.exists(filename):
-      tf.logging.info(filename + " was deleted, so skipping it")
+      tf.compat.v1.logging.info(filename + " was deleted, so skipping it")
       continue
     stepfiles.append(StepFile(basename, os.path.getmtime(filename),
                               os.path.getctime(filename), steps))
@@ -294,13 +294,13 @@ def stepfiles_iterator(path_prefix, wait_minutes=0, min_steps=0,
   if not path_prefix.endswith(os.sep) and os.path.isdir(path_prefix):
     path_prefix += os.sep
   stepfiles = _read_stepfiles_list(path_prefix, path_suffix, min_steps)
-  tf.logging.info("Found %d files with steps: %s",
+  tf.compat.v1.logging.info("Found %d files with steps: %s",
                   len(stepfiles),
                   ", ".join(str(x.steps) for x in reversed(stepfiles)))
   exit_time = time.time() + wait_minutes * 60
   while True:
     if not stepfiles and wait_minutes:
-      tf.logging.info(
+      tf.compat.v1.logging.info(
           "Waiting till %s if a new file matching %s*-[0-9]*%s appears",
           time.asctime(time.localtime(exit_time)), path_prefix, path_suffix)
       while True:

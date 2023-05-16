@@ -93,7 +93,7 @@ def _parse_dataset(file_path, tmp_dir, train):
   print('gen_output_path: ' + gen_output_path)
   print('example_output_path: ' + example_output_path)
 
-  input_file = tf.gfile.Open(input_path, mode='r')
+  input_file = tf.io.gfile.GFile(input_path, mode='r')
   examples = []
   for counter, line in enumerate(input_file):
     if counter == 0:  # Ignore first line since its a header.
@@ -117,13 +117,13 @@ def _parse_dataset(file_path, tmp_dir, train):
   input_file.close()
 
   # Output tab delimited file of lines of examples (sentence1, sentence2, label)
-  with tf.gfile.GFile(gen_output_path, 'w') as f:
+  with tf.io.gfile.GFile(gen_output_path, 'w') as f:
     for tokens1_str, tokens2_str, consensus_label in examples:
       f.write('%s\t%s\t%s\n' % (tokens1_str, tokens2_str, consensus_label))
 
   if train:
     # Output file containing all the sentences for generating the vocab from.
-    with tf.gfile.GFile(example_output_path, 'w') as f:
+    with tf.io.gfile.GFile(example_output_path, 'w') as f:
       for tokens1_str, tokens2_str, consensus_label in examples:
         f.write('%s %s\n' % (tokens1_str, tokens2_str))
 
@@ -133,7 +133,7 @@ def _get_or_generate_vocab(tmp_dir, vocab_filename, vocab_size):
   vocab_filepath = os.path.join(tmp_dir, vocab_filename)
   print('Vocab file written to: ' + vocab_filepath)
 
-  if tf.gfile.Exists(vocab_filepath):
+  if tf.io.gfile.exists(vocab_filepath):
     gs = text_encoder.SubwordTextEncoder(vocab_filepath)
     return gs
   example_file = os.path.join(tmp_dir, _EXAMPLES_FILE)
@@ -155,7 +155,7 @@ def snli_token_generator(tmp_dir, train, vocab_size):
 
   file_name = 'train' if train else 'dev'
   data_file = os.path.join(tmp_dir, file_name + '.txt')
-  with tf.gfile.GFile(data_file, mode='r') as f:
+  with tf.io.gfile.GFile(data_file, mode='r') as f:
     for line in f:
       sent1, sent2, label = line.strip().split('\t')
       sent1_enc = symbolizer_vocab.encode(sent1)

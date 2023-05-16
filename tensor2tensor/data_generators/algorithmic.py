@@ -533,7 +533,7 @@ class TinyAlgo(AlgorithmicIdentityBinary40):
   def setup_for_test(cls):
     """Setup directories and files required to run the problem."""
 
-    tmp_dir = tf.test.get_temp_dir()
+    tmp_dir = tf.compat.v1.test.get_temp_dir()
     shutil.rmtree(tmp_dir)
     os.mkdir(tmp_dir)
     cls.data_dir = tmp_dir

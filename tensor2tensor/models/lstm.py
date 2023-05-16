@@ -30,8 +30,8 @@ import tensorflow as tf
 
 def _dropout_lstm_cell(hparams, train):
   return tf.contrib.rnn.DropoutWrapper(
-      tf.contrib.rnn.LSTMCell(hparams.hidden_size),
-      input_keep_prob=1.0 - hparams.dropout * tf.to_float(train))
+      tf.compat.v1.nn.rnn_cell.LSTMCell(hparams.hidden_size),
+      input_keep_prob=1.0 - hparams.dropout * tf.cast(train, dtype=tf.float32))
 
 
 def lstm(inputs, sequence_length, hparams, train, name, initial_state=None):
@@ -56,9 +56,9 @@ def lstm(inputs, sequence_length, hparams, train, name, initial_state=None):
   """
   layers = [_dropout_lstm_cell(hparams, train)
             for _ in range(hparams.num_hidden_layers)]
-  with tf.variable_scope(name):
-    return tf.nn.dynamic_rnn(
-        tf.contrib.rnn.MultiRNNCell(layers),
+  with tf.compat.v1.variable_scope(name):
+    return tf.compat.v1.nn.dynamic_rnn(
+        tf.compat.v1.nn.rnn_cell.MultiRNNCell(layers),
         inputs,
         sequence_length,
         initial_state=initial_state,
@@ -107,7 +107,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
       memory_sequence_length=encoder_output_length)
 
   cell = tf.contrib.seq2seq.AttentionWrapper(
-      tf.nn.rnn_cell.MultiRNNCell(layers),
+      tf.compat.v1.nn.rnn_cell.MultiRNNCell(layers),
       [attention_mechanism]*hparams.num_heads,
       attention_layer_size=[hparams.attention_layer_size]*hparams.num_heads,
       output_attention=(hparams.output_attention == 1))
@@ -117,8 +117,8 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
   initial_state = cell.zero_state(batch_size, tf.float32).clone(
       cell_state=initial_state)
 
-  with tf.variable_scope(name):
-    output, _ = tf.nn.dynamic_rnn(
+  with tf.compat.v1.variable_scope(name):
+    output, _ = tf.compat.v1.nn.dynamic_rnn(
         cell,
         inputs,
         decoder_input_length,
@@ -132,14 +132,14 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
     #
     # For multi-head attention project output back to hidden size.
     if hparams.output_attention == 1 and hparams.num_heads > 1:
-      output = tf.layers.dense(output, hparams.hidden_size)
+      output = tf.compat.v1.layers.dense(output, hparams.hidden_size)
 
     return output
 
 
 def lstm_seq2seq_internal(inputs, targets, hparams, train):
   """The basic LSTM seq2seq model, main step used for training."""
-  with tf.variable_scope("lstm_seq2seq"):
+  with tf.compat.v1.variable_scope("lstm_seq2seq"):
     if inputs is not None:
       inputs_length = common_layers.length_from_embedding(inputs)
       # Flatten inputs.
@@ -169,7 +169,7 @@ def lstm_seq2seq_internal(inputs, targets, hparams, train):
 def lstm_seq2seq_internal_attention(inputs, targets, hparams, train,
                                     inputs_length, targets_length):
   """LSTM seq2seq model with attention, main step used for training."""
-  with tf.variable_scope("lstm_seq2seq_attention"):
+  with tf.compat.v1.variable_scope("lstm_seq2seq_attention"):
     # Flatten inputs.
     inputs = common_layers.flatten4d3d(inputs)
 
@@ -191,17 +191,17 @@ def lstm_seq2seq_internal_attention(inputs, targets, hparams, train,
 def lstm_bid_encoder(inputs, sequence_length, hparams, train, name):
   """Bidirectional LSTM for encoding inputs that are [batch x time x size]."""
 
-  with tf.variable_scope(name):
-    cell_fw = tf.contrib.rnn.MultiRNNCell(
+  with tf.compat.v1.variable_scope(name):
+    cell_fw = tf.compat.v1.nn.rnn_cell.MultiRNNCell(
         [_dropout_lstm_cell(hparams, train)
          for _ in range(hparams.num_hidden_layers)])
 
-    cell_bw = tf.contrib.rnn.MultiRNNCell(
+    cell_bw = tf.compat.v1.nn.rnn_cell.MultiRNNCell(
         [_dropout_lstm_cell(hparams, train)
          for _ in range(hparams.num_hidden_layers)])
 
     ((encoder_fw_outputs, encoder_bw_outputs),
-     (encoder_fw_state, encoder_bw_state)) = tf.nn.bidirectional_dynamic_rnn(
+     (encoder_fw_state, encoder_bw_state)) = tf.compat.v1.nn.bidirectional_dynamic_rnn(
          cell_fw,
          cell_bw,
          inputs,
@@ -213,7 +213,7 @@ def lstm_bid_encoder(inputs, sequence_length, hparams, train, name):
     encoder_states = []
 
     for i in range(hparams.num_hidden_layers):
-      if isinstance(encoder_fw_state[i], tf.contrib.rnn.LSTMStateTuple):
+      if isinstance(encoder_fw_state[i], tf.nn.rnn_cell.LSTMStateTuple):
         encoder_state_c = tf.concat(
             values=(encoder_fw_state[i].c, encoder_bw_state[i].c),
             axis=1,
@@ -222,7 +222,7 @@ def lstm_bid_encoder(inputs, sequence_length, hparams, train, name):
             values=(encoder_fw_state[i].h, encoder_bw_state[i].h),
             axis=1,
             name="encoder_fw_state_h")
-        encoder_state = tf.contrib.rnn.LSTMStateTuple(
+        encoder_state = tf.nn.rnn_cell.LSTMStateTuple(
             c=encoder_state_c, h=encoder_state_h)
       elif isinstance(encoder_fw_state[i], tf.Tensor):
         encoder_state = tf.concat(
@@ -238,7 +238,7 @@ def lstm_bid_encoder(inputs, sequence_length, hparams, train, name):
 
 def lstm_seq2seq_internal_bid_encoder(inputs, targets, hparams, train):
   """The basic LSTM seq2seq model with bidirectional encoder."""
-  with tf.variable_scope("lstm_seq2seq_bid_encoder"):
+  with tf.compat.v1.variable_scope("lstm_seq2seq_bid_encoder"):
     if inputs is not None:
       inputs_length = common_layers.length_from_embedding(inputs)
       # Flatten inputs.
@@ -268,7 +268,7 @@ def lstm_seq2seq_internal_bid_encoder(inputs, targets, hparams, train):
 def lstm_seq2seq_internal_attention_bid_encoder(inputs, targets, hparams,
                                                 train):
   """LSTM seq2seq model with attention, main step used for training."""
-  with tf.variable_scope("lstm_seq2seq_attention_bid_encoder"):
+  with tf.compat.v1.variable_scope("lstm_seq2seq_attention_bid_encoder"):
     inputs_length = common_layers.length_from_embedding(inputs)
     # Flatten inputs.
     inputs = common_layers.flatten4d3d(inputs)

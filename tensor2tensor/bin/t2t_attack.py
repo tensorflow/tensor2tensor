@@ -136,9 +136,9 @@ def prepare_data(problem, hparams, params, config):
   input_fn = problem.make_estimator_input_fn(
       tf.estimator.ModeKeys.EVAL, hparams, force_repeat=True)
   dataset = input_fn(params, config)
-  features, _ = dataset.make_one_shot_iterator().get_next()
+  features, _ = tf.compat.v1.data.make_one_shot_iterator(dataset).get_next()
   inputs, labels = features["targets"], features["inputs"]
-  inputs = tf.to_float(inputs)
+  inputs = tf.cast(inputs, dtype=tf.float32)
   input_shape = inputs.shape.as_list()
   inputs = tf.reshape(inputs, [hparams.batch_size] + input_shape[1:])
   labels = tf.reshape(labels, [hparams.batch_size])
@@ -146,7 +146,7 @@ def prepare_data(problem, hparams, params, config):
 
 
 def main(argv):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   t2t_trainer.maybe_log_registry_and_exit()
@@ -166,7 +166,7 @@ def main(argv):
     t2t_trainer.set_hparams_from_args(argv[1:])
 
   if FLAGS.surrogate_attack:
-    tf.logging.warn("Performing surrogate model attack.")
+    tf.compat.v1.logging.warn("Performing surrogate model attack.")
     sur_hparams = create_surrogate_hparams()
     trainer_lib.add_problem_hparams(sur_hparams, FLAGS.problem)
 
@@ -189,7 +189,7 @@ def main(argv):
 
   inputs, labels, features = prepare_data(problem, hparams, params, config)
 
-  sess = tf.Session()
+  sess = tf.compat.v1.Session()
 
   if FLAGS.surrogate_attack:
     sur_model_fn = t2t_model.T2TModel.make_estimator_model_fn(
@@ -202,9 +202,9 @@ def main(argv):
     checkpoint_path = os.path.expanduser(FLAGS.surrogate_output_dir)
     tf.contrib.framework.init_from_checkpoint(
         tf.train.latest_checkpoint(checkpoint_path), {"/": "surrogate/"})
-    sess.run(tf.global_variables_initializer())
+    sess.run(tf.compat.v1.global_variables_initializer())
 
-  other_vars = set(tf.global_variables())
+  other_vars = set(tf.compat.v1.global_variables())
 
   model_fn = t2t_model.T2TModel.make_estimator_model_fn(
       FLAGS.model, hparams)
@@ -215,7 +215,7 @@ def main(argv):
   if FLAGS.ignore_incorrect:
     preds = tf.argmax(probs, -1, output_type=labels.dtype)
     preds = tf.reshape(preds, labels.shape)
-    acc_mask = tf.to_float(tf.equal(labels, preds))
+    acc_mask = tf.cast(tf.equal(labels, preds), dtype=tf.float32)
   one_hot_labels = tf.one_hot(labels, probs.shape[-1])
 
   if FLAGS.surrogate_attack:
@@ -223,15 +223,15 @@ def main(argv):
   else:
     attack = create_attack(attack_params.attack)(ch_model, sess=sess)
 
-  new_vars = set(tf.global_variables()) - other_vars
+  new_vars = set(tf.compat.v1.global_variables()) - other_vars
 
   # Restore weights
-  saver = tf.train.Saver(new_vars)
+  saver = tf.compat.v1.train.Saver(new_vars)
   checkpoint_path = os.path.expanduser(FLAGS.output_dir)
   saver.restore(sess, tf.train.latest_checkpoint(checkpoint_path))
 
   # reuse variables
-  tf.get_variable_scope().reuse_variables()
+  tf.compat.v1.get_variable_scope().reuse_variables()
 
   def compute_accuracy(x, l, mask):
     """Compute model accuracy."""
@@ -239,29 +239,29 @@ def main(argv):
     preds = tf.squeeze(preds)
     preds = tf.argmax(preds, -1, output_type=l.dtype)
 
-    _, acc_update_op = tf.metrics.accuracy(l, preds, weights=mask)
+    _, acc_update_op = tf.compat.v1.metrics.accuracy(l, preds, weights=mask)
 
     if FLAGS.surrogate_attack:
       preds = sur_ch_model.get_probs(x)
       preds = tf.squeeze(preds)
       preds = tf.argmax(preds, -1, output_type=l.dtype)
       acc_update_op = tf.tuple((acc_update_op,
-                                tf.metrics.accuracy(l, preds, weights=mask)[1]))
+                                tf.compat.v1.metrics.accuracy(l, preds, weights=mask)[1]))
 
-    sess.run(tf.initialize_local_variables())
+    sess.run(tf.compat.v1.initialize_local_variables())
     for i in range(FLAGS.eval_steps):
-      tf.logging.info(
+      tf.compat.v1.logging.info(
           "\tEvaluating batch [%d / %d]" % (i + 1, FLAGS.eval_steps))
       acc = sess.run(acc_update_op)
     if FLAGS.surrogate_attack:
-      tf.logging.info("\tFinal acc: (%.4f, %.4f)" % (acc[0], acc[1]))
+      tf.compat.v1.logging.info("\tFinal acc: (%.4f, %.4f)" % (acc[0], acc[1]))
     else:
-      tf.logging.info("\tFinal acc: %.4f" % acc)
+      tf.compat.v1.logging.info("\tFinal acc: %.4f" % acc)
     return acc
 
   epsilon_acc_pairs = []
   for epsilon in attack_params.attack_epsilons:
-    tf.logging.info("Attacking @ eps=%.4f" % epsilon)
+    tf.compat.v1.logging.info("Attacking @ eps=%.4f" % epsilon)
     attack_params.set_hparam(attack_params.epsilon_name, epsilon)
     adv_x = attack.generate(inputs, y=one_hot_labels, **attack_params.values())
     acc = compute_accuracy(adv_x, labels, acc_mask)
@@ -269,12 +269,12 @@ def main(argv):
 
   for epsilon, acc in epsilon_acc_pairs:
     if FLAGS.surrogate_attack:
-      tf.logging.info(
+      tf.compat.v1.logging.info(
           "Accuracy @ eps=%.4f: (%.4f, %.4f)" % (epsilon, acc[0], acc[1]))
     else:
-      tf.logging.info("Accuracy @ eps=%.4f: %.4f" % (epsilon, acc))
+      tf.compat.v1.logging.info("Accuracy @ eps=%.4f: %.4f" % (epsilon, acc))
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

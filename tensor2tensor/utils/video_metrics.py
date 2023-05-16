@@ -26,9 +26,9 @@ import tensorflow as tf
 
 
 def load_image_map_function(filename, frame_shape):
-  image = tf.read_file(filename)
+  image = tf.io.read_file(filename)
   image = tf.image.decode_png(image)
-  image = tf.image.resize_images(image, frame_shape[0:2])
+  image = tf.image.resize(image, frame_shape[0:2])
   image.set_shape(frame_shape)
   return image
 
@@ -48,14 +48,14 @@ def load_videos(template, video_length, frame_shape):
   Raises:
     ValueError: if no files found.
   """
-  filenames = tf.gfile.Glob(template)
+  filenames = tf.io.gfile.glob(template)
   if not filenames:
     raise ValueError("no files found.")
   filenames = sorted(filenames)
   dataset_len = len(filenames)
   filenames = tf.constant(filenames)
   dataset = tf.data.Dataset.from_tensor_slices(filenames)
-  dataset = dataset.apply(tf.contrib.data.map_and_batch(
+  dataset = dataset.apply(tf.data.experimental.map_and_batch(
       lambda filename: load_image_map_function(filename, frame_shape),
       video_length, drop_remainder=True))
   return dataset, dataset_len
@@ -76,7 +76,7 @@ def get_zipped_dataset_from_png_files(
   targets, len_ = load_videos(target_files, video_length, frame_shape)
   zipped_dataset = tf.data.Dataset.zip((outputs, targets))
   num_videos = len_ // video_length
-  iterator = zipped_dataset.make_one_shot_iterator()
+  iterator = tf.compat.v1.data.make_one_shot_iterator(zipped_dataset)
   return iterator, None, num_videos
 
 
@@ -84,7 +84,7 @@ def save_results(results, output_dir, problem_name):
   for name, array in six.iteritems(results):
     output_filename = "{}_{}.npy".format(problem_name, name)
     output_filename = os.path.join(output_dir, output_filename)
-    with tf.gfile.Open(output_filename, "wb") as fname:
+    with tf.io.gfile.GFile(output_filename, "wb") as fname:
       np.save(fname, array)
 
 
@@ -117,11 +117,11 @@ def get_zipped_dataset_from_predictions(predictions):
   outputs = stack_data_given_key(predictions, "outputs")
   num_videos = len(targets)
 
-  targets_placeholder = tf.placeholder(targets.dtype, targets.shape)
-  outputs_placeholder = tf.placeholder(outputs.dtype, outputs.shape)
+  targets_placeholder = tf.compat.v1.placeholder(targets.dtype, targets.shape)
+  outputs_placeholder = tf.compat.v1.placeholder(outputs.dtype, outputs.shape)
   dataset = tf.data.Dataset.from_tensor_slices(
       (targets_placeholder, outputs_placeholder))
-  iterator = dataset.make_initializable_iterator()
+  iterator = tf.compat.v1.data.make_initializable_iterator(dataset)
   feed_dict = {targets_placeholder: targets,
                outputs_placeholder: outputs}
   return iterator, feed_dict, num_videos
@@ -142,8 +142,8 @@ def compute_one_decoding_video_metrics(iterator, feed_dict, num_videos):
   output, target = iterator.get_next()
   metrics = psnr_and_ssim(output, target)
 
-  with tf.Session() as sess:
-    sess.run(tf.local_variables_initializer())
+  with tf.compat.v1.Session() as sess:
+    sess.run(tf.compat.v1.local_variables_initializer())
     initalizer = iterator._initializer  # pylint: disable=protected-access
     if initalizer is not None:
       sess.run(initalizer, feed_dict=feed_dict)
@@ -272,6 +272,6 @@ def compute_and_save_video_metrics(
 
   parent_dir = os.path.join(output_dirs[0], os.pardir)
   final_dir = os.path.join(parent_dir, "decode")
-  tf.gfile.MakeDirs(parent_dir)
+  tf.io.gfile.makedirs(parent_dir)
 
   save_results(statistics, final_dir, problem_name)

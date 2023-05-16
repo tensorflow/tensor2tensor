@@ -56,8 +56,8 @@ _ENDE_TEST_DATASETS = [
 def _get_wmt_ende_bpe_dataset(directory, filename):
   """Extract the WMT en-de corpus `filename` to directory unless it's there."""
   train_path = os.path.join(directory, filename)
-  if not (tf.gfile.Exists(train_path + ".de") and
-          tf.gfile.Exists(train_path + ".en")):
+  if not (tf.io.gfile.exists(train_path + ".de") and
+          tf.io.gfile.exists(train_path + ".en")):
     url = ("https://drive.google.com/uc?export=download&id="
            "0B_bZck-ksdkpM25jRUN2X2UxMm8")
     corpus_file = generator_utils.maybe_download_from_drive(
@@ -88,9 +88,9 @@ class TranslateEndeWmtBpe32k(translate.TranslateProblem):
 
     # Vocab
     vocab_path = os.path.join(data_dir, self.vocab_filename)
-    if not tf.gfile.Exists(vocab_path):
+    if not tf.io.gfile.exists(vocab_path):
       bpe_vocab = os.path.join(tmp_dir, "vocab.bpe.32000")
-      with tf.gfile.Open(bpe_vocab) as f:
+      with tf.io.gfile.GFile(bpe_vocab) as f:
         vocab_list = f.read().split("\n")
       vocab_list.append(self.oov_token)
       text_encoder.TokenTextEncoder(

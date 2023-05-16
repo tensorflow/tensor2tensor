@@ -80,7 +80,7 @@ def maybe_reshape_4d_to_3d(x):
 def local_attention_2d(x, hparams, attention_type="local_attention_2d"):
   """Local 2d, self attention layer."""
   # self-attention
-  with tf.variable_scope("local_2d_self_att"):
+  with tf.compat.v1.variable_scope("local_2d_self_att"):
     y = common_attention.multihead_attention_2d(
         x,
         None,
@@ -103,7 +103,7 @@ def local_within_block_attention(x,
                                  kv_padding="VALID"):
   """Local within block self attention."""
   x_new, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
-  with tf.variable_scope("local_within_block"):
+  with tf.compat.v1.variable_scope("local_within_block"):
     y = common_attention.multihead_attention(
         common_layers.layer_preprocess(x_new, hparams),
         None,
@@ -134,7 +134,7 @@ def local_attention_1d(x,
   """Local 1d self attention."""
   # self-attention
   x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
-  with tf.variable_scope("local_1d_self_att"):
+  with tf.compat.v1.variable_scope("local_1d_self_att"):
     y = common_attention.multihead_attention(
         x,
         None,
@@ -168,7 +168,7 @@ def dilated_attention_1d(x,
   """Dilated 1d self attention."""
   # self-attention
   x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
-  with tf.variable_scope("masked_dilated_1d"):
+  with tf.compat.v1.variable_scope("masked_dilated_1d"):
     y = common_attention.multihead_attention(
         x,
         None,
@@ -200,7 +200,7 @@ def local_global_attention(x,
                            q_padding="LEFT",
                            kv_padding="LEFT"):
   """Local and global 1d self attention."""
-  with tf.variable_scope("self_local_global_att"):
+  with tf.compat.v1.variable_scope("self_local_global_att"):
     [x_global, x_local] = tf.split(x, 2, axis=-1)
     split_hidden_size = int(hparams.hidden_size / 2)
     split_heads = int(hparams.num_heads / 2)
@@ -250,7 +250,7 @@ def full_self_attention(x,
   x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
   if self_attention_bias is not None:
     self_attention_bias = get_self_attention_bias(x)
-  with tf.variable_scope("self_att"):
+  with tf.compat.v1.variable_scope("self_att"):
     y = common_attention.multihead_attention(
         x,
         None,
@@ -278,7 +278,7 @@ def encdec_attention_1d(x,
   """Local 1d self attention."""
   x, x_shape, is_4d = maybe_reshape_4d_to_3d(x)
   encoder_output, _, _ = maybe_reshape_4d_to_3d(encoder_output)
-  with tf.variable_scope("encdec_attention"):
+  with tf.compat.v1.variable_scope("encdec_attention"):
     # Encoder Decoder attention
     y = common_attention.multihead_attention(
         x,
@@ -307,11 +307,11 @@ def transformer_decoder_layers(inputs,
                                name="transformer"):
   """Multi layer transformer."""
   x = inputs
-  x = tf.nn.dropout(x, 1.0 - hparams.layer_prepostprocess_dropout)
+  x = tf.nn.dropout(x, rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
   if attention_type == AttentionType.DILATED:
     assert len(hparams.gap_sizes) == num_layers
   for layer in range(num_layers):
-    with tf.variable_scope("%s_layer_%d" % (name, layer)):
+    with tf.compat.v1.variable_scope("%s_layer_%d" % (name, layer)):
       # self-attention + skip connections
       if attention_type == AttentionType.LOCAL_2D:
         y = local_attention_2d(common_layers.layer_preprocess(x, hparams),
@@ -376,11 +376,11 @@ def transformer_encoder_layers(inputs,
                                name="transformer"):
   """Multi layer transformer encoder."""
   x = inputs
-  x = tf.nn.dropout(x, 1.0 - hparams.layer_prepostprocess_dropout)
+  x = tf.nn.dropout(x, rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
 
   for layer in range(num_layers):
     # attention layers + skip connections
-    with tf.variable_scope("%s_layer_%d" % (name, layer)):
+    with tf.compat.v1.variable_scope("%s_layer_%d" % (name, layer)):
       if attention_type == AttentionType.LOCAL_2D:
         y = local_attention_2d(common_layers.layer_preprocess(x, hparams),
                                hparams,
@@ -403,7 +403,7 @@ def transformer_encoder_layers(inputs,
 
 def ffn_layer(x, hparams, losses=None):
   """ffn layer transformer."""
-  with tf.variable_scope("ffn"):
+  with tf.compat.v1.variable_scope("ffn"):
     if hparams.ffn_layer == "none":
       return x
     if hparams.ffn_layer == "conv_hidden_relu":
@@ -489,14 +489,14 @@ def postprocess_image(x, rows, cols, hparams):
   likelihood = getattr(hparams, "likelihood", DistributionType.CAT)
   if likelihood == DistributionType.DMOL:
     depth = hparams.num_mixtures * 10
-    targets = tf.layers.dense(x,
+    targets = tf.compat.v1.layers.dense(x,
                               depth,
                               use_bias=False,
                               activation=None,
                               name="output_conv")
   else:
     depth = 256
-    targets = tf.layers.dense(x,
+    targets = tf.compat.v1.layers.dense(x,
                               depth,
                               use_bias=True,
                               activation=None,
@@ -610,7 +610,7 @@ def prepare_image(inputs, hparams, name=None):
   hidden_size = hparams.hidden_size
   # Only do lookup if the modality is identity
   if hparams.target_modality == "image:identity":
-    inputs = tf.to_int32(inputs)
+    inputs = tf.cast(inputs, dtype=tf.int32)
     x = get_channel_embeddings(channels, inputs, hidden_size, name=name)
   else:
     x = inputs
@@ -656,7 +656,7 @@ def create_output(decoder_output, rows, cols, targets, hparams):
 def get_channel_embeddings(io_depth, targets, hidden_size, name="channel"):
   """Get separate embedding for each of the channels."""
   targets_split = tf.split(targets, io_depth, axis=3)
-  rgb_embedding_var = tf.get_variable("rgb_target_emb_%s" % name,
+  rgb_embedding_var = tf.compat.v1.get_variable("rgb_target_emb_%s" % name,
                                       [256 * io_depth, hidden_size])
   rgb_embedding_var = tf.identity(rgb_embedding_var)
   rgb_embedding_var *= float(hidden_size)**0.5
@@ -672,7 +672,7 @@ def get_channel_embeddings(io_depth, targets, hidden_size, name="channel"):
 
 
 def add_pos_signals(x, hparams, name="pos_emb"):
-  with tf.variable_scope(name, reuse=False):
+  with tf.compat.v1.variable_scope(name, reuse=False):
     if hparams.pos == "timing":
       x = common_attention.add_timing_signal_nd(x)
     else:

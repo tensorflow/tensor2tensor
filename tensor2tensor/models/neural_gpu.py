@@ -30,10 +30,10 @@ import tensorflow as tf
 
 def neural_gpu_body(inputs, hparams, name=None):
   """The core Neural GPU."""
-  with tf.variable_scope(name, "neural_gpu"):
+  with tf.compat.v1.variable_scope(name, "neural_gpu"):
 
     def step(state, inp):  # pylint: disable=missing-docstring
-      x = tf.nn.dropout(state, 1.0 - hparams.dropout)
+      x = tf.nn.dropout(state, rate=1 - (1.0 - hparams.dropout))
       for layer in range(hparams.num_hidden_layers):
         x = common_layers.conv_gru(
             x, (hparams.kernel_height, hparams.kernel_width),
@@ -41,7 +41,7 @@ def neural_gpu_body(inputs, hparams, name=None):
             name="cgru_%d" % layer)
       # Padding input is zeroed-out in the modality, we check this by summing.
       padding_inp = tf.less(tf.reduce_sum(tf.abs(inp), axis=[1, 2]), 0.00001)
-      new_state = tf.where(padding_inp, state, x)  # No-op where inp is padding.
+      new_state = tf.compat.v1.where(padding_inp, state, x)  # No-op where inp is padding.
       return new_state
 
     return tf.foldl(
@@ -61,7 +61,7 @@ class NeuralGPU(t2t_model.T2TModel):
 
 def diagonal_neural_gpu(inputs, hparams, name=None):
   """Improved Neural GPU as in https://arxiv.org/abs/1702.08727."""
-  with tf.variable_scope(name, "diagonal_neural_gpu"):
+  with tf.compat.v1.variable_scope(name, "diagonal_neural_gpu"):
 
     def step(state_tup, inp):
       """Single step of the improved Neural GPU."""
@@ -75,7 +75,7 @@ def diagonal_neural_gpu(inputs, hparams, name=None):
             name="dcgru_%d" % layer)
       # Padding input is zeroed-out in the modality, we check this by summing.
       padding_inp = tf.less(tf.reduce_sum(tf.abs(inp), axis=[1, 2]), 0.00001)
-      new_state = tf.where(padding_inp, state, x)  # No-op where inp is padding.
+      new_state = tf.compat.v1.where(padding_inp, state, x)  # No-op where inp is padding.
       return new_state, new_loss
 
     final_state, losses = tf.scan(

@@ -37,11 +37,11 @@ class SimilarityTransformer(t2t_model.T2TModel):
     return body_output
 
   def body(self, features):
-    with tf.variable_scope('string_embedding'):
+    with tf.compat.v1.variable_scope('string_embedding'):
       string_embedding = self.encode(features, 'inputs')
 
     if 'targets' in features:
-      with tf.variable_scope('code_embedding'):
+      with tf.compat.v1.variable_scope('code_embedding'):
         code_embedding = self.encode(features, 'targets')
 
       string_embedding_norm = tf.nn.l2_normalize(string_embedding, axis=1)
@@ -75,7 +75,7 @@ class SimilarityTransformer(t2t_model.T2TModel):
                                                 hparams))
 
     encoder_input = tf.nn.dropout(encoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
+                                  rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
     encoder_output = transformer.transformer_encoder(
         encoder_input,
         encoder_self_attention_bias,

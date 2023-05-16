@@ -78,8 +78,8 @@ class Glow(t2t_model.T2TModel):
 
   def scale(self, x):
     """Scale x from -0.5 - 0.5 to 0 - 255."""
-    x = tf.where(tf.is_nan(x), tf.ones_like(x), x)
-    x = tf.where(tf.is_inf(x), tf.ones_like(x), x)
+    x = tf.compat.v1.where(tf.math.is_nan(x), tf.ones_like(x), x)
+    x = tf.compat.v1.where(tf.math.is_inf(x), tf.ones_like(x), x)
     x = tf.clip_by_value(x, -0.5, 0.5)
     x += 0.5
     x = x * 2**self.hparams.n_bits_x
@@ -97,7 +97,7 @@ class Glow(t2t_model.T2TModel):
     _, _ = self(features)  # pylint: disable=not-callable
 
     ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
-    var_scope = tf.variable_scope("glow/body", reuse=True)
+    var_scope = tf.compat.v1.variable_scope("glow/body", reuse=True)
     # If eps=None, images are sampled from the prior.
     with arg_scope(ops, init=False), var_scope:
       predictions, _, _, _ = glow_ops.encoder_decoder(
@@ -125,7 +125,7 @@ class Glow(t2t_model.T2TModel):
     # the per-channel output activations have zero mean and unit variance
     # ONLY during the first step. After that the parameters are learned
     # through optimisation.
-    global_step = tf.train.get_or_create_global_step()
+    global_step = tf.compat.v1.train.get_or_create_global_step()
     init_op = tf.logical_and(tf.equal(global_step, 0), self.is_training)
     ops = [glow_ops.get_variable_ddi, glow_ops.actnorm]
     with arg_scope(ops, init=init_op):
@@ -137,7 +137,7 @@ class Glow(t2t_model.T2TModel):
       prior_dist = self.top_prior()
       prior_objective = tf.reduce_sum(
           prior_dist.log_prob(self.z), axis=[1, 2, 3])
-      tf.summary.scalar("top_prior", tf.reduce_mean(prior_objective))
+      tf.compat.v1.summary.scalar("top_prior", tf.reduce_mean(prior_objective))
       self.z_sample = prior_dist.sample()
       objective += prior_objective
 

@@ -45,12 +45,12 @@ def main(_):
   assert FLAGS.out_dir
   assert FLAGS.metadata_dir
   out_dir = os.path.join(FLAGS.out_dir, "process_%d" % FLAGS.task_id)
-  tf.gfile.MakeDirs(out_dir)
+  tf.io.gfile.makedirs(out_dir)
 
   with utils.timing("get_refs_commoncrawl"):
     # Get all WET files
     if FLAGS.commoncrawl_wet_dir:
-      wet_files = tf.gfile.Glob(
+      wet_files = tf.io.gfile.glob(
           os.path.join(FLAGS.commoncrawl_wet_dir, "*.wet.gz"))
     else:
       tmp_dir = tempfile.gettempdir()
@@ -60,12 +60,12 @@ def main(_):
     # Shard and select this task's work
     wet_files.sort()
     wet_files = utils.shard(wet_files, FLAGS.num_tasks)[FLAGS.task_id]
-    tf.logging.info("Sharded out WET files. Processing %d files",
+    tf.compat.v1.logging.info("Sharded out WET files. Processing %d files",
                     len(wet_files))
 
     wikisum.extract_references_from_wets(wet_files, FLAGS.metadata_dir, out_dir)
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

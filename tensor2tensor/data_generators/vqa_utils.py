@@ -51,15 +51,15 @@ def _smallest_size_at_least(height, width, smallest_side):
   """
   smallest_side = tf.convert_to_tensor(smallest_side, dtype=tf.int32)
 
-  height = tf.to_float(height)
-  width = tf.to_float(width)
-  smallest_side = tf.to_float(smallest_side)
+  height = tf.cast(height, dtype=tf.float32)
+  width = tf.cast(width, dtype=tf.float32)
+  smallest_side = tf.cast(smallest_side, dtype=tf.float32)
 
   scale = tf.cond(
       tf.greater(height, width), lambda: smallest_side / width,
       lambda: smallest_side / height)
-  new_height = tf.to_int32(height * scale)
-  new_width = tf.to_int32(width * scale)
+  new_height = tf.cast(height * scale, dtype=tf.int32)
+  new_width = tf.cast(width * scale, dtype=tf.int32)
   return new_height, new_width
 
 
@@ -81,7 +81,7 @@ def _aspect_preserving_resize(image, smallest_side):
   width = shape[1]
   new_height, new_width = _smallest_size_at_least(height, width, smallest_side)
   image = tf.expand_dims(image, 0)
-  resized_image = tf.image.resize_images(
+  resized_image = tf.image.resize(
       image, size=[new_height, new_width], method=tf.image.ResizeMethod.BICUBIC)
 
   resized_image = tf.squeeze(resized_image)
@@ -112,7 +112,7 @@ def _distort_color(image, color_ordering=0, scope=None):
   Raises:
     ValueError: if color_ordering not in [0, 3]
   """
-  with tf.name_scope(scope, "distort_color", [image]):
+  with tf.compat.v1.name_scope(scope, "distort_color", [image]):
     if color_ordering == 0:
       image = tf.image.random_brightness(image, max_delta=32. / 255.)
       image = tf.image.random_saturation(image, lower=0.5, upper=1.5)
@@ -152,7 +152,7 @@ def _apply_with_random_selector(x, func, num_cases):
     The result of func(x, sel), where func receives the value of the
     selector as a python integer, but sel is sampled dynamically.
   """
-  sel = tf.random_uniform([], maxval=num_cases, dtype=tf.int32)
+  sel = tf.random.uniform([], maxval=num_cases, dtype=tf.int32)
   # Pass the real x only to one of the func calls.
   return control_flow_ops.merge([
       func(control_flow_ops.switch(x, tf.equal(sel, case))[1], case)
@@ -209,10 +209,10 @@ def vqa_v2_preprocess_image(
   if resize_side:
     image = _aspect_preserving_resize(image, resize_side)
   if mode == tf.estimator.ModeKeys.TRAIN:
-    image = tf.random_crop(image, [height, width, 3])
+    image = tf.image.random_crop(image, [height, width, 3])
   else:
     # Central crop, assuming resize_height > height, resize_width > width.
-    image = tf.image.resize_image_with_crop_or_pad(image, height, width)
+    image = tf.image.resize_with_crop_or_pad(image, height, width)
 
   image = tf.clip_by_value(image, 0.0, 1.0)
 

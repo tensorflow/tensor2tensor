@@ -48,14 +48,14 @@ def twentybn_generator(tmp_dir, training):
 
   def process_labels():
     all_labels = {}
-    with tf.gfile.Open(tmp_dir + _FILE_LABEL_PATTERN + 'labels.csv') as f:
+    with tf.io.gfile.GFile(tmp_dir + _FILE_LABEL_PATTERN + 'labels.csv') as f:
       for (i, label) in enumerate(f):
         all_labels[label] = i+1
     return all_labels
 
   def read_id_to_labels():
     id_to_label = {}
-    with tf.gfile.Open(tmp_dir + _FILE_LABEL_PATTERN +
+    with tf.io.gfile.GFile(tmp_dir + _FILE_LABEL_PATTERN +
                        data_suffix + '.csv') as f:
       for line in f:
         values = line.split(';')
@@ -72,10 +72,10 @@ def twentybn_generator(tmp_dir, training):
     path = os.path.join(os.path.join(tmp_dir, _FILE_VIDEO_PATTERN), str(vname))
     label = all_labels[label_id]
     images = []
-    image_files = tf.gfile.Glob(os.path.join(path, '*.jpg'))
+    image_files = tf.io.gfile.glob(os.path.join(path, '*.jpg'))
 
     for filename in image_files:
-      with tf.gfile.Open(filename, 'rb') as f:
+      with tf.io.gfile.GFile(filename, 'rb') as f:
         encoded_image_data = f.read()
         images.append(encoded_image_data)
     yield {

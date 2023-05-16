@@ -58,7 +58,7 @@ def mock_raw_image(x_dim=1024, y_dim=1024, num_channels=3,
   if write_image:
     image_obj = allen_brain.PIL_Image()
     pil_img = image_obj.fromarray(img, mode="RGB")
-    with tf.gfile.Open(output_path, "w") as f:
+    with tf.io.gfile.GFile(output_path, "w") as f:
       pil_img.save(f, "jpeg")
 
   return img
@@ -79,7 +79,7 @@ def mock_raw_data(tmp_dir, raw_dim=1024, num_channels=3, num_images=1):
     num_images: int, number of images to mock.
   """
 
-  tf.gfile.MakeDirs(tmp_dir)
+  tf.io.gfile.makedirs(tmp_dir)
 
   for image_id in range(num_images):
 
@@ -205,7 +205,7 @@ class TestAllenBrain(tf.test.TestCase):
         train_dataset = problem_object.dataset(Modes.TRAIN, data_dir)
         train_dataset = train_dataset.repeat(None).batch(batch_size)
 
-        optimizer = tf.train.AdamOptimizer()
+        optimizer = tf.compat.v1.train.AdamOptimizer()
 
         example = tfe.Iterator(train_dataset).next()
         example["targets"] = tf.reshape(example["targets"],
@@ -270,7 +270,7 @@ class TestImageMock(tf.test.TestCase):
         self.assertEqual(img.shape, (case["x_dim"], case["y_dim"],
                                      case["num_channels"]))
         if case["write_image"]:
-          self.assertTrue(tf.gfile.Exists(output_path))
+          self.assertTrue(tf.io.gfile.exists(output_path))
 
 
 class TestMockRawData(tf.test.TestCase):

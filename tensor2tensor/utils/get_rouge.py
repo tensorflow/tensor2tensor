@@ -47,7 +47,7 @@ def prep_data(decode_dir, target_dir):
         write_to_file(os.path.join(decode_dir, "rouge.%06d.txt" % (i+1)), d)
         write_to_file(os.path.join(target_dir, "rouge.A.%06d.txt" % (i+1)), t)
         if (i+1 % 1000) == 0:
-          tf.logging.info("Written %d examples to file" % i)
+          tf.compat.v1.logging.info("Written %d examples to file" % i)
 
 
 def main(_):
@@ -56,10 +56,10 @@ def main(_):
   rouge.system_filename_pattern = "rouge.(\\d+).txt"
   rouge.model_filename_pattern = "rouge.[A-Z].#ID#.txt"
 
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
   tmpdir = mkdtemp()
-  tf.logging.info("tmpdir: %s" % tmpdir)
+  tf.compat.v1.logging.info("tmpdir: %s" % tmpdir)
   # system = decodes/predictions
   system_dir = os.path.join(tmpdir, "system")
   # model = targets/gold
@@ -77,7 +77,7 @@ def main(_):
   for prefix in ["rouge_1", "rouge_2", "rouge_l"]:
     for suffix in ["f_score", "precision", "recall"]:
       key = "_".join([prefix, suffix])
-      tf.logging.info("%s: %.4f" % (key, rouge_scores[key]))
+      tf.compat.v1.logging.info("%s: %.4f" % (key, rouge_scores[key]))
 
   # clean up after pyrouge
   shutil.rmtree(tmpdir)
@@ -86,4 +86,4 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  tf.compat.v1.app.run()

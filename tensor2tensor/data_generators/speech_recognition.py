@@ -89,8 +89,8 @@ class SpeechRecognitionProblem(problem.Problem):
 
   def example_reading_spec(self):
     data_fields = {
-        "waveforms": tf.VarLenFeature(tf.float32),
-        "targets": tf.VarLenFeature(tf.int64),
+        "waveforms": tf.io.VarLenFeature(tf.float32),
+        "targets": tf.io.VarLenFeature(tf.int64),
     }
 
     data_items_to_decoders = None
@@ -125,7 +125,7 @@ class SpeechRecognitionProblem(problem.Problem):
       mean = tf.reduce_mean(mel_fbanks, keepdims=True, axis=1)
       variance = tf.reduce_mean(tf.square(mel_fbanks - mean),
                                 keepdims=True, axis=1)
-      mel_fbanks = (mel_fbanks - mean) * tf.rsqrt(variance + var_epsilon)
+      mel_fbanks = (mel_fbanks - mean) * tf.math.rsqrt(variance + var_epsilon)
 
       # Later models like to flatten the two spatial dims. Instead, we add a
       # unit spatial dim and flatten the frequencies and channels.

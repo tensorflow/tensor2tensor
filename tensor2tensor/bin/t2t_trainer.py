@@ -145,7 +145,7 @@ def set_hparams_from_args(args):
     return
 
   hp_prefix = "--hp_"
-  tf.logging.info("Found unparsed command-line arguments. Checking if any "
+  tf.compat.v1.logging.info("Found unparsed command-line arguments. Checking if any "
                   "start with %s and interpreting those as hparams "
                   "settings.", hp_prefix)
 
@@ -157,7 +157,7 @@ def set_hparams_from_args(args):
       pairs.append((arg[len(hp_prefix):], args[i+1]))
       i += 2
     else:
-      tf.logging.warn("Found unknown flag: %s", arg)
+      tf.compat.v1.logging.warn("Found unknown flag: %s", arg)
       i += 1
 
   as_hparams = ",".join(["%s=%s" % (key, val) for key, val in pairs])
@@ -174,7 +174,7 @@ def set_hparams_from_args(args):
 
 def create_hparams():
   if FLAGS.use_tpu and "tpu" not in FLAGS.hparams_set:
-    tf.logging.warn("Not all hyperparameter sets work on TPU. "
+    tf.compat.v1.logging.warn("Not all hyperparameter sets work on TPU. "
                     "Prefer hparams_sets with a '_tpu' suffix, "
                     "e.g. transformer_tpu, if available for your model.")
   return trainer_lib.create_hparams(FLAGS.hparams_set, FLAGS.hparams)
@@ -282,11 +282,11 @@ def generate_data():
   # Generate data if requested.
   data_dir = os.path.expanduser(FLAGS.data_dir)
   tmp_dir = os.path.expanduser(FLAGS.tmp_dir)
-  tf.gfile.MakeDirs(data_dir)
-  tf.gfile.MakeDirs(tmp_dir)
+  tf.io.gfile.makedirs(data_dir)
+  tf.io.gfile.makedirs(tmp_dir)
 
   problem_name = FLAGS.problem
-  tf.logging.info("Generating data for %s" % problem_name)
+  tf.compat.v1.logging.info("Generating data for %s" % problem_name)
   registry.problem(problem_name).generate_data(data_dir, tmp_dir)
 
 
@@ -295,7 +295,7 @@ def profile_context():
   if FLAGS.profile:
     with tf.contrib.tfprof.ProfileContext(
         "t2tprof", trace_steps=range(100), dump_steps=range(100)) as pctx:
-      opts = tf.profiler.ProfileOptionBuilder.time_and_memory()
+      opts = tf.compat.v1.profiler.ProfileOptionBuilder.time_and_memory()
       pctx.add_auto_profiling("op", opts, range(100))
       yield
   else:
@@ -304,7 +304,7 @@ def profile_context():
 
 def maybe_log_registry_and_exit():
   if FLAGS.registry_help:
-    tf.logging.info(registry.help_string())
+    tf.compat.v1.logging.info(registry.help_string())
     sys.exit(0)
 
 
@@ -316,8 +316,8 @@ def is_chief():
 def save_metadata(hparams):
   """Saves FLAGS and hparams to output_dir."""
   output_dir = os.path.expanduser(FLAGS.output_dir)
-  if not tf.gfile.Exists(output_dir):
-    tf.gfile.MakeDirs(output_dir)
+  if not tf.io.gfile.exists(output_dir):
+    tf.io.gfile.makedirs(output_dir)
 
   # Save FLAGS in txt file
   if hasattr(FLAGS, "flags_into_string"):
@@ -333,17 +333,17 @@ def save_metadata(hparams):
     t2t_flags_str = None
 
   flags_txt = os.path.join(output_dir, "flags.txt")
-  with tf.gfile.Open(flags_txt, "w") as f:
+  with tf.io.gfile.GFile(flags_txt, "w") as f:
     f.write(flags_str)
 
   if t2t_flags_str:
     t2t_flags_txt = os.path.join(output_dir, "flags_t2t.txt")
-    with tf.gfile.Open(t2t_flags_txt, "w") as f:
+    with tf.io.gfile.GFile(t2t_flags_txt, "w") as f:
       f.write(t2t_flags_str)
 
   # Save hparams as hparams.json
   hparams_fname = os.path.join(output_dir, "hparams.json")
-  with tf.gfile.Open(hparams_fname, "w") as f:
+  with tf.io.gfile.GFile(hparams_fname, "w") as f:
     f.write(hparams.to_json(indent=0, sort_keys=True))
 
 
@@ -370,7 +370,7 @@ def main(argv):
   if FLAGS.schedule == 'evaluate':
     fathom.exit_if_no_eval_checkpoint_found(FLAGS.eval_checkpoint_path)
 
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   if FLAGS.schedule == "run_std_server":
     run_std_server()
   trainer_lib.set_random_seed(FLAGS.random_seed)
@@ -413,5 +413,5 @@ if __name__ == "__main__":
   # Fathom
   tf.flags.mark_flag_as_required('airflow_pipeline_yaml')
   tf.flags.mark_flag_as_required('timestamp')
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

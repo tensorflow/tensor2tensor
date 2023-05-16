@@ -22,9 +22,9 @@ import tensorflow as tf
 
 
 # Values for gate_gradients.
-GATE_NONE = tf.train.Optimizer.GATE_NONE
-GATE_OP = tf.train.Optimizer.GATE_OP
-GATE_GRAPH = tf.train.Optimizer.GATE_GRAPH
+GATE_NONE = tf.compat.v1.train.Optimizer.GATE_NONE
+GATE_OP = tf.compat.v1.train.Optimizer.GATE_OP
+GATE_GRAPH = tf.compat.v1.train.Optimizer.GATE_GRAPH
 
 
 class YellowFinOptimizer(object):
@@ -94,24 +94,24 @@ class YellowFinOptimizer(object):
     self._mu = momentum
 
     # Set lr and mu tensor.
-    self._lr_var = tf.get_variable("YF_lr",
+    self._lr_var = tf.compat.v1.get_variable("YF_lr",
                                    dtype=tf.float32,
                                    trainable=False,
                                    initializer=learning_rate)
-    self._mu_var = tf.get_variable("YF_mu",
+    self._mu_var = tf.compat.v1.get_variable("YF_mu",
                                    dtype=tf.float32,
                                    trainable=False,
                                    initializer=tf.constant(momentum))
 
     # Tuning factor for learning rates step or decaying scheme.
-    self.lr_factor = tf.get_variable("YF_lr_factor",
+    self.lr_factor = tf.compat.v1.get_variable("YF_lr_factor",
                                      dtype=tf.float32,
                                      trainable=False,
                                      initializer=tf.constant(1.0))
 
     # Gradient Clipping Threshold.
     if clip_thresh is not None:
-      self._clip_thresh_var = tf.get_variable(
+      self._clip_thresh_var = tf.compat.v1.get_variable(
           "YF_clip_thresh",
           dtype=tf.float32,
           trainable=False,
@@ -124,7 +124,7 @@ class YellowFinOptimizer(object):
     self._mu_m = self._mu_var + delta_mu
 
     # Init momentum optimizer.
-    self._momentum_optimizer = tf.train.MomentumOptimizer(
+    self._momentum_optimizer = tf.compat.v1.train.MomentumOptimizer(
         self._lr_m, self._mu_m, use_locking, name, use_nesterov)
 
     # Moving average for statistics.
@@ -132,7 +132,7 @@ class YellowFinOptimizer(object):
     self._moving_averager = None
 
     # Step counting.
-    self._step = tf.get_variable("YF_step",
+    self._step = tf.compat.v1.get_variable("YF_step",
                                  dtype=tf.int32,
                                  trainable=False,
                                  initializer=tf.constant(0))
@@ -196,22 +196,22 @@ class YellowFinOptimizer(object):
     Returns:
       h_max_t, h_min_t ops
     """
-    self._curv_win = tf.get_variable("curv_win",
+    self._curv_win = tf.compat.v1.get_variable("curv_win",
                                      dtype=tf.float32,
                                      trainable=False,
                                      shape=[self.curvature_window_width,],
-                                     initializer=tf.zeros_initializer)
+                                     initializer=tf.compat.v1.zeros_initializer)
     # We use log smoothing for curvature range
-    self._curv_win = tf.scatter_update(self._curv_win,
+    self._curv_win = tf.compat.v1.scatter_update(self._curv_win,
                                        self._step % self.curvature_window_width,
-                                       tf.log(self._grad_norm_squared))
+                                       tf.math.log(self._grad_norm_squared))
     # Note here the iterations start from iteration 0
     valid_window = tf.slice(self._curv_win,
                             tf.constant([0,]),
                             tf.expand_dims(
                                 tf.minimum(
                                     tf.constant(self.curvature_window_width),
-                                    self._step + 1), dim=0))
+                                    self._step + 1), axis=0))
     self._h_min_t = tf.reduce_min(valid_window)
     self._h_max_t = tf.reduce_max(valid_window)
 
@@ -240,7 +240,7 @@ class YellowFinOptimizer(object):
     for t, g in zip(self._vars, self._grad):
       if isinstance(g, tf.IndexedSlices):
         tensor_to_avg.append(
-            tf.reshape(tf.unsorted_segment_sum(g.values,
+            tf.reshape(tf.math.unsorted_segment_sum(g.values,
                                                g.indices,
                                                g.dense_shape[0]),
                        shape=t.get_shape()))
@@ -296,7 +296,7 @@ class YellowFinOptimizer(object):
     # are roughly estimated norm of minibatch
     # sparse gradient norm * sqrt(sparsity)
     # An extension maybe only correct the sparse blob.
-    non_zero_cnt = tf.add_n([tf.count_nonzero(g) for g in self._grad])
+    non_zero_cnt = tf.add_n([tf.math.count_nonzero(g) for g in self._grad])
     all_entry_cnt = tf.add_n([tf.size(g) for g in self._grad])
     self._sparsity = tf.cast(non_zero_cnt, self._grad[0].dtype)
     self._sparsity /= tf.cast(all_entry_cnt, self._grad[0].dtype)
@@ -324,7 +324,7 @@ class YellowFinOptimizer(object):
     # Gradient squared
     for v, g in zip(self._vars, self._grad):
       if g is None: continue
-      with tf.colocate_with(v):
+      with tf.compat.v1.colocate_with(v):
         self._grad_squared.append(tf.square(g))
 
     # Norm squared.
@@ -360,22 +360,22 @@ class YellowFinOptimizer(object):
     # http://mathworld.wolfram.com/VietasSubstitution.html
     assert_array = [
         tf.Assert(
-            tf.logical_not(tf.is_nan(self._dist_to_opt_avg)),
+            tf.logical_not(tf.math.is_nan(self._dist_to_opt_avg)),
             [self._dist_to_opt_avg,]),
         tf.Assert(
-            tf.logical_not(tf.is_nan(self._h_min)),
+            tf.logical_not(tf.math.is_nan(self._h_min)),
             [self._h_min,]),
         tf.Assert(
-            tf.logical_not(tf.is_nan(self._grad_var)),
+            tf.logical_not(tf.math.is_nan(self._grad_var)),
             [self._grad_var,]),
         tf.Assert(
-            tf.logical_not(tf.is_inf(self._dist_to_opt_avg)),
+            tf.logical_not(tf.math.is_inf(self._dist_to_opt_avg)),
             [self._dist_to_opt_avg,]),
         tf.Assert(
-            tf.logical_not(tf.is_inf(self._h_min)),
+            tf.logical_not(tf.math.is_inf(self._h_min)),
             [self._h_min,]),
         tf.Assert(
-            tf.logical_not(tf.is_inf(self._grad_var)),
+            tf.logical_not(tf.math.is_inf(self._grad_var)),
             [self._grad_var,])
     ]
     with tf.control_dependencies(assert_array):
@@ -447,8 +447,8 @@ class YellowFinOptimizer(object):
     with tf.control_dependencies([self._mu, self._lr]):
       self._mu = self._beta * self._mu_var + (1 - self._beta) * self._mu
       self._lr = self._beta * self._lr_var + (1 - self._beta) * self._lr
-      yellowfin_ops.append(tf.assign(self._mu_var, self._mu))
-      yellowfin_ops.append(tf.assign(self._lr_var, self._lr))
+      yellowfin_ops.append(tf.compat.v1.assign(self._mu_var, self._mu))
+      yellowfin_ops.append(tf.compat.v1.assign(self._lr_var, self._lr))
 
     yellowfin_ops = tf.group(*yellowfin_ops)
     return yellowfin_ops
@@ -479,7 +479,7 @@ class YellowFinOptimizer(object):
                                    for g, t in grads_and_vars if g is not None])
 
     # Var update with Momentum.
-    with tf.variable_scope("apply_updates"):
+    with tf.compat.v1.variable_scope("apply_updates"):
       # Gradient Clipping?
       if self._clip_thresh_var is not None:
         self._grad, _ = tf.clip_by_global_norm(
@@ -496,7 +496,7 @@ class YellowFinOptimizer(object):
             name=name)
 
     # Begin lr and mu tuning.
-    with tf.variable_scope("prepare_yellowFin_variables"):
+    with tf.compat.v1.variable_scope("prepare_yellowFin_variables"):
       # the dependencies ideally only need to be after clip is done,
       # i.e. depends on self._grads. However, the control_dependencies
       # does not support indexed slice for sparse gradients.
@@ -505,13 +505,13 @@ class YellowFinOptimizer(object):
       with tf.control_dependencies([apply_grad_op,]):
         prepare_variables_op = self._prepare_variables()
 
-    with tf.variable_scope("yellowfin"):
+    with tf.compat.v1.variable_scope("yellowfin"):
       with tf.control_dependencies([prepare_variables_op]):
         yellowfin_op = self._yellowfin()
 
     # Update YellowFin step variable.
     with tf.control_dependencies([yellowfin_op]):
-      self._increment_step_op = tf.assign_add(self._step, 1).op
+      self._increment_step_op = tf.compat.v1.assign_add(self._step, 1).op
 
     return tf.group(apply_grad_op,
                     prepare_variables_op,
@@ -556,7 +556,6 @@ class YellowFinOptimizer(object):
         var_list=var_list,
         gate_gradients=gate_gradients,
         aggregation_method=aggregation_method,
-        colocate_gradients_with_ops=colocate_gradients_with_ops,
         grad_loss=grad_loss)
 
   def minimize(self,
@@ -604,7 +603,6 @@ class YellowFinOptimizer(object):
         var_list=var_list,
         gate_gradients=gate_gradients,
         aggregation_method=aggregation_method,
-        colocate_gradients_with_ops=colocate_gradients_with_ops,
         grad_loss=grad_loss)
 
     vars_with_grad = [v for g, v in grads_and_vars if g is not None]

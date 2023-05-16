@@ -68,7 +68,7 @@ class VqaSelfAttention(vqa_attention.VqaAttentionBaseline):
       assert image_hidden_size == 2048
 
     image_feat = tf.nn.dropout(
-        image_feat, keep_prob=1.-hp.layer_prepostprocess_dropout)
+        image_feat, rate=1 - (1.-hp.layer_prepostprocess_dropout))
 
     if hp.image_feat_encode:
       image_feat = image_encoder(image_feat, hp)
@@ -85,7 +85,7 @@ class VqaSelfAttention(vqa_attention.VqaAttentionBaseline):
     question, question_self_attention_bias = prepare_question_encoder(
         question, hp)
     question = tf.nn.dropout(
-        question, keep_prob=1.-hp.layer_prepostprocess_dropout)
+        question, rate=1 - (1.-hp.layer_prepostprocess_dropout))
     query = question_encoder(question, question_self_attention_bias, hp)
     utils.collect_named_outputs(
         "norms", "query_encode", tf.norm(query, axis=-1))
@@ -113,7 +113,7 @@ class VqaSelfAttention(vqa_attention.VqaAttentionBaseline):
     utils.collect_named_outputs("norms", "image_question",
                                 tf.norm(image_question, axis=-1))
 
-    image_question = tf.nn.dropout(image_question, 1. - hp.dropout)
+    image_question = tf.nn.dropout(image_question, rate=1 - (1. - hp.dropout))
 
     output = mlp(image_question, hp)
     utils.collect_named_outputs("norms", "output",
@@ -165,19 +165,19 @@ class VqaCombinedSelfAttention(VqaSelfAttention):
      encoder_decoder_attention_bias) = prepare_image_question_encoder(
          image_feat, question, hp)
     encoder_input = tf.nn.dropout(
-        encoder_input, keep_prob=1.-hp.layer_prepostprocess_dropout)
+        encoder_input, rate=1 - (1.-hp.layer_prepostprocess_dropout))
     encoder_output = image_question_encoder(
         encoder_input, encoder_self_attention_bias, hp)
     utils.collect_named_outputs(
         "norms", "encoder_output", tf.norm(encoder_output, axis=-1))
 
     # scale query by sqrt(hidden_size)
-    query = tf.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
+    query = tf.compat.v1.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
     query = tf.expand_dims(tf.expand_dims(query, axis=0), axis=0)
     batch_size = common_layers.shape_list(encoder_input)[0]
     query = tf.tile(query, [batch_size, 1, 1])
     query = tf.nn.dropout(
-        query, keep_prob=1.-hp.layer_prepostprocess_dropout)
+        query, rate=1 - (1.-hp.layer_prepostprocess_dropout))
 
     decoder_output = decoder(
         query, encoder_output, None, encoder_decoder_attention_bias, hp)
@@ -230,15 +230,15 @@ class VqaIterativeCombinedSelfAttention(VqaSelfAttention):
      encoder_decoder_attention_bias) = prepare_image_question_encoder(
          image_feat, question, hp)
     encoder_input = tf.nn.dropout(
-        encoder_input, keep_prob=1.-hp.layer_prepostprocess_dropout)
+        encoder_input, rate=1 - (1.-hp.layer_prepostprocess_dropout))
 
     # scale query by sqrt(hidden_size)
-    query = tf.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
+    query = tf.compat.v1.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
     query = tf.expand_dims(tf.expand_dims(query, axis=0), axis=0)
     batch_size = common_layers.shape_list(encoder_input)[0]
     query = tf.tile(query, [batch_size, 1, 1])
     query = tf.nn.dropout(
-        query, keep_prob=1.-hp.layer_prepostprocess_dropout)
+        query, rate=1 - (1.-hp.layer_prepostprocess_dropout))
 
     decoder_output = iterative_encoder_decoder(
         encoder_input,
@@ -267,10 +267,10 @@ def image_encoder(image_feat,
   x = image_feat
   image_hidden_size = hparams.image_hidden_size or hparams.hidden_size
   image_filter_size = hparams.image_filter_size or hparams.filter_size
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
-      with tf.variable_scope("layer_%d" % layer):
-        with tf.variable_scope("self_attention"):
+      with tf.compat.v1.variable_scope("layer_%d" % layer):
+        with tf.compat.v1.variable_scope("self_attention"):
           y = vqa_layers.multihead_attention(
               common_layers.layer_preprocess(x, hparams),
               None,
@@ -292,7 +292,7 @@ def image_encoder(image_feat,
           utils.collect_named_outputs(
               "norms", "image_feat_self_attention_postprocess_%d"%(layer),
               tf.norm(x, axis=-1))
-        with tf.variable_scope("ffn"):
+        with tf.compat.v1.variable_scope("ffn"):
           y = common_layers.dense_relu_dense(
               common_layers.layer_preprocess(x, hparams),
               image_filter_size,
@@ -345,10 +345,10 @@ def question_encoder(question,
                      make_image_summary=True):
   """A stack of self attention layers."""
   x = question
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
-      with tf.variable_scope("layer_%d" % layer):
-        with tf.variable_scope("self_attention"):
+      with tf.compat.v1.variable_scope("layer_%d" % layer):
+        with tf.compat.v1.variable_scope("self_attention"):
           y = vqa_layers.multihead_attention(
               common_layers.layer_preprocess(x, hparams),
               None,
@@ -371,7 +371,7 @@ def question_encoder(question,
           utils.collect_named_outputs(
               "norms", "query_self_attention_postprocess_%d"%(layer),
               tf.norm(x, axis=-1))
-        with tf.variable_scope("ffn"):
+        with tf.compat.v1.variable_scope("ffn"):
           y = common_layers.dense_relu_dense(
               common_layers.layer_preprocess(x, hparams),
               hparams.filter_size,
@@ -397,7 +397,7 @@ def attn(image_feat,
          save_weights_to=None,
          make_image_summary=True):
   """Attention on image feature with question as query."""
-  with tf.variable_scope(name, "attn", values=[image_feat, query]):
+  with tf.compat.v1.variable_scope(name, "attn", values=[image_feat, query]):
     total_key_depth = hparams.attention_key_channels or hparams.hidden_size
     total_value_depth = hparams.attention_value_channels or hparams.hidden_size
     num_heads = hparams.num_heads
@@ -430,7 +430,7 @@ def attn(image_feat,
 
 def mlp(feature, hparams, name="mlp"):
   """Multi layer perceptron with dropout and relu activation."""
-  with tf.variable_scope(name, "mlp", values=[feature]):
+  with tf.compat.v1.variable_scope(name, "mlp", values=[feature]):
     num_mlp_layers = hparams.num_mlp_layers
     mlp_size = hparams.mlp_size
     for _ in range(num_mlp_layers):
@@ -439,7 +439,7 @@ def mlp(feature, hparams, name="mlp"):
                                   tf.norm(feature, axis=-1))
       feature = common_layers.layer_norm(feature)
       feature = tf.nn.relu(feature)
-      feature = tf.nn.dropout(feature, keep_prob=1.-hparams.dropout)
+      feature = tf.nn.dropout(feature, rate=1 - (1.-hparams.dropout))
     return feature
 
 
@@ -484,10 +484,10 @@ def image_question_encoder(encoder_inputs,
                            make_image_summary=True):
   """A stack of self attention layers."""
   x = encoder_inputs
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
-      with tf.variable_scope("layer_%d" % layer):
-        with tf.variable_scope("self_attention"):
+      with tf.compat.v1.variable_scope("layer_%d" % layer):
+        with tf.compat.v1.variable_scope("self_attention"):
           y = vqa_layers.multihead_attention(
               common_layers.layer_preprocess(x, hparams),
               None,
@@ -511,7 +511,7 @@ def image_question_encoder(encoder_inputs,
               "norms", "encoder_self_attention_postprocess_%d"%(layer),
               tf.norm(x, axis=-1))
         if query is not None:
-          with tf.variable_scope("encdec_attention"):
+          with tf.compat.v1.variable_scope("encdec_attention"):
             y = common_attention.multihead_attention(
                 common_layers.layer_preprocess(x, hparams),
                 query,
@@ -536,7 +536,7 @@ def image_question_encoder(encoder_inputs,
                 "norms",
                 "encoder_decoder_attention_post_%d"%(layer),
                 tf.norm(x, axis=-1))
-        with tf.variable_scope("ffn"):
+        with tf.compat.v1.variable_scope("ffn"):
           y = common_layers.dense_relu_dense(
               common_layers.layer_preprocess(x, hparams),
               hparams.filter_size,
@@ -583,11 +583,11 @@ def decoder(decoder_input,
     y: a Tensors
   """
   x = decoder_input
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
       layer_name = "layer_%d" % layer
-      with tf.variable_scope(layer_name):
-        with tf.variable_scope("self_attention"):
+      with tf.compat.v1.variable_scope(layer_name):
+        with tf.compat.v1.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
               common_layers.layer_preprocess(x, hparams),
               None,
@@ -609,7 +609,7 @@ def decoder(decoder_input,
                                       "decoder_self_attention_post_%d"%(layer),
                                       tf.norm(x, axis=-1))
         if encoder_output is not None:
-          with tf.variable_scope("encdec_attention"):
+          with tf.compat.v1.variable_scope("encdec_attention"):
             y = common_attention.multihead_attention(
                 common_layers.layer_preprocess(x, hparams),
                 encoder_output,
@@ -631,7 +631,7 @@ def decoder(decoder_input,
                 "norms",
                 "decoder_encoder_attention_post_%d"%(layer),
                 tf.norm(x, axis=-1))
-        with tf.variable_scope("ffn"):
+        with tf.compat.v1.variable_scope("ffn"):
           y = common_layers.dense_relu_dense(
               common_layers.layer_preprocess(x, hparams),
               hparams.filter_size,
@@ -656,7 +656,7 @@ def iterative_encoder_decoder(encoder_input,
                               hparams):
   """Iterative encoder decoder."""
   for _ in xrange(hparams.num_rec_steps):
-    with tf.variable_scope("step", reuse=tf.AUTO_REUSE):
+    with tf.compat.v1.variable_scope("step", reuse=tf.compat.v1.AUTO_REUSE):
       encoder_output = image_question_encoder(
           encoder_input,
           encoder_self_attention_bias,

@@ -73,9 +73,9 @@ class TransformerSymshard(t2t_model.T2TModel):
     # squeeze out channels, heights
     targets = tf.squeeze(features["targets_raw"], [2, 3])
     targets_embedding_var = mp(
-        tf.get_variable, "embedding",
+        tf.compat.v1.get_variable, "embedding",
         [[targets_vocab_size, hparams.hidden_size]] * mp.n,
-        initializer=tf.random_normal_initializer(
+        initializer=tf.compat.v1.random_normal_initializer(
             0.0, hparams.hidden_size**-0.5))
     shifted_targets = common_layers.shift_right_2d(targets)
     # Bypass the symbol modality and use a different embedding on each shard.
@@ -155,7 +155,7 @@ class TransformerSymshard(t2t_model.T2TModel):
             common_attention.add_timing_signal_1d_given_position,
             encoder_input, inputs_position)
       else:
-        encoder_padding = tf.to_float(tf.equal(inputs, 0))
+        encoder_padding = tf.cast(tf.equal(inputs, 0), dtype=tf.float32)
         ignore_padding = common_attention.attention_bias_ignore_padding(
             encoder_padding)
         encoder_self_attention_bias = ignore_padding
@@ -164,7 +164,7 @@ class TransformerSymshard(t2t_model.T2TModel):
         encoder_input = mp(common_attention.add_timing_signal_1d, encoder_input)
 
       # encoder stack here
-      with tf.variable_scope("encoder"):
+      with tf.compat.v1.variable_scope("encoder"):
         encoder_input = mp(
             tf.nn.dropout, encoder_input,
             1.0 - hparams.layer_prepostprocess_dropout)
@@ -178,7 +178,7 @@ class TransformerSymshard(t2t_model.T2TModel):
       encoder_decoder_attention_bias = None
       encoder_output = None
 
-    with tf.variable_scope("decoder"):
+    with tf.compat.v1.variable_scope("decoder"):
       decoder_input = mp(
           tf.nn.dropout, decoder_input,
           1.0 - hparams.layer_prepostprocess_dropout)
@@ -260,8 +260,8 @@ def _layer_stack(mp,
   accumulator = inputs
   x = inputs
   for layer_num, layer_type in enumerate(layers):
-    with tf.variable_scope("%s_%d" % (layer_type, layer_num)):
-      tf.logging.info("%s_%d" % (layer_type, layer_num))
+    with tf.compat.v1.variable_scope("%s_%d" % (layer_type, layer_num)):
+      tf.compat.v1.logging.info("%s_%d" % (layer_type, layer_num))
       if layer_type == "a":
         # accumulate
         accumulator = mp(tf.add, x, accumulator)
@@ -285,23 +285,23 @@ def _layer_stack(mp,
           x = mp(lambda a, b: tf.concat([a, b], 2), mixed, to_keep)
       elif layer_type == "att":
         # single-head attention
-        q = mp(tf.layers.dense, x, hparams.hidden_size, use_bias=False,
+        q = mp(tf.compat.v1.layers.dense, x, hparams.hidden_size, use_bias=False,
                name="q_transform")
         x = mp(
             common_attention.scaled_dot_product_attention_simple,
             q, x, x, self_attention_bias_3d)
-        x = mp(tf.layers.dense, x, hparams.hidden_size, use_bias=False,
+        x = mp(tf.compat.v1.layers.dense, x, hparams.hidden_size, use_bias=False,
                name="o_transform")
       elif layer_type == "enc-att":
         # single-head attention over encoder
-        q = mp(tf.layers.dense, x, hparams.hidden_size, use_bias=False,
+        q = mp(tf.compat.v1.layers.dense, x, hparams.hidden_size, use_bias=False,
                name="q_transform")
         assert encoder_output is not None
         x = mp(
             common_attention.scaled_dot_product_attention_simple,
             q, encoder_output, encoder_output,
             encoder_decoder_attention_bias_3d)
-        x = mp(tf.layers.dense, x, hparams.hidden_size, use_bias=False,
+        x = mp(tf.compat.v1.layers.dense, x, hparams.hidden_size, use_bias=False,
                name="o_transform")
       elif layer_type == "multihead-att":
         # multi-head attention

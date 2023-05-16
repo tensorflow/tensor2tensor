@@ -68,9 +68,9 @@ def diet_expert(x, hidden_size, params):
   @fn_with_diet_vars(params)
   def diet_expert_internal(x):
     dim = x.get_shape().as_list()[-1]
-    h = tf.layers.dense(x, hidden_size, activation=tf.nn.relu, use_bias=False)
-    y = tf.layers.dense(h, dim, use_bias=False)
-    y *= tf.rsqrt(tf.to_float(dim * hidden_size))
+    h = tf.compat.v1.layers.dense(x, hidden_size, activation=tf.nn.relu, use_bias=False)
+    y = tf.compat.v1.layers.dense(h, dim, use_bias=False)
+    y *= tf.math.rsqrt(tf.cast(dim * hidden_size, dtype=tf.float32))
     return y
 
   return diet_expert_internal(x)
@@ -81,7 +81,7 @@ class DietVariableOptimizer(object):
 
   def __init__(self, params):
     self._params = params
-    self._global_step = tf.train.get_or_create_global_step()
+    self._global_step = tf.compat.v1.train.get_or_create_global_step()
 
   @property
   def params(self):
@@ -152,31 +152,31 @@ class DietAdamOptimizer(DietVariableOptimizer):
     slots = params.slots[name]
 
     if params.factored_second_moment_accumulator and len(shape) == 2:
-      slots["adam_vr"] = tf.get_variable(
+      slots["adam_vr"] = tf.compat.v1.get_variable(
           name + "_adam_vr", [shape[0], 1],
           trainable=False,
-          initializer=tf.zeros_initializer())
-      slots["adam_vc"] = tf.get_variable(
+          initializer=tf.compat.v1.zeros_initializer())
+      slots["adam_vc"] = tf.compat.v1.get_variable(
           name + "_adam_vc", [1, shape[1]],
           trainable=False,
-          initializer=tf.zeros_initializer())
+          initializer=tf.compat.v1.zeros_initializer())
     else:
-      slots["adam_v"] = tf.get_variable(
+      slots["adam_v"] = tf.compat.v1.get_variable(
           name + "_adam_v",
           shape,
           trainable=False,
-          initializer=tf.zeros_initializer())
+          initializer=tf.compat.v1.zeros_initializer())
     if params.beta1 != 0.0:
-      slots["adam_m"] = tf.get_variable(
+      slots["adam_m"] = tf.compat.v1.get_variable(
           name + "_adam_m",
           shape,
           trainable=False,
-          initializer=tf.zeros_initializer())
+          initializer=tf.compat.v1.zeros_initializer())
 
   def update_variable(self, var, grad_var):
     """Update the variable and its slots."""
     params = self.params
-    global_step = tf.to_float(self.global_step) + 1
+    global_step = tf.cast(self.global_step, dtype=tf.float32) + 1
 
     # compute learning rate
     lrate = params.learning_rate
@@ -192,10 +192,10 @@ class DietAdamOptimizer(DietVariableOptimizer):
     grad_squared = tf.square(grad_var)
     beta2_pow = tf.pow(params.beta2, global_step)
     if params.factored_second_moment_accumulator and len(var.shape) == 2:
-      vr_update = tf.assign(slots["adam_vr"], slots["adam_vr"] * params.beta2 +
+      vr_update = tf.compat.v1.assign(slots["adam_vr"], slots["adam_vr"] * params.beta2 +
                             tf.reduce_mean(grad_squared, 1, keepdims=True) *
                             (1.0 - params.beta2))
-      vc_update = tf.assign(slots["adam_vc"], slots["adam_vc"] * params.beta2 +
+      vc_update = tf.compat.v1.assign(slots["adam_vc"], slots["adam_vc"] * params.beta2 +
                             tf.reduce_mean(grad_squared, 0, keepdims=True) *
                             (1.0 - params.beta2))
       with tf.control_dependencies([vr_update, vc_update]):
@@ -204,7 +204,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
         vc /= tf.reduce_mean(vc)
         denom = vr * vc
     else:
-      v_update = tf.assign(slots["adam_v"],
+      v_update = tf.compat.v1.assign(slots["adam_v"],
                            slots["adam_v"] * params.beta2 + grad_squared *
                            (1.0 - params.beta2))
       with tf.control_dependencies([v_update]):
@@ -212,7 +212,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
 
     # compute momentum if applicable
     if params.beta1 != 0.0:
-      m_update = tf.assign(slots["adam_m"],
+      m_update = tf.compat.v1.assign(slots["adam_m"],
                            slots["adam_m"] * params.beta1 + grad_var *
                            (1.0 - params.beta1))
       with tf.control_dependencies([m_update]):
@@ -221,7 +221,7 @@ class DietAdamOptimizer(DietVariableOptimizer):
     # update var
     subtrahend = lrate * grad_var / denom
     new_val = _quantize(_dequantize(var, params) - subtrahend, params)
-    return tf.assign(var, new_val)
+    return tf.compat.v1.assign(var, new_val)
 
 
 def _create_diet_optimizer(params):
@@ -243,7 +243,7 @@ def _quantize(x, params, randomize=True):
   abs_x = tf.abs(x)
   sign_x = tf.sign(x)
   y = abs_x / params.quantization_scale
-  y = tf.floor(y + tf.random_uniform(common_layers.shape_list(x)))
+  y = tf.floor(y + tf.random.uniform(common_layers.shape_list(x)))
   y = tf.minimum(y, tf.int16.max) * sign_x
   q = tf.bitcast(tf.cast(y, tf.int16), tf.float16)
   return q
@@ -253,7 +253,7 @@ def _dequantize(q, params):
   """Dequantize q according to params."""
   if not params.quantize:
     return q
-  return tf.to_float(tf.bitcast(q, tf.int16)) * params.quantization_scale
+  return tf.cast(tf.bitcast(q, tf.int16), dtype=tf.float32) * params.quantization_scale
 
 
 def make_diet_var_getter(params):
@@ -266,7 +266,7 @@ def make_diet_var_getter(params):
 
     with common_layers.fn_device_dependency("diet_init") as out_deps:
       float_range = math.sqrt(3)
-      ret = tf.random_uniform(shape, -float_range, float_range)
+      ret = tf.random.uniform(shape, -float_range, float_range)
       if params.quantize:
         ret = _quantize(ret, params, randomize=False)
       out_deps.append(ret)
@@ -302,7 +302,7 @@ def _fn_with_diet_vars(fn, args, params):
     del outputs  # recomputing below
     with common_layers.fn_device_dependency("diet_grad",
                                             output_grads[0].device) as out_dep:
-      with tf.variable_scope(vs_ctr[0], reuse=True):
+      with tf.compat.v1.variable_scope(vs_ctr[0], reuse=True):
         outputs = fn(*inputs)
 
       variables = [common_layers.underlying_variable_ref(v) for v in variables]
@@ -320,7 +320,7 @@ def _fn_with_diet_vars(fn, args, params):
       # Apply grad_variables here
       var_updates = []
       for v, dv in zip(variables, grad_variables):
-        with tf.variable_scope(vs_ctr[0].name):
+        with tf.compat.v1.variable_scope(vs_ctr[0].name):
           opt.create_slots(v)
         update_op = opt.update_variable(v, dv)
         var_updates.append(update_op)
@@ -334,7 +334,7 @@ def _fn_with_diet_vars(fn, args, params):
 
   @common_layers.fn_with_custom_grad(grad_fn, use_global_vars=True)
   def forward(*inputs):
-    with tf.variable_scope(
+    with tf.compat.v1.variable_scope(
         None, default_name="diet",
         custom_getter=make_diet_var_getter(params)) as vs:
       vs_ctr.append(vs)

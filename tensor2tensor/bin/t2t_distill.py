@@ -38,7 +38,7 @@ FLAGS = flags.FLAGS
 
 
 def main(argv):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   t2t_trainer.maybe_log_registry_and_exit()
@@ -90,8 +90,8 @@ def main(argv):
 
 def create_teacher_experiment(run_config, hparams, argv):
   """Creates experiment function."""
-  tf.logging.info("training teacher")
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.info("training teacher")
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   t2t_trainer.maybe_log_registry_and_exit()
@@ -116,8 +116,8 @@ def create_teacher_experiment(run_config, hparams, argv):
 
 def create_student_experiment(run_config, hparams, argv):
   """Creates experiment function."""
-  tf.logging.info("training student")
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.info("training student")
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   usr_dir.import_usr_dir(FLAGS.t2t_usr_dir)
   t2t_trainer.maybe_log_registry_and_exit()
@@ -153,5 +153,5 @@ def create_experiment_fn(argv, train_teacher):
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

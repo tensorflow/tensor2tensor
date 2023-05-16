@@ -21,10 +21,10 @@ from __future__ import print_function
 import tensorflow as tf
 
 
-class UpdateOpsHook(tf.train.SessionRunHook):
+class UpdateOpsHook(tf.estimator.SessionRunHook):
   """Hook to run assign_ops."""
 
   def before_run(self, run_context):
     del run_context
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    return tf.train.SessionRunArgs(update_ops)
+    update_ops = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.UPDATE_OPS)
+    return tf.estimator.SessionRunArgs(update_ops)

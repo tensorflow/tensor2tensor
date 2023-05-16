@@ -97,7 +97,7 @@ class SuperLM(t2t_model.T2TModel):
         decoder_input, decoder_self_attention_bias, hparams, mp)
     # Bypass the symbol modality and compute logits directly.
     # We compute a different set of logits on each shard, and sum them.
-    logits = mp(tf.layers.dense, decoder_output, vocab_size, name="logits")
+    logits = mp(tf.compat.v1.layers.dense, decoder_output, vocab_size, name="logits")
     logits = expert_utils.all_reduce_ring(logits, mp)
     logits = mp(tf.multiply, logits, mp.n ** -0.5)
     # We now have identical logits on all shards.
@@ -159,8 +159,8 @@ def _super_stack(inputs,
   x = inputs
   extra_losses = []
   for layer_num, layer_type in enumerate(layers):
-    with tf.variable_scope("%s_%d" % (layer_type, layer_num)):
-      tf.logging.info("%s_%d" % (layer_type, layer_num))
+    with tf.compat.v1.variable_scope("%s_%d" % (layer_type, layer_num)):
+      tf.compat.v1.logging.info("%s_%d" % (layer_type, layer_num))
       if layer_type == "a":
         # accumulate
         accumulator = mp(tf.add, x, accumulator)
@@ -183,12 +183,12 @@ def _super_stack(inputs,
         x = mp(lambda a, b: tf.concat([a, b], 2), mixed, to_keep)
       elif layer_type == "att":
         # single-head attention
-        q = mp(tf.layers.dense, x, hparams.hidden_size, use_bias=False,
+        q = mp(tf.compat.v1.layers.dense, x, hparams.hidden_size, use_bias=False,
                name="q_transform")
         x = mp(
             common_attention.scaled_dot_product_attention_simple,
             q, x, x, attention_bias_3d)
-        x = mp(tf.layers.dense, x, hparams.hidden_size, use_bias=False,
+        x = mp(tf.compat.v1.layers.dense, x, hparams.hidden_size, use_bias=False,
                name="o_transform")
       elif layer_type == "multihead-att":
         # multi-head attention

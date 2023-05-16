@@ -274,35 +274,35 @@ def feed_forward_gaussian_fun(action_space, config, observations):
   if not isinstance(action_space, gym.spaces.box.Box):
     raise ValueError("Expecting continuous action space.")
 
-  mean_weights_initializer = tf.contrib.layers.variance_scaling_initializer(
-      factor=config.init_mean_factor)
-  logstd_initializer = tf.random_normal_initializer(config.init_logstd, 1e-10)
+  mean_weights_initializer = tf.compat.v1.keras.initializers.VarianceScaling(
+      scale=config.init_mean_factor)
+  logstd_initializer = tf.compat.v1.random_normal_initializer(config.init_logstd, 1e-10)
 
   flat_observations = tf.reshape(observations, [
       tf.shape(observations)[0], tf.shape(observations)[1],
       functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
 
-  with tf.variable_scope("network_parameters"):
-    with tf.variable_scope("policy"):
+  with tf.compat.v1.variable_scope("network_parameters"):
+    with tf.compat.v1.variable_scope("policy"):
       x = flat_observations
       for size in config.policy_layers:
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
       mean = tf.contrib.layers.fully_connected(
           x, action_space.shape[0], tf.tanh,
           weights_initializer=mean_weights_initializer)
-      logstd = tf.get_variable(
+      logstd = tf.compat.v1.get_variable(
           "logstd", mean.shape[2:], tf.float32, logstd_initializer)
       logstd = tf.tile(
           logstd[None, None],
           [tf.shape(mean)[0], tf.shape(mean)[1]] + [1] * (mean.shape.ndims - 2))
-    with tf.variable_scope("value"):
+    with tf.compat.v1.variable_scope("value"):
       x = flat_observations
       for size in config.value_layers:
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
       value = tf.contrib.layers.fully_connected(x, 1, None)[..., 0]
-  mean = tf.check_numerics(mean, "mean")
-  logstd = tf.check_numerics(logstd, "logstd")
-  value = tf.check_numerics(value, "value")
+  mean = tf.debugging.check_numerics(mean, "mean")
+  logstd = tf.debugging.check_numerics(logstd, "logstd")
+  value = tf.debugging.check_numerics(value, "value")
 
   policy = tf.contrib.distributions.MultivariateNormalDiag(mean,
                                                            tf.exp(logstd))
@@ -326,14 +326,14 @@ def feed_forward_categorical_fun(action_space, config, observations):
   flat_observations = tf.reshape(observations, [
       tf.shape(observations)[0], tf.shape(observations)[1],
       functools.reduce(operator.mul, observations.shape.as_list()[2:], 1)])
-  with tf.variable_scope("network_parameters"):
-    with tf.variable_scope("policy"):
+  with tf.compat.v1.variable_scope("network_parameters"):
+    with tf.compat.v1.variable_scope("policy"):
       x = flat_observations
       for size in config.policy_layers:
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
       logits = tf.contrib.layers.fully_connected(x, action_space.n,
                                                  activation_fn=None)
-    with tf.variable_scope("value"):
+    with tf.compat.v1.variable_scope("value"):
       x = flat_observations
       for size in config.value_layers:
         x = tf.contrib.layers.fully_connected(x, size, tf.nn.relu)
@@ -347,10 +347,10 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
   """Small cnn network with categorical output."""
   obs_shape = common_layers.shape_list(observations)
   x = tf.reshape(observations, [-1] + obs_shape[2:])
-  with tf.variable_scope("network_parameters"):
+  with tf.compat.v1.variable_scope("network_parameters"):
     dropout = getattr(config, "dropout_ppo", 0.0)
-    with tf.variable_scope("feed_forward_cnn_small"):
-      x = tf.to_float(x) / 255.0
+    with tf.compat.v1.variable_scope("feed_forward_cnn_small"):
+      x = tf.cast(x, dtype=tf.float32) / 255.0
       x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
                                    activation_fn=tf.nn.relu, padding="SAME")
       x = tf.contrib.layers.conv2d(x, 32, [5, 5], [2, 2],
@@ -359,7 +359,7 @@ def feed_forward_cnn_small_categorical_fun(action_space, config, observations):
       flat_x = tf.reshape(
           x, [obs_shape[0], obs_shape[1],
               functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
-      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
+      flat_x = tf.nn.dropout(flat_x, rate=1 - (1.0 - dropout))
       x = tf.contrib.layers.fully_connected(flat_x, 128, tf.nn.relu)
 
       logits = tf.contrib.layers.fully_connected(x, action_space.n,
@@ -377,33 +377,33 @@ def feed_forward_cnn_small_categorical_fun_new(
   """Small cnn network with categorical output."""
   obs_shape = common_layers.shape_list(observations)
   x = tf.reshape(observations, [-1] + obs_shape[2:])
-  with tf.variable_scope("network_parameters"):
+  with tf.compat.v1.variable_scope("network_parameters"):
     dropout = getattr(config, "dropout_ppo", 0.0)
-    with tf.variable_scope("feed_forward_cnn_small"):
-      x = tf.to_float(x) / 255.0
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
-      x = tf.layers.conv2d(
+    with tf.compat.v1.variable_scope("feed_forward_cnn_small"):
+      x = tf.cast(x, dtype=tf.float32) / 255.0
+      x = tf.nn.dropout(x, rate=1 - (1.0 - dropout))
+      x = tf.compat.v1.layers.conv2d(
           x, 32, (4, 4), strides=(2, 2), name="conv1",
           activation=common_layers.belu, padding="SAME")
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
-      x = tf.layers.conv2d(
+      x = tf.nn.dropout(x, rate=1 - (1.0 - dropout))
+      x = tf.compat.v1.layers.conv2d(
           x, 64, (4, 4), strides=(2, 2), name="conv2",
           activation=common_layers.belu, padding="SAME")
-      x = tf.nn.dropout(x, keep_prob=1.0 - dropout)
-      x = tf.layers.conv2d(
+      x = tf.nn.dropout(x, rate=1 - (1.0 - dropout))
+      x = tf.compat.v1.layers.conv2d(
           x, 128, (4, 4), strides=(2, 2), name="conv3",
           activation=common_layers.belu, padding="SAME")
 
       flat_x = tf.reshape(
           x, [obs_shape[0], obs_shape[1],
               functools.reduce(operator.mul, x.shape.as_list()[1:], 1)])
-      flat_x = tf.nn.dropout(flat_x, keep_prob=1.0 - dropout)
-      x = tf.layers.dense(flat_x, 128, activation=tf.nn.relu, name="dense1")
+      flat_x = tf.nn.dropout(flat_x, rate=1 - (1.0 - dropout))
+      x = tf.compat.v1.layers.dense(flat_x, 128, activation=tf.nn.relu, name="dense1")
 
-      logits = tf.layers.dense(x, action_space.n, name="dense2")
+      logits = tf.compat.v1.layers.dense(x, action_space.n, name="dense2")
       logits = clip_logits(logits, config)
 
-      value = tf.layers.dense(x, 1, name="value")[..., 0]
+      value = tf.compat.v1.layers.dense(x, 1, name="value")[..., 0]
       policy = tf.contrib.distributions.Categorical(logits=logits)
 
   return NetworkOutput(policy, value, lambda a: a)
@@ -415,8 +415,8 @@ def dense_bitwise_categorical_fun(action_space, config, observations):
   obs_shape = common_layers.shape_list(observations)
   x = tf.reshape(observations, [-1] + obs_shape[2:])
 
-  with tf.variable_scope("network_parameters"):
-    with tf.variable_scope("dense_bitwise"):
+  with tf.compat.v1.variable_scope("network_parameters"):
+    with tf.compat.v1.variable_scope("dense_bitwise"):
       x = discretization.int_to_bit_embed(x, 8, 32)
       flat_x = tf.reshape(
           x, [obs_shape[0], obs_shape[1],
@@ -438,9 +438,9 @@ def dense_bitwise_categorical_fun(action_space, config, observations):
 def random_policy_fun(action_space, unused_config, observations):
   """Random policy with categorical output."""
   obs_shape = observations.shape.as_list()
-  with tf.variable_scope("network_parameters"):
+  with tf.compat.v1.variable_scope("network_parameters"):
     value = tf.zeros(obs_shape[:2])
-    policy = tf.distributions.Categorical(
+    policy = tf.compat.v1.distributions.Categorical(
         probs=[[[1. / float(action_space.n)] * action_space.n
                ] * (obs_shape[0] * obs_shape[1])])
   return NetworkOutput(policy, value, lambda a: a)

@@ -56,7 +56,7 @@ def main(_):
     encoder = text_encoder.ByteTextEncoder()
   else:
     encoder = None
-  reader = tf.python_io.tf_record_iterator(FLAGS.input_filename)
+  reader = tf.compat.v1.python_io.tf_record_iterator(FLAGS.input_filename)
   total_sequences = 0
   total_input_tokens = 0
   total_target_tokens = 0
@@ -94,4 +94,4 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  tf.compat.v1.app.run()

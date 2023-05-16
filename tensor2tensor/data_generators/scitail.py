@@ -71,7 +71,7 @@ class SciTail(text_problems.TextConcat2ClassProblem):
   def _maybe_download_corpora(self, tmp_dir):
     scitail_filename = "SciTailV1.1.zip"
     scitail_finalpath = os.path.join(tmp_dir, "SciTailV1.1")
-    if not tf.gfile.Exists(scitail_finalpath):
+    if not tf.io.gfile.exists(scitail_finalpath):
       zip_filepath = generator_utils.maybe_download(
           tmp_dir, scitail_filename, self._SCITAIL_URL)
       zip_ref = zipfile.ZipFile(zip_filepath, "r")
@@ -82,7 +82,7 @@ class SciTail(text_problems.TextConcat2ClassProblem):
 
   def example_generator(self, filename):
     label_list = self.class_labels(data_dir=None)
-    for line in tf.gfile.Open(filename, "rb"):
+    for line in tf.io.gfile.GFile(filename, "rb"):
       if six.PY2:
         line = unicode(line.strip(), "utf-8")
       else:

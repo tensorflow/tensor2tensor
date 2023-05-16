@@ -60,7 +60,7 @@ flags.DEFINE_string(
 def main(_):
   shard_urls = fetch.get_urls_for_shard(FLAGS.urls_dir, FLAGS.shard_id)
   num_groups = int(math.ceil(len(shard_urls) / fetch.URLS_PER_CLIENT))
-  tf.logging.info("Launching get_references_web_single_group sequentially for "
+  tf.compat.v1.logging.info("Launching get_references_web_single_group sequentially for "
                   "%d groups in shard %d. Total URLs: %d",
                   num_groups, FLAGS.shard_id, len(shard_urls))
   command_prefix = FLAGS.command.split() + [
@@ -78,9 +78,9 @@ def main(_):
         # Even on 1 CPU, each group should finish within an hour.
         sp.check_call(command, timeout=60*60)
       except sp.TimeoutExpired:
-        tf.logging.error("Group %d timed out", i)
+        tf.compat.v1.logging.error("Group %d timed out", i)
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

@@ -220,7 +220,7 @@ class ClassLabelEncoder(TextEncoder):
     super(ClassLabelEncoder, self).__init__(num_reserved_ids=0)
 
     if class_labels_fname:
-      with tf.gfile.Open(class_labels_fname) as f:
+      with tf.io.gfile.GFile(class_labels_fname) as f:
         class_labels = [label.strip() for label in f.readlines()]
 
     assert class_labels
@@ -336,7 +336,7 @@ class TokenTextEncoder(TextEncoder):
     Args:
       filename: The file to load vocabulary from.
     """
-    with tf.gfile.Open(filename) as f:
+    with tf.io.gfile.GFile(filename) as f:
       tokens = [token.strip() for token in f.readlines()]
 
     def token_gen():
@@ -387,7 +387,7 @@ class TokenTextEncoder(TextEncoder):
     Args:
       filename: Full path of the file to store the vocab to.
     """
-    with tf.gfile.Open(filename, "w") as f:
+    with tf.io.gfile.GFile(filename, "w") as f:
       for i in range(len(self._id_to_token)):
         f.write(self._id_to_token[i] + "\n")
 
@@ -714,7 +714,7 @@ class SubwordTextEncoder(TextEncoder):
     def bisect(min_val, max_val):
       """Bisection to find the right size."""
       present_count = (max_val + min_val) // 2
-      tf.logging.info("Trying min_count %d" % present_count)
+      tf.compat.v1.logging.info("Trying min_count %d" % present_count)
       subtokenizer = cls()
       subtokenizer.build_from_token_counts(
           token_counts, present_count, num_iterations,
@@ -794,7 +794,7 @@ class SubwordTextEncoder(TextEncoder):
     if min_count < 1:
       min_count = 1
     for i in range(num_iterations):
-      tf.logging.info("Iteration {0}".format(i))
+      tf.compat.v1.logging.info("Iteration {0}".format(i))
 
       # Collect all substrings of the encoded token that break along current
       # subtoken boundaries.
@@ -815,7 +815,7 @@ class SubwordTextEncoder(TextEncoder):
           start += len(subtoken)
         iter_time_secs = time.time() - iter_start_time
         if iter_time_secs > 0.1:
-          tf.logging.info(u"Processing token [{0}] took {1} seconds, consider "
+          tf.compat.v1.logging.info(u"Processing token [{0}] took {1} seconds, consider "
                           "setting Text2TextProblem.max_subtoken_length to a "
                           "smaller value.".format(token, iter_time_secs))
 
@@ -858,7 +858,7 @@ class SubwordTextEncoder(TextEncoder):
         new_subtoken_strings = escaped_reserved_tokens + new_subtoken_strings
 
       self._init_subtokens_from_list(new_subtoken_strings)
-      tf.logging.info("vocab_size = %d" % self.vocab_size)
+      tf.compat.v1.logging.info("vocab_size = %d" % self.vocab_size)
 
   @property
   def all_subtoken_strings(self):
@@ -930,13 +930,13 @@ class SubwordTextEncoder(TextEncoder):
 
   def _load_from_file(self, filename):
     """Load from a vocab file."""
-    if not tf.gfile.Exists(filename):
+    if not tf.io.gfile.exists(filename):
       raise ValueError("File %s not found" % filename)
-    with tf.gfile.Open(filename) as f:
+    with tf.io.gfile.GFile(filename) as f:
       self._load_from_file_object(f)
 
   def store_to_file(self, filename, add_single_quotes=True):
-    with tf.gfile.Open(filename, "w") as f:
+    with tf.io.gfile.GFile(filename, "w") as f:
       for subtoken_string in self._all_subtoken_strings:
         if add_single_quotes:
           f.write("'" + unicode_to_native(subtoken_string) + "'\n")
@@ -969,7 +969,7 @@ class ImageEncoder(object):
     try:
       import matplotlib.image as im  # pylint: disable=g-import-not-at-top
     except ImportError as e:
-      tf.logging.warning(
+      tf.compat.v1.logging.warning(
           "Reading an image requires matplotlib to be installed: %s", e)
       raise NotImplementedError("Image reading not implemented.")
     return im.imread(s)
@@ -1007,8 +1007,8 @@ class ImageEncoder(object):
       else:
         img = tf.reshape(raw, [size, size, self._channels])
       png = tf.image.encode_png(img)
-      op = tf.write_file(tmp_file_path, png)
-      with tf.Session() as sess:
+      op = tf.io.write_file(tmp_file_path, png)
+      with tf.compat.v1.Session() as sess:
         sess.run(op)
     return tmp_file_path
 

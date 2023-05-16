@@ -75,7 +75,7 @@ class UniversalTransformer(transformer.Transformer):
             inputs, target_space, hparams, features=features))
 
     encoder_input = tf.nn.dropout(encoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
+                                  rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
 
     (encoder_output, encoder_extra_output) = (
         universal_transformer_util.universal_transformer_encoder(
@@ -132,7 +132,7 @@ class UniversalTransformer(transformer.Transformer):
     del cache
 
     decoder_input = tf.nn.dropout(decoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
+                                  rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
 
     # No caching in Universal Transformers!
     (decoder_output, dec_extra_output) = (
@@ -215,7 +215,7 @@ class UniversalTransformer(transformer.Transformer):
           hparams.act_loss_weight *
           tf.reduce_mean(dec_ponder_times + dec_remainders))
       act_loss = enc_act_loss + dec_act_loss
-      tf.contrib.summary.scalar("act_loss", act_loss)
+      tf.compat.v2.summary.scalar(name="act_loss", data=act_loss, step=tf.compat.v1.train.get_or_create_global_step())
       return decoder_output, {"act_loss": act_loss}
 
     return decoder_output
@@ -299,7 +299,7 @@ class UniversalTransformerEncoder(transformer.Transformer):
         transformer.transformer_prepare_encoder(inputs, target_space, hparams))
 
     encoder_input = tf.nn.dropout(encoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
+                                  rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
 
     (encoder_output, encoder_extra_output) = (
         universal_transformer_util.universal_transformer_encoder(
@@ -340,7 +340,7 @@ class UniversalTransformerEncoder(transformer.Transformer):
       ponder_times, remainders = enc_extra_output
       act_loss = hparams.act_loss_weight * tf.reduce_mean(ponder_times +
                                                           remainders)
-      tf.contrib.summary.scalar("act_loss", act_loss)
+      tf.compat.v2.summary.scalar(name="act_loss", data=act_loss, step=tf.compat.v1.train.get_or_create_global_step())
 
       return encoder_output, {"act_loss": act_loss}
     return encoder_output

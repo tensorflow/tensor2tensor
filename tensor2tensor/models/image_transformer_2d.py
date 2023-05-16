@@ -44,9 +44,9 @@ class Imagetransformer2d(t2t_model.T2TModel):
     inputs = features["inputs"]
     targets = features["targets"]
     targets_shape = common_layers.shape_list(targets)
-    if not (tf.get_variable_scope().reuse or
+    if not (tf.compat.v1.get_variable_scope().reuse or
             hparams.mode == tf.contrib.learn.ModeKeys.INFER):
-      tf.summary.image("targets", targets, max_outputs=1)
+      tf.compat.v1.summary.image("targets", targets, max_outputs=1)
 
     decoder_input, rows, cols = cia.prepare_decoder(
         targets, hparams)
@@ -74,10 +74,10 @@ class Img2imgTransformer(t2t_model.T2TModel):
     hparams = copy.copy(self._hparams)
     targets = features["targets"]
     inputs = features["inputs"]
-    if not (tf.get_variable_scope().reuse or
+    if not (tf.compat.v1.get_variable_scope().reuse or
             hparams.mode == tf.contrib.learn.ModeKeys.INFER):
-      tf.summary.image("inputs", inputs, max_outputs=1)
-      tf.summary.image("targets", targets, max_outputs=1)
+      tf.compat.v1.summary.image("inputs", inputs, max_outputs=1)
+      tf.compat.v1.summary.image("targets", targets, max_outputs=1)
 
     encoder_input = cia.prepare_encoder(inputs, hparams)
     encoder_output = cia.transformer_encoder_layers(
@@ -110,10 +110,10 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
     hparams = copy.copy(self._hparams)
     targets = features["targets"]
     inputs = features["inputs"]
-    if not (tf.get_variable_scope().reuse or
+    if not (tf.compat.v1.get_variable_scope().reuse or
             hparams.mode == tf.contrib.learn.ModeKeys.INFER):
-      tf.summary.image("inputs", inputs, max_outputs=1)
-      tf.summary.image("targets", targets, max_outputs=1)
+      tf.compat.v1.summary.image("inputs", inputs, max_outputs=1)
+      tf.compat.v1.summary.image("targets", targets, max_outputs=1)
 
     encoder_input = cia.prepare_encoder(inputs, hparams)
     encoder_output = cia.transformer_encoder_layers(
@@ -139,8 +139,8 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
         common_layers.comma_separated_string_to_integer_list(
             getattr(self._hparams, "relu_dropout_broadcast_dims", "")))
 
-    with tf.variable_scope("block_size_%d" % self._hparams.block_size):
-      tf.logging.info("Using block_size %d", self._hparams.block_size)
+    with tf.compat.v1.variable_scope("block_size_%d" % self._hparams.block_size):
+      tf.compat.v1.logging.info("Using block_size %d", self._hparams.block_size)
       block_output = common_layers.dense_relu_dense(
           decoder_output,
           self._hparams.block_size * self._hparams.filter_size,
@@ -178,13 +178,13 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
 
     if train_or_eval:
       if self._hparams.mode == tf.estimator.ModeKeys.TRAIN:
-        features["block_index"] = tf.random_uniform(
+        features["block_index"] = tf.random.uniform(
             shape=[], minval=0, maxval=self._hparams.block_size, dtype=tf.int64)
       else:
         features["block_index"] = 0
       body_output = body_output[:, :, :, features["block_index"], :]
 
-    decoded_image = tf.layers.dense(
+    decoded_image = tf.compat.v1.layers.dense(
         body_output, 256, use_bias=True, activation=None, name="output_conv")
 
     assert len(features["targets"].shape) == 4
@@ -239,7 +239,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
         # the previous value without a connecting line. This is used here to
         # separate out the training losses by block index.
         one_or_nan = tf.cond(tf.equal(k, i), lambda: 1.0, lambda: float("nan"))
-        tf.summary.scalar(
+        tf.compat.v1.summary.scalar(
             "block_index_%d" % i, one_or_nan * loss_val, family="losses")
 
     return loss
@@ -279,7 +279,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
       """Inference step."""
 
       def print_info(samples, result, length, new_length):
-        tf.logging.info(
+        tf.compat.v1.logging.info(
             "length=%s new_length=%s length_diff=%s samples-result=%s",
             length,
             new_length,
@@ -297,7 +297,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
           logits[:, :-1, :1, :, :],
           k=self._decode_hparams.guess_and_check_top_k)
       in_top_k = tf.reduce_any(
-          tf.equal(tf.to_int64(top_k_indices), tf.expand_dims(result, 4)),
+          tf.equal(tf.cast(top_k_indices, dtype=tf.int64), tf.expand_dims(result, 4)),
           axis=4)
 
       within_epsilon = tf.less_equal(
@@ -305,23 +305,23 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
           self._decode_hparams.guess_and_check_epsilon)
 
       if self._decode_hparams.guess_and_check_top_k:
-        tf.logging.info(
+        tf.compat.v1.logging.info(
             "Using guess_and_check_top_k=%s",
             self._decode_hparams.guess_and_check_top_k)
         correct = in_top_k
       else:
-        tf.logging.info(
+        tf.compat.v1.logging.info(
             "Using guess_and_check_epsilon=%s",
             self._decode_hparams.guess_and_check_epsilon)
         correct = within_epsilon
 
-      correct_cumsum = tf.cumsum(tf.to_int32(correct), axis=1)
+      correct_cumsum = tf.cumsum(tf.cast(correct, dtype=tf.int32), axis=1)
       perfect_cumsum = 1 + tf.range(tf.shape(correct)[1])
       for axis in [0, 2, 3]:
         perfect_cumsum = tf.expand_dims(perfect_cumsum, axis=axis)
 
       new_length = tf.reduce_sum(
-          tf.to_int32(tf.equal(correct_cumsum, perfect_cumsum)), axis=1)
+          tf.cast(tf.equal(correct_cumsum, perfect_cumsum), dtype=tf.int32), axis=1)
       new_length = tf.squeeze(new_length, axis=[0, 1, 2])
       new_length = tf.minimum(new_length, decode_length)
 
@@ -332,7 +332,7 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
       ], axis=1)
 
       with tf.control_dependencies([
-          tf.py_func(print_info, [samples, result, length, new_length], [])
+          tf.compat.v1.py_func(print_info, [samples, result, length, new_length], [])
       ]):
         new_result = tf.identity(new_result)
 
@@ -342,9 +342,9 @@ class Img2imgTransformerBlockParallel(t2t_model.T2TModel):
     length = tf.squeeze(tf.zeros(1, dtype=tf.int32))
 
     result, length = tf.while_loop(
-        while_exit_cond,
-        infer_step,
-        [result, length],
+        cond=while_exit_cond,
+        body=infer_step,
+        loop_vars=[result, length],
         shape_invariants=[
             tf.TensorShape([1, None, 1, 1]),
             tf.TensorShape([]),

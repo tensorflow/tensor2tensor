@@ -57,7 +57,7 @@ def _get_vqa_v2_image_raw_dataset(directory, image_root_url, image_urls):
     download_url = os.path.join(image_root_url, url)
     path = generator_utils.maybe_download(directory, filename, download_url)
     unzip_dir = os.path.join(directory, filename.strip(".zip"))
-    if not tf.gfile.Exists(unzip_dir):
+    if not tf.io.gfile.exists(unzip_dir):
       zipfile.ZipFile(path, "r").extractall(directory)
 
 
@@ -204,11 +204,11 @@ class ImageVqav2Tokens10kLabels3k(ImageQuestion2MultilabelProblem):
   def example_reading_spec(self):
     data_fields, data_items_to_decoders = (
         super(ImageVqav2Tokens10kLabels3k, self).example_reading_spec())
-    data_fields["image/image_id"] = tf.FixedLenFeature((), tf.int64)
-    data_fields["image/question_id"] = tf.FixedLenFeature((), tf.int64)
-    data_fields["image/question"] = tf.FixedLenSequenceFeature(
+    data_fields["image/image_id"] = tf.io.FixedLenFeature((), tf.int64)
+    data_fields["image/question_id"] = tf.io.FixedLenFeature((), tf.int64)
+    data_fields["image/question"] = tf.io.FixedLenSequenceFeature(
         (), tf.int64, allow_missing=True)
-    data_fields["image/answer"] = tf.FixedLenSequenceFeature(
+    data_fields["image/answer"] = tf.io.FixedLenSequenceFeature(
         (), tf.int64, allow_missing=True)
 
     data_items_to_decoders[
@@ -238,17 +238,17 @@ class ImageVqav2Tokens10kLabels3k(ImageQuestion2MultilabelProblem):
     _get_vqa_v2_image_raw_dataset(tmp_dir, self._MSCOCO_ROOT_URL,
                                   self._MSCOCO_IMAGE_URLS)
     vocab_path = os.path.join(data_dir, self.vocab_filename)
-    if not tf.gfile.Exists(vocab_path):
+    if not tf.io.gfile.exists(vocab_path):
       vocab_tmp_path = os.path.join(tmp_dir, self.vocab_filename)
-      tf.gfile.Copy(vocab_tmp_path, vocab_path)
-      with tf.gfile.GFile(vocab_path, mode="r") as f:
+      tf.io.gfile.copy(vocab_tmp_path, vocab_path)
+      with tf.io.gfile.GFile(vocab_path, mode="r") as f:
         vocab_data = "<pad>\n<EOS>\n" + f.read() + "UNK\n"
-      with tf.gfile.GFile(vocab_path, mode="w") as f:
+      with tf.io.gfile.GFile(vocab_path, mode="w") as f:
         f.write(vocab_data)
     label_path = os.path.join(data_dir, self.label_filename)
-    if not tf.gfile.Exists(label_path):
+    if not tf.io.gfile.exists(label_path):
       label_tmp_path = os.path.join(tmp_dir, self.label_filename)
-      tf.gfile.Copy(label_tmp_path, label_path)
+      tf.io.gfile.copy(label_tmp_path, label_path)
 
     vocab_encoder = text_encoder.TokenTextEncoder(vocab_path, replace_oov="UNK")
     label_encoder = text_encoder.ClassLabelEncoder(
@@ -257,12 +257,12 @@ class ImageVqav2Tokens10kLabels3k(ImageQuestion2MultilabelProblem):
     prefix_annotation = []
     for prefix, annotation_file in datasets:
       annotation_path = os.path.join(tmp_dir, annotation_file)
-      with tf.gfile.Open(annotation_path) as f:
+      with tf.io.gfile.GFile(annotation_path) as f:
         annotation_json = json.loads(f.read())
       prefix_annotation += [(prefix, anno) for anno in annotation_json]
     random.shuffle(prefix_annotation)
     annotation_count = len(prefix_annotation)
-    tf.logging.info("Processing %d annotations for vqa v2" %(annotation_count))
+    tf.compat.v1.logging.info("Processing %d annotations for vqa v2" %(annotation_count))
 
     for prefix, anno in prefix_annotation:
       image_id = anno["image_id"]
@@ -271,7 +271,7 @@ class ImageVqav2Tokens10kLabels3k(ImageQuestion2MultilabelProblem):
       answer = answer if answer else [0]  # 0 indicates padding
       image_filename = "COCO_" + prefix + "_" + str(image_id).zfill(12) + ".jpg"
       image_filepath = os.path.join(tmp_dir, prefix, image_filename)
-      with tf.gfile.Open(image_filepath, "r") as f:
+      with tf.io.gfile.GFile(image_filepath, "r") as f:
         encoded_image_data = f.read()
         yield {
             "image/encoded": [encoded_image_data],
@@ -321,15 +321,15 @@ class ImageVqav2RcnnFeatureTokens10kLabels3k(ImageVqav2Tokens10kLabels3k):
 
   def example_reading_spec(self):
     data_fields, data_items_to_decoders = {}, {}
-    data_fields["image/feature"] = tf.FixedLenSequenceFeature(
+    data_fields["image/feature"] = tf.io.FixedLenSequenceFeature(
         (), tf.float32, allow_missing=True)
-    data_fields["image/spatial_feature"] = tf.FixedLenSequenceFeature(
+    data_fields["image/spatial_feature"] = tf.io.FixedLenSequenceFeature(
         (), tf.float32, allow_missing=True)
-    data_fields["image/image_id"] = tf.FixedLenFeature((), tf.int64)
-    data_fields["image/question_id"] = tf.FixedLenFeature((), tf.int64)
-    data_fields["image/question"] = tf.FixedLenSequenceFeature(
+    data_fields["image/image_id"] = tf.io.FixedLenFeature((), tf.int64)
+    data_fields["image/question_id"] = tf.io.FixedLenFeature((), tf.int64)
+    data_fields["image/question"] = tf.io.FixedLenSequenceFeature(
         (), tf.int64, allow_missing=True)
-    data_fields["image/answer"] = tf.FixedLenSequenceFeature(
+    data_fields["image/answer"] = tf.io.FixedLenSequenceFeature(
         (), tf.int64, allow_missing=True)
 
     data_items_to_decoders[
@@ -359,17 +359,17 @@ class ImageVqav2RcnnFeatureTokens10kLabels3k(ImageVqav2Tokens10kLabels3k):
     _get_vqa_v2_annotations(tmp_dir, self._VQA_V2_ANNOTATION_URL)
     _get_vqa_v2_image_feature_dataset(tmp_dir, self._VQA_V2_FEATURE_URL)
     vocab_path = os.path.join(data_dir, self.vocab_filename)
-    if not tf.gfile.Exists(vocab_path):
+    if not tf.io.gfile.exists(vocab_path):
       vocab_tmp_path = os.path.join(tmp_dir, self.vocab_filename)
-      tf.gfile.Copy(vocab_tmp_path, vocab_path)
-      with tf.gfile.GFile(vocab_path, mode="r") as f:
+      tf.io.gfile.copy(vocab_tmp_path, vocab_path)
+      with tf.io.gfile.GFile(vocab_path, mode="r") as f:
         vocab_data = "<pad>\n<EOS>\n" + f.read() + "UNK\n"
-      with tf.gfile.GFile(vocab_path, mode="w") as f:
+      with tf.io.gfile.GFile(vocab_path, mode="w") as f:
         f.write(vocab_data)
     label_path = os.path.join(data_dir, self.label_filename)
-    if not tf.gfile.Exists(label_path):
+    if not tf.io.gfile.exists(label_path):
       label_tmp_path = os.path.join(tmp_dir, self.label_filename)
-      tf.gfile.Copy(label_tmp_path, label_path)
+      tf.io.gfile.copy(label_tmp_path, label_path)
 
     vocab_encoder = text_encoder.TokenTextEncoder(vocab_path, replace_oov="UNK")
     label_encoder = text_encoder.ClassLabelEncoder(
@@ -379,10 +379,10 @@ class ImageVqav2RcnnFeatureTokens10kLabels3k(ImageVqav2Tokens10kLabels3k):
     annotation_json = []
     for _, annotation_file in datasets:
       annotation_path = os.path.join(tmp_dir, annotation_file)
-      with tf.gfile.Open(annotation_path) as f:
+      with tf.io.gfile.GFile(annotation_path) as f:
         annotation_json += json.loads(f.read())
     annotation_count = len(annotation_json)
-    tf.logging.info("Processing %d annotations for vqa v2" %(annotation_count))
+    tf.compat.v1.logging.info("Processing %d annotations for vqa v2" %(annotation_count))
 
     imageid2annotation = {}
     for anno in annotation_json:

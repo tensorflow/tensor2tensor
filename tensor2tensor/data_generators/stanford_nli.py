@@ -70,7 +70,7 @@ class StanfordNLI(text_problems.TextConcat2ClassProblem):
   def _maybe_download_corpora(self, tmp_dir):
     snli_filename = "SNLI.zip"
     snli_finalpath = os.path.join(tmp_dir, "snli_1.0")
-    if not tf.gfile.Exists(snli_finalpath):
+    if not tf.io.gfile.exists(snli_finalpath):
       zip_filepath = generator_utils.maybe_download(
           tmp_dir, snli_filename, self._SNLI_URL)
       zip_ref = zipfile.ZipFile(zip_filepath, "r")
@@ -81,7 +81,7 @@ class StanfordNLI(text_problems.TextConcat2ClassProblem):
 
   def example_generator(self, filename):
     label_list = self.class_labels(data_dir=None)
-    for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
+    for idx, line in enumerate(tf.io.gfile.GFile(filename, "rb")):
       if idx == 0: continue  # skip header
       if six.PY2:
         line = unicode(line.strip(), "utf-8")

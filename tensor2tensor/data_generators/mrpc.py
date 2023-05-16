@@ -74,13 +74,13 @@ class MSRParaphraseCorpus(text_problems.TextConcat2ClassProblem):
 
   def _maybe_download_corpora(self, tmp_dir):
     mrpc_dir = os.path.join(tmp_dir, self.DATA_DIR)
-    tf.gfile.MakeDirs(mrpc_dir)
+    tf.io.gfile.makedirs(mrpc_dir)
     mrpc_train_finalpath = os.path.join(mrpc_dir, "msr_paraphrase_train.txt")
     mrpc_test_finalpath = os.path.join(mrpc_dir, "msr_paraphrase_test.txt")
     mrpc_dev_ids_finalpath = os.path.join(mrpc_dir, "dev_ids.tsv")
 
     def download_file(tdir, filepath, url):
-      if not tf.gfile.Exists(filepath):
+      if not tf.io.gfile.exists(filepath):
         generator_utils.maybe_download(tdir, filepath, url)
 
     download_file(mrpc_dir, mrpc_train_finalpath, self.MRPC_TRAIN)
@@ -90,7 +90,7 @@ class MSRParaphraseCorpus(text_problems.TextConcat2ClassProblem):
     return mrpc_dir
 
   def example_generator(self, filename, dev_ids):
-    for idx, line in enumerate(tf.gfile.Open(filename, "rb")):
+    for idx, line in enumerate(tf.io.gfile.GFile(filename, "rb")):
       if idx == 0: continue  # skip header
       if six.PY2:
         line = unicode(line.strip(), "utf-8")
@@ -111,7 +111,7 @@ class MSRParaphraseCorpus(text_problems.TextConcat2ClassProblem):
     filesplit = "msr_paraphrase_train.txt"
     dev_ids = []
     if dataset_split != problem.DatasetSplit.TRAIN:
-      for row in tf.gfile.Open(os.path.join(mrpc_dir, "dev_ids.tsv")):
+      for row in tf.io.gfile.GFile(os.path.join(mrpc_dir, "dev_ids.tsv")):
         dev_ids.append(row.strip().split("\t"))
 
     filename = os.path.join(mrpc_dir, filesplit)

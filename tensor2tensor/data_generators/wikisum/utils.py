@@ -120,7 +120,7 @@ def wet_records(wet_filepath):
   if wet_filepath.endswith('.gz'):
     fopen = gzip.open
   else:
-    fopen = tf.gfile.FastGFile
+    fopen = tf.compat.v1.gfile.FastGFile
 
   with fopen(wet_filepath) as f:
     for record in wet_records_from_file_obj(f):
@@ -129,13 +129,13 @@ def wet_records(wet_filepath):
 
 def download(url, download_dir):
   outname = os.path.join(download_dir, os.path.basename(url))
-  if tf.gfile.Exists(outname):
+  if tf.io.gfile.exists(outname):
     print('Found %s, skipping download' % outname)
     return outname
   inprogress = outname + '.incomplete'
   print('Downloading %s' % url)
   inprogress, _ = urllib.urlretrieve(url, inprogress)
-  tf.gfile.Rename(inprogress, outname)
+  tf.io.gfile.rename(inprogress, outname)
   return outname
 
 
@@ -148,7 +148,7 @@ def wet_download_urls(wet_paths_url, tmp_dir, rm_after=True):
       yield download_path
       path = f.readline()
   if rm_after:
-    tf.gfile.Remove(paths_gz)
+    tf.io.gfile.remove(paths_gz)
 
 
 def wet_records_from_url(download_url, tmp_dir, rm_after=True):
@@ -158,7 +158,7 @@ def wet_records_from_url(download_url, tmp_dir, rm_after=True):
       yield wet_record
   finally:
     if rm_after:
-      tf.gfile.Remove(wet_gz)
+      tf.io.gfile.remove(wet_gz)
 
 
 class DummyPool(object):
@@ -202,7 +202,7 @@ def shard(items, num_shards):
 
 
 def gzip_memfile(fname):
-  with tf.gfile.Open(readahead(fname)) as f:
+  with tf.io.gfile.GFile(readahead(fname)) as f:
     memfile = StringIO.StringIO(f.read())
   return gzip.GzipFile(fileobj=memfile)
 
@@ -259,11 +259,11 @@ def timing(name=''):
   """Log start, end, and duration."""
   start = datetime.datetime.now()
   timestamp = start.strftime('%H:%M')
-  tf.logging.info('Starting job [%s] at %s', name, timestamp)
+  tf.compat.v1.logging.info('Starting job [%s] at %s', name, timestamp)
   yield
   end = datetime.datetime.now()
   timestamp = end.strftime('%H:%M')
-  tf.logging.info('Finished job [%s] at %s', name, timestamp)
+  tf.compat.v1.logging.info('Finished job [%s] at %s', name, timestamp)
   duration = end - start
   duration_mins = duration.total_seconds() / 60
-  tf.logging.info('Total time [%s] (m): %d', name, int(duration_mins))
+  tf.compat.v1.logging.info('Total time [%s] (m): %d', name, int(duration_mins))

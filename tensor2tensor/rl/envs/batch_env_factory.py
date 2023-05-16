@@ -52,7 +52,7 @@ def batch_env_factory(environment_spec, num_agents, initial_frame_chooser=None):
 def _define_batch_env(environment_spec, num_agents):
   """Create environments and apply all desired wrappers."""
 
-  with tf.variable_scope("environments"):
+  with tf.compat.v1.variable_scope("environments"):
     envs = [
         environment_spec.env_lambda()
         for _ in range(num_agents)]

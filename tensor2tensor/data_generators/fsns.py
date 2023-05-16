@@ -72,7 +72,7 @@ class ImageFSNS(image_utils.ImageProblem):
     label_key = "image/unpadded_label"
     data_fields, data_items_to_decoders = (
         super(ImageFSNS, self).example_reading_spec())
-    data_fields[label_key] = tf.VarLenFeature(tf.int64)
+    data_fields[label_key] = tf.io.VarLenFeature(tf.int64)
     data_items_to_decoders[
         "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
     return data_fields, data_items_to_decoders

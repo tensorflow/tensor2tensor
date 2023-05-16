@@ -151,9 +151,9 @@ def score_file(filename):
 
   # Prepare features for feeding into the model.
   if has_inputs:
-    inputs_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
+    inputs_ph = tf.compat.v1.placeholder(dtype=tf.int32)  # Just length dimension.
     batch_inputs = tf.reshape(inputs_ph, [1, -1, 1, 1])  # Make it 4D.
-  targets_ph = tf.placeholder(dtype=tf.int32)  # Just length dimension.
+  targets_ph = tf.compat.v1.placeholder(dtype=tf.int32)  # Just length dimension.
   batch_targets = tf.reshape(targets_ph, [1, -1, 1, 1])  # Make it 4D.
   features = {
       "inputs": batch_inputs,
@@ -163,15 +163,15 @@ def score_file(filename):
   # Prepare the model and the graph when model runs on features.
   model = registry.model(FLAGS.model)(hparams, tf.estimator.ModeKeys.EVAL)
   _, losses = model(features)
-  saver = tf.train.Saver()
+  saver = tf.compat.v1.train.Saver()
 
-  with tf.Session() as sess:
+  with tf.compat.v1.Session() as sess:
     # Load weights from checkpoint.
     ckpts = tf.train.get_checkpoint_state(FLAGS.output_dir)
     ckpt = ckpts.model_checkpoint_path
     saver.restore(sess, ckpt)
     # Run on each line.
-    with tf.gfile.Open(filename) as f:
+    with tf.io.gfile.GFile(filename) as f:
       lines = f.readlines()
     results = []
     for line in lines:
@@ -208,7 +208,7 @@ def score_file(filename):
       
 
 def main(_):
-  tf.logging.set_verbosity(tf.logging.INFO)
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
   trainer_lib.set_random_seed(FLAGS.random_seed)
   # Fathom start
   checkpoint_path = fathom_t2t_model_setup()
@@ -218,12 +218,12 @@ def main(_):
 
   if FLAGS.score_file:
     filename = os.path.expanduser(FLAGS.score_file)
-    if not tf.gfile.Exists(filename):
+    if not tf.io.gfile.exists(filename):
       raise ValueError("The file to score doesn't exist: %s" % filename)
     results = score_file(filename)
     if not FLAGS.decode_to_file:
       raise ValueError("To score a file, specify --decode_to_file for results.")
-    write_file = tf.gfile.Open(os.path.expanduser(FLAGS.decode_to_file), "w")
+    write_file = tf.io.gfile.GFile(os.path.expanduser(FLAGS.decode_to_file), "w")
     for score in results:
       write_file.write("%.6f\n" % score)
     write_file.close()
@@ -255,5 +255,5 @@ def main(_):
 
 
 if __name__ == "__main__":
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+  tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
+  tf.compat.v1.app.run()

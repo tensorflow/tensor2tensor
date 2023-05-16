@@ -59,7 +59,7 @@ def _make_example(input_ids, problem, input_feature_name="inputs"):
   for fname, ftype in data_fields.items():
     if fname == input_feature_name:
       continue
-    if not isinstance(ftype, tf.FixedLenFeature):
+    if not isinstance(ftype, tf.io.FixedLenFeature):
       # Only FixedLenFeatures are required
       continue
     if ftype.default_value is not None:
@@ -75,7 +75,7 @@ def _make_example(input_ids, problem, input_feature_name="inputs"):
     if ftype.dtype == tf.bytes:
       value = tf.train.Feature(
           bytes_list=tf.train.BytesList(value=[""] * num_elements))
-    tf.logging.info("Adding dummy value for feature %s as it is required by "
+    tf.compat.v1.logging.info("Adding dummy value for feature %s as it is required by "
                     "the Problem.", fname)
     features[fname] = value
   return tf.train.Example(features=tf.train.Features(feature=features))

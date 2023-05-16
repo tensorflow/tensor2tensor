@@ -31,12 +31,12 @@ import tensorflow as tf
 
 def define_train(hparams):
   """Define the training setup."""
-  with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+  with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=tf.compat.v1.AUTO_REUSE):
     memory, collect_summary, train_initialization\
       = collect.define_collect(
           hparams, "ppo_train", eval_phase=False)
     ppo_summary = ppo.define_ppo_epoch(memory, hparams)
-    train_summary = tf.summary.merge([collect_summary, ppo_summary])
+    train_summary = tf.compat.v1.summary.merge([collect_summary, ppo_summary])
 
     if hparams.eval_every_epochs:
       _, eval_collect_summary, eval_initialization\
@@ -52,30 +52,30 @@ def train(hparams, event_dir=None, model_dir=None,
           restore_agent=True, name_scope="rl_train"):
   """Train."""
   with tf.Graph().as_default():
-    with tf.name_scope(name_scope):
+    with tf.compat.v1.name_scope(name_scope):
       train_summary_op, eval_summary_op, intializers = define_train(hparams)
       if event_dir:
-        summary_writer = tf.summary.FileWriter(
-            event_dir, graph=tf.get_default_graph(), flush_secs=60)
+        summary_writer = tf.compat.v1.summary.FileWriter(
+            event_dir, graph=tf.compat.v1.get_default_graph(), flush_secs=60)
       else:
         summary_writer = None
 
       if model_dir:
-        model_saver = tf.train.Saver(
-            tf.global_variables(".*network_parameters.*"))
+        model_saver = tf.compat.v1.train.Saver(
+            tf.compat.v1.global_variables(".*network_parameters.*"))
       else:
         model_saver = None
 
       # TODO(piotrmilos): This should be refactored, possibly with
       # handlers for each type of env
       if hparams.environment_spec.simulated_env:
-        env_model_loader = tf.train.Saver(
-            tf.global_variables("next_frame*"))
+        env_model_loader = tf.compat.v1.train.Saver(
+            tf.compat.v1.global_variables("next_frame*"))
       else:
         env_model_loader = None
 
-      with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+      with tf.compat.v1.Session() as sess:
+        sess.run(tf.compat.v1.global_variables_initializer())
         for initializer in intializers:
           initializer(sess)
         if env_model_loader:
@@ -91,7 +91,7 @@ def train(hparams, event_dir=None, model_dir=None,
         steps_to_go = hparams.epochs_num - start_step
 
         if steps_to_go <= 0:
-          tf.logging.info("Skipping PPO training. Requested %d steps while "
+          tf.compat.v1.logging.info("Skipping PPO training. Requested %d steps while "
                           "%d train steps already reached",
                           hparams.epochs_num, start_step)
           return

@@ -28,7 +28,7 @@ class DiscretizationTest(tf.test.TestCase):
   """Tests for discretization layers."""
 
   def setUp(self):
-    tf.set_random_seed(1234)
+    tf.compat.v1.set_random_seed(1234)
     np.random.seed(123)
 
   @tf.contrib.eager.run_test_in_graph_and_eager_modes()
@@ -69,7 +69,7 @@ class DiscretizationTest(tf.test.TestCase):
     block_dim = 20
     num_blocks = 3
     x = tf.zeros(shape=[1, 1, hidden_size], dtype=tf.float32)
-    projection_tensors = tf.random_normal(
+    projection_tensors = tf.random.normal(
         shape=[num_blocks, hidden_size, block_dim], dtype=tf.float32)
     x_projected = discretization.project_hidden(x, projection_tensors,
                                                 hidden_size, num_blocks)
@@ -124,7 +124,7 @@ class DiscretizationTest(tf.test.TestCase):
     means_new, _, _ = discretization.get_vq_codebook(bottleneck_size,
                                                      hidden_size)
     with self.test_session() as sess:
-      tf.global_variables_initializer().run()
+      tf.compat.v1.global_variables_initializer().run()
       sess.run(assign_op)
       self.assertTrue(np.all(sess.run(means_new) == 0))
       self.assertTrue(np.all(sess.run(ema_count) == 0))
@@ -143,23 +143,23 @@ class DiscretizationTest(tf.test.TestCase):
   def testVQDiscreteBottleneck(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
     x_means_hot, _ = discretization.vq_discrete_bottleneck(x, bottleneck_bits=2)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     x_means_hot_eval = self.evaluate(x_means_hot)
     self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
 
   def testVQDiscreteUnbottlenck(self):
     x = tf.constant([[1, 0, 0, 0], [0, 0, 1, 0]], dtype=tf.int32)
     x_means = discretization.vq_discrete_unbottleneck(x, hidden_size=3)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     x_means_eval = self.evaluate(x_means)
     self.assertEqual(np.shape(x_means_eval), (2, 3))
 
   def testGumbelSoftmaxDiscreteBottleneck(self):
     x = tf.constant([[0, 0.9, 0], [0.8, 0., 0.]], dtype=tf.float32)
-    tf.add_to_collection(tf.GraphKeys.GLOBAL_STEP, tf.constant(1))
+    tf.compat.v1.add_to_collection(tf.compat.v1.GraphKeys.GLOBAL_STEP, tf.constant(1))
     x_means_hot, _ = discretization.gumbel_softmax_discrete_bottleneck(
         x, bottleneck_bits=2)
-    self.evaluate(tf.global_variables_initializer())
+    self.evaluate(tf.compat.v1.global_variables_initializer())
     x_means_hot_eval = self.evaluate(x_means_hot)
     self.assertEqual(np.shape(x_means_hot_eval), (2, 4))
 

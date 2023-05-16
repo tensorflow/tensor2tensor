@@ -89,7 +89,7 @@ def multihead_graph_attention(query_antecedent,
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
   vars_3d_num_heads = num_heads if vars_3d else None
-  with tf.variable_scope(
+  with tf.compat.v1.variable_scope(
       name,
       default_name="multihead_attention",
       values=[query_antecedent, memory_antecedent]):
@@ -134,7 +134,7 @@ def multihead_graph_attention(query_antecedent,
     x.set_shape(x.shape.as_list()[:-1] + [total_value_depth])
 
     if vars_3d:
-      o_var = tf.get_variable(
+      o_var = tf.compat.v1.get_variable(
           "o", [num_heads, total_value_depth // num_heads, output_depth])
       o_var = tf.reshape(o_var, [total_value_depth, output_depth])
       x = tf.tensordot(x, o_var, axes=1)
@@ -161,18 +161,18 @@ def make_edge_vectors(adjacency_matrix,
   Returns:
     A [batch, num_nodes, num_nodes, depth] vector of tensors
   """
-  with tf.variable_scope(name, default_name="edge_vectors"):
+  with tf.compat.v1.variable_scope(name, default_name="edge_vectors"):
     att_adj_vectors_shape = [num_edge_types, depth]
     adjacency_matrix_shape = common_layers.shape_list(adjacency_matrix)
     adj_vectors = (
-        tf.get_variable(
+        tf.compat.v1.get_variable(
             "adj_vectors",
             att_adj_vectors_shape,
-            initializer=tf.random_normal_initializer(0, depth**-0.5)) *
+            initializer=tf.compat.v1.random_normal_initializer(0, depth**-0.5)) *
         (depth**0.5))
 
     att_adj_vectors = tf.matmul(
-        tf.reshape(tf.to_float(adjacency_matrix), [-1, num_edge_types]),
+        tf.reshape(tf.cast(adjacency_matrix, dtype=tf.float32), [-1, num_edge_types]),
         adj_vectors)
     # Reshape to be [batch, num_nodes, num_nodes, depth].
     att_adj_vectors = tf.reshape(att_adj_vectors, [
@@ -218,7 +218,7 @@ def graph_attention(q,
   Returns:
     A Tensor of shape [batch, length, depth(q)]
   """
-  with tf.variable_scope(
+  with tf.compat.v1.variable_scope(
       name, default_name="dot_product_attention", values=[q, k, v]) as scope:
     # [batch, num_heads, query_length, memory_length]
     logits = tf.matmul(q, k, transpose_b=True)
@@ -462,19 +462,19 @@ def sparse_message_pass(node_states,
   """
   n = tf.shape(node_states)[0]
   t = num_edge_types
-  incoming_edges_per_type = tf.sparse_reduce_sum(adjacency_matrices, axis=1)
+  incoming_edges_per_type = tf.sparse.reduce_sum(adjacency_matrices, axis=1)
 
   # Convert the adjacency matrix into shape [T, N, N] - one [N, N] adjacency
   # matrix for each edge type. Since sparse tensor multiplication only supports
   # two-dimensional tensors, we actually convert the adjacency matrix into a
   # [T * N, N] tensor.
-  adjacency_matrices = tf.sparse_transpose(adjacency_matrices, [2, 0, 1])
-  adjacency_matrices = tf.sparse_reshape(adjacency_matrices, [t * n, n])
+  adjacency_matrices = tf.sparse.transpose(adjacency_matrices, [2, 0, 1])
+  adjacency_matrices = tf.sparse.reshape(adjacency_matrices, [t * n, n])
 
   # Multiply the adjacency matrix by the node states, producing a [T * N, H]
   # tensor. For each (edge type, node) pair, this tensor stores the sum of
   # the hidden states of the node's neighbors over incoming edges of that type.
-  messages = tf.sparse_tensor_dense_matmul(adjacency_matrices, node_states)
+  messages = tf.sparse.sparse_dense_matmul(adjacency_matrices, node_states)
 
   # Rearrange this tensor to have shape [N, T * H]. The incoming states of each
   # nodes neighbors are summed by edge type and then concatenated together into
@@ -493,14 +493,14 @@ def sparse_message_pass(node_states,
   # multiplying by a linear layer are commutative, this process was equivalent
   # to running each incoming edge through a linear layer separately and then
   # adding everything at the end.
-  with tf.variable_scope(name, default_name="sparse_ggnn"):
+  with tf.compat.v1.variable_scope(name, default_name="sparse_ggnn"):
     final_node_states = common_layers.dense(
         messages, hidden_size, use_bias=False)
 
     # Multiply the bias by for each edge type by the number of incoming nodes
     # of that edge type.
     if use_bias:
-      bias = tf.get_variable("bias", initializer=tf.zeros([t, hidden_size]))
+      bias = tf.compat.v1.get_variable("bias", initializer=tf.zeros([t, hidden_size]))
       final_node_states += tf.matmul(incoming_edges_per_type, bias)
 
     if average_aggregation:
@@ -565,7 +565,7 @@ def multihead_mpnn_attention(node_states,
   if total_value_depth % num_heads != 0:
     raise ValueError("Value depth (%d) must be divisible by the number of "
                      "attention heads (%d)." % (total_value_depth, num_heads))
-  with tf.variable_scope(
+  with tf.compat.v1.variable_scope(
       name, default_name="multihead_mpnn_attention", values=[node_states]):
     # If not explicitly set, use num_transforms set to num_edge_types.
     num_transforms = (
@@ -689,7 +689,7 @@ def dot_product_mpnn_attention(q,
     ValueError: if num_transforms doesn't equal num_edge_types and not using
       weighted sum.
   """
-  with tf.variable_scope(
+  with tf.compat.v1.variable_scope(
       name,
       default_name="dot_product_mpnn_attention",
       values=[q, k, v, adjacency_matrix, num_edge_types]):
@@ -755,8 +755,8 @@ def dot_product_mpnn_attention(q,
     # to each location without an edge so that the softmax of entries with the
     # value 0 become a small negative number instead.
     bias = 0
-    bias = tf.to_float(tf.equal(
-        tf.reduce_sum(adjacency_matrix, axis=-1), 0)) * -1e9
+    bias = tf.cast(tf.equal(
+        tf.reduce_sum(adjacency_matrix, axis=-1), 0), dtype=tf.float32) * -1e9
     logits += bias
 
     # Turn the raw key-query products into a probability distribution (or,
@@ -817,7 +817,7 @@ def ggnn_fast_dense(node_states,
   """
   # between the same nodes (with only one edge of each type. adjacency_matrix
   # will need to be converted to shape [B, T, N, N].
-  with tf.variable_scope(
+  with tf.compat.v1.variable_scope(
       name,
       default_name="ggnn_fast_dense",
       values=[node_states, adjacency_matrix, num_edge_types]):
@@ -852,7 +852,7 @@ def compute_values(edge_compatibility, v):
   # according to the attention weights. These values are still segregated by
   # edge type.
   # Shape = [B, T, N, V].
-  all_edge_values = tf.matmul(tf.to_float(edge_compatibility), v)
+  all_edge_values = tf.matmul(tf.cast(edge_compatibility, dtype=tf.float32), v)
 
   # Combines the weighted value vectors together across edge types into a
   # single N x V matrix for each batch.
@@ -875,18 +875,18 @@ def precompute_edge_matrices(adjacency, hparams):
   batch_size, num_nodes, _, edge_dim = common_layers.shape_list(adjacency)
 
   # build the edge_network for incoming edges
-  with tf.variable_scope("edge_network"):
+  with tf.compat.v1.variable_scope("edge_network"):
     x = tf.reshape(
         adjacency, [batch_size * num_nodes * num_nodes, edge_dim],
         name="adj_reshape_in")
 
     for ip_layer in range(hparams.edge_network_layers):
       name = "edge_network_layer_%d"%ip_layer
-      x = tf.layers.dense(common_layers.layer_preprocess(x, hparams),
+      x = tf.compat.v1.layers.dense(common_layers.layer_preprocess(x, hparams),
                           hparams.edge_network_hidden_size,
                           activation=tf.nn.relu,
                           name=name)
-    x = tf.layers.dense(common_layers.layer_preprocess(x, hparams),
+    x = tf.compat.v1.layers.dense(common_layers.layer_preprocess(x, hparams),
                         hparams.hidden_size**2,
                         activation=None,
                         name="edge_network_output")
@@ -929,7 +929,7 @@ def dense_message_pass(node_states, edge_matrices):
       tf.matmul(edge_matrices, h_flat), [batch_size * num_nodes, node_dim],
       name="messages_matmul")
 
-  message_bias = tf.get_variable("message_bias", shape=node_dim)
+  message_bias = tf.compat.v1.get_variable("message_bias", shape=node_dim)
   messages = messages + message_bias
   messages = tf.reshape(messages, [batch_size, num_nodes, node_dim])
   return messages

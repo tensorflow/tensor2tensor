@@ -168,7 +168,7 @@ def block_layer(inputs,
   Returns:
     The output `Tensor` of the block layer.
   """
-  with tf.variable_scope(name, default_name="block_layer"):
+  with tf.compat.v1.variable_scope(name, default_name="block_layer"):
     # Only the first block per block_layer uses projection_shortcut and strides
     def projection_shortcut(inputs, kernel):
       """Project identity branch."""
@@ -191,7 +191,7 @@ def block_layer(inputs,
         col_blocks_dim=col_blocks_dim)
 
     for i in range(1, blocks):
-      with tf.variable_scope("bottleneck_%d" % i):
+      with tf.compat.v1.variable_scope("bottleneck_%d" % i):
         inputs = bottleneck_block(
             inputs,
             filters,
@@ -223,7 +223,7 @@ class MtfResNet(mtf_model.MtfModel):
 
   def mtf_model_fn(self, features, mesh):
     features = copy.copy(features)
-    tf.logging.info("features = %s" % features)
+    tf.compat.v1.logging.info("features = %s" % features)
     hparams = self._hparams
     activation_dtype = self.set_activation_type()
     is_training = hparams.mode == tf.estimator.ModeKeys.TRAIN
@@ -272,7 +272,7 @@ class MtfResNet(mtf_model.MtfModel):
     # [ self attention - ffn - residual + dropout] x n
     for layer in range(hparams.num_layers):
       layer_name = "block_layer_%d" % layer
-      with tf.variable_scope(layer_name):
+      with tf.compat.v1.variable_scope(layer_name):
         # Residual block layer
         x = block_layer(
             inputs=x,
@@ -310,7 +310,7 @@ class MtfResNet(mtf_model.MtfModel):
         activation=mtf.relu, name="dense")
 
     # We assume fixed vocab size for targets
-    labels = tf.squeeze(tf.to_int32(features["targets"]), [2, 3])
+    labels = tf.squeeze(tf.cast(features["targets"], dtype=tf.int32), [2, 3])
     labels = mtf.import_tf_tensor(
         mesh, tf.reshape(labels, [hparams.batch_size]), mtf.Shape([batch_dim]))
 

@@ -61,7 +61,7 @@ class HistoryBuffer(object):
 
   def move_by_one_element(self, element):
     last_removed = self.get_all_elements()[:, 1:, ...]
-    element = tf.expand_dims(element, dim=1)
+    element = tf.expand_dims(element, axis=1)
     moved = tf.concat([last_removed, element], axis=1)
     with tf.control_dependencies([moved]):
       with tf.control_dependencies([self._history_buff.assign(moved)]):
@@ -69,7 +69,7 @@ class HistoryBuffer(object):
 
   def reset(self, indices):
     initial_frames = tf.gather(self.get_initial_observations(), indices)
-    scatter_op = tf.scatter_update(self._history_buff, indices, initial_frames)
+    scatter_op = tf.compat.v1.scatter_update(self._history_buff, indices, initial_frames)
     with tf.control_dependencies([scatter_op]):
       return self._history_buff.read_value()
 
@@ -145,11 +145,11 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
     return self.length
 
   def simulate(self, action):
-    with tf.name_scope("environment/simulate"):
+    with tf.compat.v1.name_scope("environment/simulate"):
       actions = tf.concat([tf.expand_dims(action, axis=1)] * self._num_frames,
                           axis=1)
       history = self.history_buffer.get_all_elements()
-      with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=tf.compat.v1.AUTO_REUSE):
         # We only need 1 target frame here, set it.
         hparams_target_frames = self._model.hparams.video_num_target_frames
         self._model.hparams.video_num_target_frames = 1
@@ -160,7 +160,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
       observ = tf.cast(tf.squeeze(model_output["targets"], axis=1),
                        self.observ_dtype)
 
-      reward = tf.to_float(model_output["target_reward"])
+      reward = tf.cast(model_output["target_reward"], dtype=tf.float32)
       reward = tf.reshape(reward, shape=(self.length,)) + self._min_reward
 
       if self._intrinsic_reward_scale:
@@ -175,7 +175,7 @@ class SimulatedBatchEnv(in_graph_batch_env.InGraphBatchEnv):
             model_output["targets_logits"], model_output["targets"])
         uncertainty_reward = tf.minimum(
             1., self._intrinsic_reward_scale * uncertainty_reward)
-        uncertainty_reward = tf.Print(uncertainty_reward, [uncertainty_reward],
+        uncertainty_reward = tf.compat.v1.Print(uncertainty_reward, [uncertainty_reward],
                                       message="uncertainty_reward", first_n=1,
                                       summarize=8)
         reward += uncertainty_reward

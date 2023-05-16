@@ -75,7 +75,7 @@ class VisualizationTest(tf.test.TestCase):
 
     input_sentence = 'I have two dogs.'
     with self.test_session() as sess:
-      sess.run(tf.global_variables_initializer())
+      sess.run(tf.compat.v1.global_variables_initializer())
       _, inp_text, out_text, att_mats = (
           visualizer.get_vis_data_from_string(sess, input_sentence))
 

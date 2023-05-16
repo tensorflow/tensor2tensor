@@ -54,8 +54,8 @@ class OcrTest(image_utils.Image2TextProblem):
   def preprocess_example(self, example, mode, _):
     # Resize from usual size ~1350x60 to 90x4 in this test.
     img = example["inputs"]
-    img = tf.to_int64(
-        tf.image.resize_images(img, [90, 4], tf.image.ResizeMethod.AREA))
+    img = tf.cast(
+        tf.image.resize(img, [90, 4], tf.image.ResizeMethod.AREA), dtype=tf.int64)
     img = tf.image.per_image_standardization(img)
     example["inputs"] = img
     return example
@@ -65,13 +65,13 @@ class OcrTest(image_utils.Image2TextProblem):
     # files names 0.png, 0.txt, 1.png, 1.txt and so on until num_examples.
     num_examples = 2
     ocr_dir = os.path.join(tmp_dir, "ocr/")
-    tf.logging.info("Looking for OCR data in %s." % ocr_dir)
+    tf.compat.v1.logging.info("Looking for OCR data in %s." % ocr_dir)
     for i in range(num_examples):
       image_filepath = os.path.join(ocr_dir, "%d.png" % i)
       text_filepath = os.path.join(ocr_dir, "%d.txt" % i)
-      with tf.gfile.Open(text_filepath, "rb") as f:
+      with tf.io.gfile.GFile(text_filepath, "rb") as f:
         label = f.read()
-      with tf.gfile.Open(image_filepath, "rb") as f:
+      with tf.io.gfile.GFile(image_filepath, "rb") as f:
         encoded_image_data = f.read()
       # In PNG files width and height are stored in these bytes.
       width, height = struct.unpack(">ii", encoded_image_data[16:24])

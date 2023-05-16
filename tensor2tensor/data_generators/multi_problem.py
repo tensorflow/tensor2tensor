@@ -87,8 +87,8 @@ class MultiProblem(problem.Problem):
     vocab_size_inc = len(self.task_list)
     vocab_size_inc += self.get_max_num_classes()
     vocab_size = self._hparams.vocabulary["targets"].vocab_size
-    tf.logging.info("Old vocabulary size: %d" % vocab_size)
-    tf.logging.info("New vocabulary size: %d" % (vocab_size + vocab_size_inc))
+    tf.compat.v1.logging.info("Old vocabulary size: %d" % vocab_size)
+    tf.compat.v1.logging.info("New vocabulary size: %d" % (vocab_size + vocab_size_inc))
     self._hparams.target_modality = modalities.SymbolModality(
         model_hparams, vocab_size + vocab_size_inc)
 
@@ -171,13 +171,13 @@ class MultiProblem(problem.Problem):
     self.get_hparams()
 
     if is_training:
-      problem_step = tf.get_variable("problem_step",
+      problem_step = tf.compat.v1.get_variable("problem_step",
                                      shape=[],
                                      dtype=tf.int64,
-                                     initializer=tf.zeros_initializer(),
+                                     initializer=tf.compat.v1.zeros_initializer(),
                                      trainable=False,
                                      use_resource=True)
-      dataset_iterators = [d.make_one_shot_iterator() for d in datasets]
+      dataset_iterators = [tf.compat.v1.data.make_one_shot_iterator(d) for d in datasets]
 
       def get_next_from_dataset(dataset_iter):
         return dataset_iter.get_next()
@@ -188,7 +188,7 @@ class MultiProblem(problem.Problem):
           inv_exp_decay = common_layers.inverse_exp_decay(
               max_step=hparams.multiproblem_schedule_max_examples,
               min_value=1e-4,
-              step=tf.to_float(problem_step)
+              step=tf.cast(problem_step, dtype=tf.float32)
           )
           # inv_exp_decay is bounded above by 1.0
           return inv_exp_decay * hparams.multiproblem_schedule_threshold
@@ -220,15 +220,15 @@ class MultiProblem(problem.Problem):
         else:
           raise ValueError("Unknown schedule %s" % str(
               hparams.multiproblem_mixing_schedule))
-        tf.logging.info("Using the %s schedule to "
+        tf.compat.v1.logging.info("Using the %s schedule to "
                         "train the MultiProblem." % str(
                             hparams.multiproblem_mixing_schedule))
-        tf.logging.info("Schedule mixing threshold "
+        tf.compat.v1.logging.info("Schedule mixing threshold "
                         "%.2f" % hparams.multiproblem_schedule_threshold)
         prob = tf.cond(
-            tf.equal(tf.floormod(
+            tf.equal(tf.math.floormod(
                 problem_step, tf.cast(5e6, dtype=tf.int64)), 0),
-            lambda: tf.Print(prob, [prob], message="Probability"),
+            lambda: tf.compat.v1.Print(prob, [prob], message="Probability"),
             lambda: prob)
 
         def sample_task(curr_task, num_tasks_left, randnum):
@@ -264,7 +264,7 @@ class MultiProblem(problem.Problem):
           )
 
         return tf.data.Dataset.from_tensors(
-            sample_task(0, len(self.task_list)-1, tf.random_uniform([])))
+            sample_task(0, len(self.task_list)-1, tf.random.uniform([])))
 
       single_mtl_dataset = tf.data.Dataset.from_tensors(tf.zeros([1])).repeat()
       single_mtl_dataset = single_mtl_dataset.flat_map(mix_data)

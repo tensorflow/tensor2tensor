@@ -53,10 +53,10 @@ def image_to_tf_summary_value(image, tag):
   height, width, n_channels = curr_image.shape
   s = io.BytesIO()
   matplotlib_pyplot().imsave(s, curr_image, format="png")
-  img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
+  img_sum = tf.compat.v1.Summary.Image(encoded_image_string=s.getvalue(),
                              height=height, width=width,
                              colorspace=n_channels)
-  return tf.Summary.Value(tag=tag, image=img_sum)
+  return tf.compat.v1.Summary.Value(tag=tag, image=img_sum)
 
 
 def convert_predictions_to_image_summaries(hook_args):
@@ -87,8 +87,8 @@ def convert_predictions_to_image_summaries(hook_args):
 
 def resize_by_area(img, size):
   """image resize function used by quite a few image problems."""
-  return tf.to_int64(
-      tf.image.resize_images(img, [size, size], tf.image.ResizeMethod.AREA))
+  return tf.cast(
+      tf.image.resize(img, [size, size], tf.image.ResizeMethod.AREA), dtype=tf.int64)
 
 
 def make_multiscale(image, resolutions,
@@ -108,11 +108,11 @@ def make_multiscale(image, resolutions,
   """
   scaled_images = []
   for height in resolutions:
-    scaled_image = tf.image.resize_images(
+    scaled_image = tf.image.resize(
         image,
         size=[height, height],  # assuming that height = width
         method=resize_method)
-    scaled_image = tf.to_int64(scaled_image)
+    scaled_image = tf.cast(scaled_image, dtype=tf.int64)
     scaled_image.set_shape([height, height, num_channels])
     scaled_images.append(scaled_image)
 
@@ -142,7 +142,7 @@ def make_multiscale_dilated(image, resolutions, num_channels=3):
   for height in resolutions:
     dilation_rate = image_height // height  # assuming height = width
     scaled_image = image[::dilation_rate, ::dilation_rate]
-    scaled_image = tf.to_int64(scaled_image)
+    scaled_image = tf.cast(scaled_image, dtype=tf.int64)
     scaled_image.set_shape([None, None, num_channels])
     scaled_images.append(scaled_image)
   return scaled_images
@@ -163,8 +163,8 @@ class ImageProblem(problem.Problem):
 
   def example_reading_spec(self):
     data_fields = {
-        "image/encoded": tf.FixedLenFeature((), tf.string),
-        "image/format": tf.FixedLenFeature((), tf.string),
+        "image/encoded": tf.io.FixedLenFeature((), tf.string),
+        "image/format": tf.io.FixedLenFeature((), tf.string),
     }
 
     data_items_to_decoders = {
@@ -233,7 +233,7 @@ class Image2ClassProblem(ImageProblem):
     label_key = "image/class/label"
     data_fields, data_items_to_decoders = (
         super(Image2ClassProblem, self).example_reading_spec())
-    data_fields[label_key] = tf.FixedLenFeature((1,), tf.int64)
+    data_fields[label_key] = tf.io.FixedLenFeature((1,), tf.int64)
 
     data_items_to_decoders[
         "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
@@ -266,9 +266,9 @@ def encode_images_as_png(images):
   else:
     (height, width, channels) = images[0].shape
     with tf.Graph().as_default():
-      image_t = tf.placeholder(dtype=tf.uint8, shape=(height, width, channels))
+      image_t = tf.compat.v1.placeholder(dtype=tf.uint8, shape=(height, width, channels))
       encoded_image_t = tf.image.encode_png(image_t)
-      with tf.Session() as sess:
+      with tf.compat.v1.Session() as sess:
         for image in images:
           enc_string = sess.run(encoded_image_t, feed_dict={image_t: image})
           yield enc_string
@@ -336,7 +336,7 @@ class Image2TextProblem(ImageProblem):
     label_key = "image/class/label"
     data_fields, data_items_to_decoders = (
         super(Image2TextProblem, self).example_reading_spec())
-    data_fields[label_key] = tf.VarLenFeature(tf.int64)
+    data_fields[label_key] = tf.io.VarLenFeature(tf.int64)
     data_items_to_decoders[
         "targets"] = tf.contrib.slim.tfexample_decoder.Tensor(label_key)
     return data_fields, data_items_to_decoders
@@ -373,7 +373,7 @@ def image_augmentation(images, do_colors=False, crop_size=None):
   """Image augmentation: cropping, flipping, and color transforms."""
   if crop_size is None:
     crop_size = [299, 299]
-  images = tf.random_crop(images, crop_size + [3])
+  images = tf.image.random_crop(images, crop_size + [3])
   images = tf.image.random_flip_left_right(images)
   if do_colors:  # More augmentation, but might be slow.
     images = tf.image.random_brightness(images, max_delta=32. / 255.)
@@ -393,8 +393,8 @@ def cifar_image_augmentation(images):
   Returns:
     Tensor of the same shape as images.
   """
-  images = tf.image.resize_image_with_crop_or_pad(images, 40, 40)
-  images = tf.random_crop(images, [32, 32, 3])
+  images = tf.image.resize_with_crop_or_pad(images, 40, 40)
+  images = tf.image.random_crop(images, [32, 32, 3])
   images = tf.image.random_flip_left_right(images)
   return images
 
@@ -413,7 +413,7 @@ def random_shift(image, wsr=0.1, hsr=0.1):
   """
   height, width, _ = common_layers.shape_list(image)
   width_range, height_range = wsr*width, hsr*height
-  height_translations = tf.random_uniform((1,), -height_range, height_range)
-  width_translations = tf.random_uniform((1,), -width_range, width_range)
+  height_translations = tf.random.uniform((1,), -height_range, height_range)
+  width_translations = tf.random.uniform((1,), -width_range, width_range)
   translations = tf.concat((height_translations, width_translations), axis=0)
   return tf.contrib.image.translate(image, translations=translations)

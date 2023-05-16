@@ -33,20 +33,20 @@ def shake_shake_skip_connection(x, output_filters, stride, is_training):
     return x
   stride_spec = [1, stride, stride, 1]
   # Skip path 1.
-  path1 = tf.nn.avg_pool(x, [1, 1, 1, 1], stride_spec, "VALID")
-  path1 = tf.layers.conv2d(
+  path1 = tf.nn.avg_pool2d(input=x, ksize=[1, 1, 1, 1], strides=stride_spec, padding="VALID")
+  path1 = tf.compat.v1.layers.conv2d(
       path1, int(output_filters / 2), (1, 1), padding="SAME", name="path1_conv")
 
   # Skip path 2.
   pad_arr = [[0, 0], [0, 1], [0, 1], [0, 0]]  # First pad with 0's then crop.
   path2 = tf.pad(x, pad_arr)[:, 1:, 1:, :]
-  path2 = tf.nn.avg_pool(path2, [1, 1, 1, 1], stride_spec, "VALID")
-  path2 = tf.layers.conv2d(
+  path2 = tf.nn.avg_pool2d(input=path2, ksize=[1, 1, 1, 1], strides=stride_spec, padding="VALID")
+  path2 = tf.compat.v1.layers.conv2d(
       path2, int(output_filters / 2), (1, 1), padding="SAME", name="path2_conv")
 
   # Concat and apply BN.
   final_path = tf.concat(values=[path1, path2], axis=-1)
-  final_path = tf.layers.batch_normalization(
+  final_path = tf.compat.v1.layers.batch_normalization(
       final_path, training=is_training, name="final_path_bn")
   return final_path
 
@@ -56,16 +56,16 @@ def shake_shake_branch(x, output_filters, stride, rand_forward, rand_backward,
   """Building a 2 branching convnet."""
   is_training = hparams.mode == tf.contrib.learn.ModeKeys.TRAIN
   x = tf.nn.relu(x)
-  x = tf.layers.conv2d(
+  x = tf.compat.v1.layers.conv2d(
       x,
       output_filters, (3, 3),
       strides=(stride, stride),
       padding="SAME",
       name="conv1")
-  x = tf.layers.batch_normalization(x, training=is_training, name="bn1")
+  x = tf.compat.v1.layers.batch_normalization(x, training=is_training, name="bn1")
   x = tf.nn.relu(x)
-  x = tf.layers.conv2d(x, output_filters, (3, 3), padding="SAME", name="conv2")
-  x = tf.layers.batch_normalization(x, training=is_training, name="bn2")
+  x = tf.compat.v1.layers.conv2d(x, output_filters, (3, 3), padding="SAME", name="conv2")
+  x = tf.compat.v1.layers.batch_normalization(x, training=is_training, name="bn2")
   if is_training:
     x = x * rand_backward + tf.stop_gradient(x * rand_forward -
                                              x * rand_backward)
@@ -81,12 +81,12 @@ def shake_shake_block(x, output_filters, stride, hparams):
 
   # Generate random numbers for scaling the branches.
   rand_forward = [
-      tf.random_uniform(
+      tf.random.uniform(
           [batch_size, 1, 1, 1], minval=0, maxval=1, dtype=tf.float32)
       for _ in range(hparams.shake_shake_num_branches)
   ]
   rand_backward = [
-      tf.random_uniform(
+      tf.random.uniform(
           [batch_size, 1, 1, 1], minval=0, maxval=1, dtype=tf.float32)
       for _ in range(hparams.shake_shake_num_branches)
   ]
@@ -99,19 +99,19 @@ def shake_shake_block(x, output_filters, stride, hparams):
 
   branches = []
   for branch, (r_forward, r_backward) in enumerate(zipped_rand):
-    with tf.variable_scope("branch_{}".format(branch)):
+    with tf.compat.v1.variable_scope("branch_{}".format(branch)):
       b = shake_shake_branch(x, output_filters, stride, r_forward, r_backward,
                              hparams)
-      b = tf.nn.dropout(b, 1.0 - hparams.layer_prepostprocess_dropout)
+      b = tf.nn.dropout(b, rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
       branches.append(b)
   res = shake_shake_skip_connection(x, output_filters, stride, is_training)
   if hparams.shake_shake_concat:
     concat_values = [res] + branches
     concat_output = tf.concat(values=concat_values, axis=-1)
     concat_output = tf.nn.relu(concat_output)
-    concat_output = tf.layers.conv2d(
+    concat_output = tf.compat.v1.layers.conv2d(
         concat_output, output_filters, (1, 1), name="concat_1x1")
-    concat_output = tf.layers.batch_normalization(
+    concat_output = tf.compat.v1.layers.batch_normalization(
         concat_output, training=is_training, name="concat_bn")
     return concat_output
   else:
@@ -122,7 +122,7 @@ def shake_shake_layer(x, output_filters, num_blocks, stride, hparams):
   """Builds many sub layers into one full layer."""
   for block_num in range(num_blocks):
     curr_stride = stride if (block_num == 0) else 1
-    with tf.variable_scope("layer_{}".format(block_num)):
+    with tf.compat.v1.variable_scope("layer_{}".format(block_num)):
       x = shake_shake_block(x, output_filters, curr_stride, hparams)
   return x
 
@@ -146,13 +146,13 @@ class ShakeShake(t2t_model.T2TModel):
     n = (hparams.num_hidden_layers - 2) // 6
     x = inputs
 
-    x = tf.layers.conv2d(x, 16, (3, 3), padding="SAME", name="init_conv")
-    x = tf.layers.batch_normalization(x, training=is_training, name="init_bn")
-    with tf.variable_scope("L1"):
+    x = tf.compat.v1.layers.conv2d(x, 16, (3, 3), padding="SAME", name="init_conv")
+    x = tf.compat.v1.layers.batch_normalization(x, training=is_training, name="init_bn")
+    with tf.compat.v1.variable_scope("L1"):
       x = shake_shake_layer(x, 16 * k, n, 1, hparams)
-    with tf.variable_scope("L2"):
+    with tf.compat.v1.variable_scope("L2"):
       x = shake_shake_layer(x, 32 * k, n, 2, hparams)
-    with tf.variable_scope("L3"):
+    with tf.compat.v1.variable_scope("L3"):
       x = shake_shake_layer(x, 64 * k, n, 2, hparams)
     x = tf.nn.relu(x)
 

@@ -83,7 +83,7 @@ class Aligned(t2t_model.T2TModel):
 
     layers = hparams.layers.strip(",").split(",")
     for layer_num, layer_type in enumerate(layers):
-      with tf.variable_scope("%s_%d" % (layer_type, layer_num)):
+      with tf.compat.v1.variable_scope("%s_%d" % (layer_type, layer_num)):
         if _should_preprocess(layer_type):
           x = preprocess(x)
         if layer_type == "timing":

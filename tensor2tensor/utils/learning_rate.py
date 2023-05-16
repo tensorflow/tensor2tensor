@@ -35,7 +35,7 @@ def exp_warmup(hparams, step_num):
     end = hparams.log_warmup_end
     warmup_steps = hparams.learning_rate_warmup_steps
     mult = (end / start) ** (1 / warmup_steps)
-    tf.logging.info(f'Exponential warmup from {start} to {end}'
+    tf.compat.v1.logging.info(f'Exponential warmup from {start} to {end}'
                     f'with multiplier {mult}')
     return start * (mult ** step_num)
 # FATHOM END
@@ -44,7 +44,7 @@ def exp_warmup(hparams, step_num):
 def learning_rate_factor(name, step_num, hparams):
   """Compute the designated learning rate factor from hparams."""
   if name == "constant":
-    tf.logging.info("Base learning rate: %f", hparams.learning_rate_constant)
+    tf.compat.v1.logging.info("Base learning rate: %f", hparams.learning_rate_constant)
     return hparams.learning_rate_constant
   elif name == 'exp_warmup':
     return exp_warmup(hparams, step_num)
@@ -54,10 +54,10 @@ def learning_rate_factor(name, step_num, hparams):
     ret = (hparams.train_steps - step_num) / hparams.learning_rate_decay_steps
     return tf.minimum(1.0, tf.maximum(0.0, ret))
   elif name == "rsqrt_decay":
-    return tf.rsqrt(tf.maximum(step_num, hparams.learning_rate_warmup_steps))
+    return tf.math.rsqrt(tf.maximum(step_num, hparams.learning_rate_warmup_steps))
   elif name == "rsqrt_normalized_decay":
-    scale = tf.sqrt(tf.to_float(hparams.learning_rate_warmup_steps))
-    return scale * tf.rsqrt(tf.maximum(
+    scale = tf.sqrt(tf.cast(hparams.learning_rate_warmup_steps, dtype=tf.float32))
+    return scale * tf.math.rsqrt(tf.maximum(
         step_num, hparams.learning_rate_warmup_steps))
   elif name == "exp_decay":
     decay_steps = hparams.learning_rate_decay_steps
@@ -90,7 +90,7 @@ def learning_rate_schedule(hparams):
 def legacy_learning_rate_schedule(hparams):
   """Backwards-compatible learning-rate schedule."""
   step_num = _global_step(hparams)
-  warmup_steps = tf.to_float(hparams.learning_rate_warmup_steps)
+  warmup_steps = tf.cast(hparams.learning_rate_warmup_steps, dtype=tf.float32)
   if hparams.learning_rate_decay_scheme == "noam":
     ret = 5000.0 * hparams.hidden_size**-0.5 * tf.minimum(
         (step_num + 1) * warmup_steps**-1.5, (step_num + 1)**-0.5)
@@ -98,22 +98,22 @@ def legacy_learning_rate_schedule(hparams):
     warmup_steps = hparams.learning_rate_warmup_steps
     warmup = _learning_rate_warmup(warmup_steps, hparams=hparams)
     decay = _learning_rate_decay(hparams, warmup_steps)
-    ret = tf.where(step_num < warmup_steps, warmup, decay)
+    ret = tf.compat.v1.where(step_num < warmup_steps, warmup, decay)
   optimizer_correction = 0.002 if "Adam" in hparams.optimizer else 1.0
-  tf.logging.info("Base learning rate: %f", hparams.learning_rate)
+  tf.compat.v1.logging.info("Base learning rate: %f", hparams.learning_rate)
   return ret * optimizer_correction * hparams.learning_rate
 
 
 def _global_step(hparams):
   """Adjust global step if a multi-step optimizer is used."""
-  step = tf.to_float(tf.train.get_or_create_global_step())
+  step = tf.cast(tf.compat.v1.train.get_or_create_global_step(), dtype=tf.float32)
 
   # Modify global_step prior to the multiplier since the hparam is defined
   # w.r.t. the actual global_step rather than the optimizer-dependent version.
   # get_global_step_offset_for_lr defaults to 0 so this statement is a no-op
   # if the hparam is not set.
-  step_offset = tf.to_float(
-    get_global_step_offset_for_lr(hparams)
+  step_offset = tf.cast(
+    get_global_step_offset_for_lr(hparams), dtype=tf.float32
   )
   step -= step_offset
 
@@ -121,9 +121,9 @@ def _global_step(hparams):
   if not multiplier:
     return step
 
-  tf.logging.info("Dividing global step by %d for multi-step optimizer."
+  tf.compat.v1.logging.info("Dividing global step by %d for multi-step optimizer."
                   % multiplier)
-  return step / tf.to_float(multiplier)
+  return step / tf.cast(multiplier, dtype=tf.float32)
 
 
 def _legacy_sqrt_decay(step):
@@ -146,20 +146,20 @@ def _piecewise_learning_rate(step, boundaries, values):
   """
   values = [1.0] + values
   boundaries = [float(x) for x in boundaries]
-  return tf.train.piecewise_constant(
+  return tf.compat.v1.train.piecewise_constant(
       step, boundaries, values, name="piecewise_lr")
 
 
 def _learning_rate_decay(hparams, warmup_steps=0):
   """Learning rate decay multiplier."""
   scheme = hparams.learning_rate_decay_scheme
-  warmup_steps = tf.to_float(warmup_steps)
+  warmup_steps = tf.cast(warmup_steps, dtype=tf.float32)
   global_step = _global_step(hparams)
 
   if not scheme or scheme == "none":
     return tf.constant(1.)
 
-  tf.logging.info("Applying learning rate decay: %s.", scheme)
+  tf.compat.v1.logging.info("Applying learning rate decay: %s.", scheme)
 
   if scheme == "exp":
     decay_steps = hparams.learning_rate_decay_steps
@@ -183,8 +183,8 @@ def _learning_rate_decay(hparams, warmup_steps=0):
     # Cycle the rate linearly by 10x every warmup_steps, up and down.
     cycle_steps = warmup_steps
     cycle_position = global_step % (2 * cycle_steps)
-    cycle_position = tf.to_float(  # Normalize to the interval [-1, 1].
-        cycle_position - cycle_steps) / float(cycle_steps)
+    cycle_position = tf.cast(  # Normalize to the interval [-1, 1].
+        cycle_position - cycle_steps, dtype=tf.float32) / float(cycle_steps)
     cycle_position = 1.0 - tf.abs(cycle_position)  # 0 to 1 and back to 0.
     return (cycle_position + 0.1) * 3.0  # 10x difference each cycle (0.3-3).
 
@@ -200,14 +200,14 @@ def _learning_rate_warmup(warmup_steps, warmup_schedule="exp", hparams=None):
   if not warmup_steps:
     return tf.constant(1.)
 
-  tf.logging.info("Applying %s learning rate warmup for %d steps",
+  tf.compat.v1.logging.info("Applying %s learning rate warmup for %d steps",
                   warmup_schedule, warmup_steps)
 
-  warmup_steps = tf.to_float(warmup_steps)
+  warmup_steps = tf.cast(warmup_steps, dtype=tf.float32)
   global_step = _global_step(hparams)
 
   if warmup_schedule == "exp":
-    return tf.exp(tf.log(0.01) / warmup_steps)**(warmup_steps - global_step)
+    return tf.exp(tf.math.log(0.01) / warmup_steps)**(warmup_steps - global_step)
   else:
     assert warmup_schedule == "linear"
     start = tf.constant(0.35)

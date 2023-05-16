@@ -75,42 +75,42 @@ class Distillation(t2t_model.T2TModel):
     one_hot_targets = tf.one_hot(targets, hp.num_classes, dtype=tf.float32)
 
     # Teacher Network
-    with tf.variable_scope("teacher"):
+    with tf.compat.v1.variable_scope("teacher"):
       teacher_outputs = self.teacher_model.body(features)
-      tf.logging.info("teacher output shape: %s" % teacher_outputs.get_shape())
+      tf.compat.v1.logging.info("teacher output shape: %s" % teacher_outputs.get_shape())
       teacher_outputs = tf.reduce_mean(teacher_outputs, axis=[1, 2])
-      teacher_logits = tf.layers.dense(teacher_outputs, hp.num_classes)
+      teacher_logits = tf.compat.v1.layers.dense(teacher_outputs, hp.num_classes)
 
-      teacher_task_xent = tf.nn.softmax_cross_entropy_with_logits_v2(
+      teacher_task_xent = tf.nn.softmax_cross_entropy_with_logits(
           labels=one_hot_targets, logits=teacher_logits)
       outputs = teacher_logits
 
     if is_distill:
       # Load teacher weights
-      tf.train.init_from_checkpoint(hp.teacher_dir, {"teacher/": "teacher/"})
+      tf.compat.v1.train.init_from_checkpoint(hp.teacher_dir, {"teacher/": "teacher/"})
       # Do not train the teacher
-      trainable_vars = tf.get_collection_ref(tf.GraphKeys.TRAINABLE_VARIABLES)
+      trainable_vars = tf.compat.v1.get_collection_ref(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)
       del trainable_vars[:]
 
     # Student Network
     if is_distill:
-      with tf.variable_scope("student"):
+      with tf.compat.v1.variable_scope("student"):
         student_outputs = self.student_model.body(features)
-        tf.logging.info(
+        tf.compat.v1.logging.info(
             "student output shape: %s" % student_outputs.get_shape())
         student_outputs = tf.reduce_mean(student_outputs, axis=[1, 2])
-        student_logits = tf.layers.dense(student_outputs, hp.num_classes)
+        student_logits = tf.compat.v1.layers.dense(student_outputs, hp.num_classes)
 
-        student_task_xent = tf.nn.softmax_cross_entropy_with_logits_v2(
+        student_task_xent = tf.nn.softmax_cross_entropy_with_logits(
             labels=one_hot_targets, logits=student_logits)
         teacher_targets = tf.nn.softmax(teacher_logits / hp.distill_temperature)
-        student_distill_xent = tf.nn.softmax_cross_entropy_with_logits_v2(
+        student_distill_xent = tf.nn.softmax_cross_entropy_with_logits(
             labels=tf.stop_gradient(teacher_targets), logits=student_logits)
 
         outputs = student_logits
 
         # Summaries
-        tf.summary.scalar("distill_xent", student_distill_xent)
+        tf.compat.v1.summary.scalar("distill_xent", student_distill_xent)
 
     if not is_distill:
       phase_loss = teacher_task_xent

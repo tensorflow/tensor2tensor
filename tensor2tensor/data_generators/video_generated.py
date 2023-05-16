@@ -81,7 +81,7 @@ class VideoStochasticShapes10k(video_utils.VideoProblem):
   def extra_reading_spec(self):
     """Additional data fields to store on disk and their decoders."""
     data_fields = {
-        "frame_number": tf.FixedLenFeature([1], tf.int64),
+        "frame_number": tf.io.FixedLenFeature([1], tf.int64),
     }
     decoders = {
         "frame_number": tf.contrib.slim.tfexample_decoder.Tensor(

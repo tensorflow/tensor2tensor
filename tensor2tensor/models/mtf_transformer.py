@@ -109,7 +109,7 @@ class MtfTransformer(mtf_model.MtfModel):
     targets_embedding_var = mtf.get_variable(
         mesh, "targets_embedding",
         mtf.Shape([self.targets_vocab_dim, self.model_dim]),
-        initializer=tf.random_normal_initializer(),
+        initializer=tf.compat.v1.random_normal_initializer(),
         activation_dtype=self.activation_dtype)
     if self.has_input:
       if hparams.shared_embedding:
@@ -118,7 +118,7 @@ class MtfTransformer(mtf_model.MtfModel):
         inputs_embedding_var = mtf.get_variable(
             mesh, "inputs_embedding",
             mtf.Shape([self.inputs_vocab_dim, self.model_dim]),
-            initializer=tf.random_normal_initializer(),
+            initializer=tf.compat.v1.random_normal_initializer(),
             activation_dtype=self.activation_dtype)
     else:
       inputs_embedding_var = None
@@ -129,13 +129,13 @@ class MtfTransformer(mtf_model.MtfModel):
           mesh,
           "softmax",
           mtf.Shape([self.targets_vocab_dim, self.model_dim]),
-          initializer=tf.random_normal_initializer(
+          initializer=tf.compat.v1.random_normal_initializer(
               stddev=self.model_dim.size**-0.5),
           activation_dtype=self.activation_dtype)
     positional_embedding_var = mtf.get_variable(
         mesh, "positional_embedding",
         mtf.Shape([self.max_length_dim, self.model_dim]),
-        initializer=tf.random_normal_initializer(),
+        initializer=tf.compat.v1.random_normal_initializer(),
         activation_dtype=self.activation_dtype)
     return (inputs_embedding_var, targets_embedding_var,
             softmax_var, positional_embedding_var)
@@ -143,9 +143,9 @@ class MtfTransformer(mtf_model.MtfModel):
   def _mtf_model_fn(self, features, mesh):
     features = copy.copy(features)
     hparams = self._hparams
-    targets = tf.to_int32(features["targets"])
+    targets = tf.cast(features["targets"], dtype=tf.int32)
     if len(targets.get_shape()) > 2:
-      tf.logging.info("targets = %s" % targets)
+      tf.compat.v1.logging.info("targets = %s" % targets)
       targets = tf.squeeze(targets, [2, 3])
     # pad targets to max_length
     def pad_to_max_length(x):
@@ -193,7 +193,7 @@ class MtfTransformer(mtf_model.MtfModel):
      softmax_var,
      positional_embedding_var) = self._embedding_and_softmax_vars(mesh)
     if self.has_input:
-      inputs = tf.squeeze(tf.to_int32(features["inputs"]), [2, 3])
+      inputs = tf.squeeze(tf.cast(features["inputs"], dtype=tf.int32), [2, 3])
       inputs = pad_to_max_length(inputs)
       inputs = self._import_to_batch_by_length(inputs, "inputs", mesh, hparams)
       if "inputs_segmentation" in features:
@@ -222,7 +222,7 @@ class MtfTransformer(mtf_model.MtfModel):
            mtf.gather(positional_embedding_var, inputs_position,
                       self.max_length_dim))
       x = layer_prepostprocess_dropout(x)
-      with tf.variable_scope("encoder"):
+      with tf.compat.v1.variable_scope("encoder"):
         x = self._layer_stack(x,
                               hparams.num_encoder_layers,
                               self_attention_mask=encoder_self_attention_mask,
@@ -241,7 +241,7 @@ class MtfTransformer(mtf_model.MtfModel):
     x = layer_prepostprocess_dropout(x)
 
     # Decoder
-    with tf.variable_scope("decoder"):
+    with tf.compat.v1.variable_scope("decoder"):
       x = self._layer_stack(
           x,
           hparams.num_decoder_layers,
@@ -265,7 +265,7 @@ class MtfTransformer(mtf_model.MtfModel):
     return logits, loss
 
   def mtf_model_fn(self, features, mesh):
-    with tf.variable_scope("transformer"):
+    with tf.compat.v1.variable_scope("transformer"):
       return self._mtf_model_fn(features, mesh)
 
   @property
@@ -357,7 +357,7 @@ class MtfTransformer(mtf_model.MtfModel):
         x.mesh,
         "layer_norm_scale",
         mtf.Shape([layer_norms_dim, self.model_dim]),
-        initializer=tf.ones_initializer(),
+        initializer=tf.compat.v1.ones_initializer(),
         activation_dtype=x.dtype)
     layer_norm_vars = mtf.unstack(layer_norm_combined_var, layer_norms_dim)
     def normalize(x):
@@ -366,7 +366,7 @@ class MtfTransformer(mtf_model.MtfModel):
       return x * mtf.rsqrt(variance + hparams.norm_epsilon) * scale
 
     for layer in range(num_layers):
-      with tf.variable_scope("layer_%d" % layer):
+      with tf.compat.v1.variable_scope("layer_%d" % layer):
         # Self attention layer
         x += layer_prepostprocess_dropout(
             mtf.layers.multihead_attention(
@@ -392,7 +392,7 @@ class MtfTransformer(mtf_model.MtfModel):
     return x
 
   def sample(self, features, mesh):
-    with tf.variable_scope("transformer"):
+    with tf.compat.v1.variable_scope("transformer"):
       return self._sample(features, mesh)
 
   def _sample(self, features, mesh):
@@ -418,7 +418,7 @@ class MtfTransformer(mtf_model.MtfModel):
       encoder_attention_mask = (
           mtf.layers.attention_mask_ignore_padding(
               inputs, dtype=self.activation_dtype))
-      with tf.variable_scope("encoder"):
+      with tf.compat.v1.variable_scope("encoder"):
         x = self._layer_stack(x,
                               hparams.num_encoder_layers,
                               self_attention_mask=encoder_attention_mask)
@@ -426,7 +426,7 @@ class MtfTransformer(mtf_model.MtfModel):
           x, self.length_dim.name, self.memory_length_dim.name)
       encdec_tensors = []
       for layer_num in xrange(hparams.num_decoder_layers):
-        with tf.variable_scope("decoder/layer_%d/encdec_attention" % layer_num):
+        with tf.compat.v1.variable_scope("decoder/layer_%d/encdec_attention" % layer_num):
           q_var, k_var, v_var, o_var = mtf.layers.multihead_attention_vars(
               mesh, self.heads_dim, self.model_dim,
               self.kv_dim, self.activation_dtype)
@@ -454,7 +454,7 @@ class MtfTransformer(mtf_model.MtfModel):
         partial_targets = features.get("targets", None)
       if partial_targets is not None:
         partial_targets = common_layers.expand_squeeze_to_nd(partial_targets, 2)
-        partial_targets = tf.to_int32(partial_targets)
+        partial_targets = tf.cast(partial_targets, dtype=tf.int32)
         partial_targets_batch = tf.shape(partial_targets)[0]
         partial_targets_length = tf.shape(partial_targets)[1]
         partial_targets = tf.pad(
@@ -487,7 +487,7 @@ class MtfTransformer(mtf_model.MtfModel):
       x = (mtf.gather(targets_embedding_var, ids_this_step,
                       self.targets_vocab_dim) +
            mtf.gather(positional_embedding_var, step_num, self.max_length_dim))
-      with tf.variable_scope("decoder"):
+      with tf.compat.v1.variable_scope("decoder"):
         x, new_self_attention_k, new_self_attention_v = (
             self._decoder_layer_stack_incremental(
                 x,
@@ -578,7 +578,7 @@ class MtfTransformer(mtf_model.MtfModel):
         x.mesh,
         "layer_norm_scale",
         mtf.Shape([layer_norms_dim, self.model_dim]),
-        initializer=tf.ones_initializer(),
+        initializer=tf.compat.v1.ones_initializer(),
         activation_dtype=x.dtype)
     layer_norm_vars = mtf.unstack(layer_norm_combined_var, layer_norms_dim)
     def normalize(x):
@@ -589,7 +589,7 @@ class MtfTransformer(mtf_model.MtfModel):
     new_self_attention_k = []
     new_self_attention_v = []
     for layer in range(num_layers):
-      with tf.variable_scope("layer_%d" % layer):
+      with tf.compat.v1.variable_scope("layer_%d" % layer):
         # Self attention layer
         y, new_k, new_v = mtf.layers.multihead_self_attention_incremental(
             normalize(x),

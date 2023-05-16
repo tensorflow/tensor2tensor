@@ -51,16 +51,16 @@ def batch_norm_relu(inputs,
     A normalized `Tensor` with the same `data_format`.
   """
   if init_zero:
-    gamma_initializer = tf.zeros_initializer()
+    gamma_initializer = tf.compat.v1.zeros_initializer()
   else:
-    gamma_initializer = tf.ones_initializer()
+    gamma_initializer = tf.compat.v1.ones_initializer()
 
   if data_format == "channels_first":
     axis = 1
   else:
     axis = 3
 
-  inputs = tf.layers.batch_normalization(
+  inputs = tf.compat.v1.layers.batch_normalization(
       inputs=inputs,
       axis=axis,
       momentum=BATCH_NORM_DECAY,
@@ -148,7 +148,7 @@ def conv2d_fixed_padding(inputs,
         size = kernel_size * kernel_size * inputs_shape[-1]
       else:
         size = kernel_size * kernel_size * inputs_shape[1]
-      targeting_count = targeting_rate * tf.to_float(size)
+      targeting_count = targeting_rate * tf.cast(size, dtype=tf.float32)
       targeting_fn = common_layers.weight_targeting
     elif use_td == "unit":
       targeting_count = targeting_rate * filters
@@ -169,16 +169,16 @@ def conv2d_fixed_padding(inputs,
         padding=("SAME" if strides == 1 else "VALID"),
         data_format=data_format,
         use_bias=False,
-        kernel_initializer=tf.variance_scaling_initializer())
+        kernel_initializer=tf.compat.v1.variance_scaling_initializer())
   else:
-    y = tf.layers.conv2d(
+    y = tf.compat.v1.layers.conv2d(
         inputs=inputs,
         filters=filters,
         kernel_size=kernel_size,
         strides=strides,
         padding=("SAME" if strides == 1 else "VALID"),
         use_bias=False,
-        kernel_initializer=tf.variance_scaling_initializer(),
+        kernel_initializer=tf.compat.v1.variance_scaling_initializer(),
         data_format=data_format)
 
   return y
@@ -541,7 +541,7 @@ class Resnet(t2t_model.T2TModel):
     inputs = batch_norm_relu(inputs, is_training, data_format=data_format)
 
     if not hp.is_cifar:
-      inputs = tf.layers.max_pooling2d(
+      inputs = tf.compat.v1.layers.max_pooling2d(
           inputs=inputs,
           pool_size=3,
           strides=2,
@@ -569,11 +569,11 @@ class Resnet(t2t_model.T2TModel):
 
     out = tf.reduce_mean(out, [1, 2])
     num_classes = self._problem_hparams.target_modality.top_dimensionality
-    logits = tf.layers.dense(out, num_classes, name="logits")
+    logits = tf.compat.v1.layers.dense(out, num_classes, name="logits")
 
     losses = {"training": 0.0}
     if is_training:
-      loss = tf.losses.sparse_softmax_cross_entropy(
+      loss = tf.compat.v1.losses.sparse_softmax_cross_entropy(
           labels=tf.squeeze(targets), logits=logits)
       loss = tf.reduce_mean(loss)
 

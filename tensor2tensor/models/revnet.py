@@ -49,20 +49,20 @@ def wrapped_partial(fn, *args, **kwargs):
   return wrapped
 
 
-conv_initializer = tf.contrib.layers.variance_scaling_initializer(
-    factor=2.0, mode='FAN_OUT')
+conv_initializer = tf.compat.v1.keras.initializers.VarianceScaling(
+    scale=2.0, mode=('FAN_OUT').lower())
 
 CONFIG = {'2d': {'conv': wrapped_partial(
-    tf.layers.conv2d, kernel_initializer=conv_initializer),
-                 'max_pool': tf.layers.max_pooling2d,
-                 'avg_pool': tf.layers.average_pooling2d,
+    tf.compat.v1.layers.conv2d, kernel_initializer=conv_initializer),
+                 'max_pool': tf.compat.v1.layers.max_pooling2d,
+                 'avg_pool': tf.compat.v1.layers.average_pooling2d,
                  'split_axis': 3,
                  'reduction_dimensions': [1, 2]
                 },
           '3d': {'conv': wrapped_partial(
-              tf.layers.conv3d, kernel_initializer=conv_initializer),
-                 'max_pool': tf.layers.max_pooling3d,
-                 'avg_pool': tf.layers.average_pooling2d,
+              tf.compat.v1.layers.conv3d, kernel_initializer=conv_initializer),
+                 'max_pool': tf.compat.v1.layers.max_pooling3d,
+                 'avg_pool': tf.compat.v1.layers.average_pooling2d,
                  'split_axis': 4,
                  'reduction_dimensions': [1, 2, 3]
                 }
@@ -91,9 +91,9 @@ def f(x, depth1, depth2, dim='2d', first_batch_norm=True, stride=1,
     Output tensor after applying residual function for RevNet.
   """
   conv = CONFIG[dim]['conv']
-  with tf.variable_scope('f'):
+  with tf.compat.v1.variable_scope('f'):
     if first_batch_norm:
-      net = tf.layers.batch_normalization(x, training=training)
+      net = tf.compat.v1.layers.batch_normalization(x, training=training)
       net = tf.nn.relu(net)
     else:
       net = x
@@ -102,19 +102,19 @@ def f(x, depth1, depth2, dim='2d', first_batch_norm=True, stride=1,
       net = conv(net, depth1, 1, strides=stride,
                  padding=padding, activation=None)
 
-      net = tf.layers.batch_normalization(net, training=training)
+      net = tf.compat.v1.layers.batch_normalization(net, training=training)
       net = tf.nn.relu(net)
       net = conv(net, depth1, 3, strides=1,
                  padding=padding, activation=None)
 
-      net = tf.layers.batch_normalization(net, training=training)
+      net = tf.compat.v1.layers.batch_normalization(net, training=training)
       net = tf.nn.relu(net)
       net = conv(net, depth2, 1, strides=1,
                  padding=padding, activation=None)
     else:
       net = conv(net, depth2, 3, strides=stride,
                  padding=padding, activation=None)
-      net = tf.layers.batch_normalization(x, training=training)
+      net = tf.compat.v1.layers.batch_normalization(x, training=training)
       net = tf.nn.relu(net)
       net = conv(net, depth2, 3, strides=stride,
                  padding=padding, activation=None)
@@ -138,7 +138,7 @@ def downsample_bottleneck(x, output_channels, dim='2d', stride=1, scope='h'):
     stride is 1.
   """
   conv = CONFIG[dim]['conv']
-  with tf.variable_scope(scope):
+  with tf.compat.v1.variable_scope(scope):
     x = conv(x, output_channels, 1, strides=stride, padding='SAME',
              activation=None)
     return x
@@ -159,7 +159,7 @@ def downsample_residual(x, output_channels, dim='2d', stride=1, scope='h'):
     is 2, else returns a tensor of size [N, H, W, output_channels] if
     stride is 1.
   """
-  with tf.variable_scope(scope):
+  with tf.compat.v1.variable_scope(scope):
     if stride > 1:
       avg_pool = CONFIG[dim]['avg_pool']
       x = avg_pool(x,
@@ -194,10 +194,10 @@ def init(images, num_channels, dim='2d', stride=2,
   """
   conv = CONFIG[dim]['conv']
   pool = CONFIG[dim]['max_pool']
-  with tf.variable_scope(scope):
+  with tf.compat.v1.variable_scope(scope):
     net = conv(images, num_channels, kernel_size, strides=stride,
                padding='SAME', activation=None)
-    net = tf.layers.batch_normalization(net, training=training)
+    net = tf.compat.v1.layers.batch_normalization(net, training=training)
     net = tf.nn.relu(net)
     if maxpool:
       net = pool(net, pool_size=3, strides=stride)
@@ -236,21 +236,21 @@ def unit(x1, x2, block_num, depth, num_layers, dim='2d',
                              depth1=depth1, depth2=depth2, dim=dim,
                              training=training, bottleneck=bottleneck)
 
-  with tf.variable_scope(scope_name):
+  with tf.compat.v1.variable_scope(scope_name):
     downsample = downsample_bottleneck if bottleneck else downsample_residual
     # Manual implementation of downsampling
-    with tf.variable_scope('downsampling'):
-      with tf.variable_scope('x1'):
+    with tf.compat.v1.variable_scope('downsampling'):
+      with tf.compat.v1.variable_scope('x1'):
         hx1 = downsample(x1, depth2, dim=dim, stride=stride)
         fx2 = residual(x2, stride=stride, first_batch_norm=first_batch_norm)
         x1 = hx1 + fx2
-      with tf.variable_scope('x2'):
+      with tf.compat.v1.variable_scope('x2'):
         hx2 = downsample(x2, depth2, dim=dim, stride=stride)
         fx1 = residual(x1)
         x2 = hx2 + fx1
 
     # Full block using memory-efficient rev_block implementation.
-    with tf.variable_scope('full_block'):
+    with tf.compat.v1.variable_scope('full_block'):
       x1, x2 = tf.contrib.layers.rev_block(x1, x2,
                                            residual,
                                            residual,
@@ -273,14 +273,14 @@ def final_block(x1, x2, dim='2d', training=True, scope='final_block'):
   """
 
   # Final batch norm and relu
-  with tf.variable_scope(scope):
+  with tf.compat.v1.variable_scope(scope):
     y = tf.concat([x1, x2], axis=CONFIG[dim]['split_axis'])
-    y = tf.layers.batch_normalization(y, training=training)
+    y = tf.compat.v1.layers.batch_normalization(y, training=training)
     y = tf.nn.relu(y)
 
     # Global average pooling
     net = tf.reduce_mean(y, CONFIG[dim]['reduction_dimensions'],
-                         name='final_pool', keep_dims=True)
+                         name='final_pool', keepdims=True)
 
     return net
 
@@ -315,7 +315,7 @@ def revnet(inputs, hparams, reuse=None):
     [batch_size, hidden_dim] pre-logits tensor from the bottleneck RevNet.
   """
   training = hparams.mode == tf.estimator.ModeKeys.TRAIN
-  with tf.variable_scope('RevNet', reuse=reuse):
+  with tf.compat.v1.variable_scope('RevNet', reuse=reuse):
     x1, x2 = init(inputs,
                   num_channels=hparams.num_channels_init_block,
                   dim=hparams.dim,

@@ -55,7 +55,7 @@ class AttentionLM(t2t_model.T2TModel):
         targets, hparams)
 
     decoder_input = tf.nn.dropout(decoder_input,
-                                  1.0 - hparams.layer_prepostprocess_dropout)
+                                  rate=1 - (1.0 - hparams.layer_prepostprocess_dropout))
     decoder_output = attention_lm_decoder(decoder_input,
                                           decoder_self_attention_bias, hparams)
     decoder_output = tf.expand_dims(decoder_output, 2)
@@ -106,10 +106,10 @@ def attention_lm_decoder(decoder_input,
     y: a Tensors
   """
   x = decoder_input
-  with tf.variable_scope(name):
+  with tf.compat.v1.variable_scope(name):
     for layer in range(hparams.num_hidden_layers):
-      with tf.variable_scope("layer_%d" % layer):
-        with tf.variable_scope("self_attention"):
+      with tf.compat.v1.variable_scope("layer_%d" % layer):
+        with tf.compat.v1.variable_scope("self_attention"):
           y = common_attention.multihead_attention(
               common_layers.layer_preprocess(
                   x, hparams), None, decoder_self_attention_bias,
@@ -117,7 +117,7 @@ def attention_lm_decoder(decoder_input,
               hparams.attention_value_channels or hparams.hidden_size,
               hparams.hidden_size, hparams.num_heads, hparams.attention_dropout)
           x = common_layers.layer_postprocess(x, y, hparams)
-        with tf.variable_scope("ffn"):
+        with tf.compat.v1.variable_scope("ffn"):
           y = common_layers.conv_hidden_relu(
               common_layers.layer_preprocess(x, hparams),
               hparams.filter_size,

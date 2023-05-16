@@ -45,7 +45,7 @@ class Img2imgTransformerTest(tf.test.TestCase):
       }
       model = net(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (batch_size, 8, 8, 3, 256))
 
@@ -75,7 +75,7 @@ class Imagetransformer2dTest(tf.test.TestCase):
       }
       model = net(hparams, tf.estimator.ModeKeys.TRAIN, p_hparams)
       logits, _ = model(features)
-      session.run(tf.global_variables_initializer())
+      session.run(tf.compat.v1.global_variables_initializer())
       res = session.run(logits)
     self.assertEqual(res.shape, (batch_size, size, size, 3, vocab_size))
 

@@ -37,8 +37,8 @@ class BasicFcRelu(t2t_model.T2TModel):
     shape = common_layers.shape_list(x)
     x = tf.reshape(x, [-1, shape[1] * shape[2] * shape[3]])
     for i in range(hparams.num_hidden_layers):
-      x = tf.layers.dense(x, hparams.hidden_size, name="layer_%d" % i)
-      x = tf.nn.dropout(x, keep_prob=1.0 - hparams.dropout)
+      x = tf.compat.v1.layers.dense(x, hparams.hidden_size, name="layer_%d" % i)
+      x = tf.nn.dropout(x, rate=1 - (1.0 - hparams.dropout))
       x = tf.nn.relu(x)
     return tf.expand_dims(tf.expand_dims(x, axis=1), axis=1)  # 4D For T2T.
 
