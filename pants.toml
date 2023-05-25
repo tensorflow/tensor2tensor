@@ -1,0 +1,14 @@
+[GLOBAL]
+pants_version = '2.15.0'
+backend_packages = [
+    'pants.backend.python',
+]
+
+[tailor]
+ignore_adding_targets = [
+    '//:reqs0',
+]
+
+[anonymous-telemetry]
+enabled = true
+repo_id = '2AD102C3-0C36-416F-A201-BA8A08A33228'

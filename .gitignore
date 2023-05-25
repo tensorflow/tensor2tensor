@@ -25,3 +25,8 @@ dist/
 
 # Pycharm files
 .idea/
+
+# Pants workspace files
+/.pants.*
+/dist/
+/.pids
