@@ -19,10 +19,10 @@ from __future__ import division
 from __future__ import print_function
 from six.moves import range  # pylint: disable=redefined-builtin
 
-from tensor2tensor.layers import common_attention
-from tensor2tensor.layers import common_audio
+# from tensor2tensor.layers import common_attention
+# from tensor2tensor.layers import common_audio
 from tensor2tensor.layers import common_layers
-from tensor2tensor.layers import common_video
+# from tensor2tensor.layers import common_video
 from tensor2tensor.layers import discretization
 from tensor2tensor.utils import modality
 from tensor2tensor.utils import registry
@@ -530,73 +530,73 @@ class SpeechRecognitionModality(modality.Modality):
     Returns:
       float32 tensor with shape [batch_size, shorter_len, 1, hidden_size]
     """
-    inputs = x
-    p = self._model_hparams
-
-    num_mel_bins = p.audio_num_mel_bins
-    num_channels = 3 if p.audio_add_delta_deltas else 1
-
-    with tf.compat.v1.variable_scope(self.name):
-      if p.audio_preproc_in_bottom:
-        # Compute filterbanks
-        with tf.compat.v1.variable_scope("fbanks"):
-          waveforms = tf.squeeze(inputs, [2, 3])
-          mel_fbanks = common_audio.compute_mel_filterbank_features(
-              waveforms,
-              sample_rate=p.audio_sample_rate,
-              dither=p.audio_dither,
-              preemphasis=p.audio_preemphasis,
-              frame_length=p.audio_frame_length,
-              frame_step=p.audio_frame_step,
-              lower_edge_hertz=p.audio_lower_edge_hertz,
-              upper_edge_hertz=p.audio_upper_edge_hertz,
-              num_mel_bins=p.audio_num_mel_bins,
-              apply_mask=True)
-          if p.audio_add_delta_deltas:
-            mel_fbanks = common_audio.add_delta_deltas(mel_fbanks)
-          x = tf.reshape(mel_fbanks,
-                         common_layers.shape_list(mel_fbanks)[:2] +
-                         [num_mel_bins, num_channels])
-
-          nonpadding_mask = 1. - common_attention.embedding_to_padding(x)
-          num_of_nonpadding_elements = tf.reduce_sum(
-              nonpadding_mask) * num_mel_bins * num_channels
-
-          # This replaces CMVN estimation on data
-          var_epsilon = 1e-09
-          mean = tf.reduce_sum(
-              x, axis=[1], keepdims=True) / num_of_nonpadding_elements
-          variance = (num_of_nonpadding_elements * mean**2. -
-                      2. * mean * tf.reduce_sum(x, axis=[1], keepdims=True) +
-                      tf.reduce_sum(x**2, axis=[1], keepdims=True)
-                     ) / num_of_nonpadding_elements
-          x = (x - mean) * tf.math.rsqrt(variance + var_epsilon) * tf.expand_dims(
-              nonpadding_mask, -1)
-      else:
-        x = inputs
-
-      # The convention is that the models are flattened along the spatial,
-      # dimensions, thus the speech preprocessor treats frequencies and
-      # channels as image colors (last axis)
-      x.set_shape([None, None, num_mel_bins, num_channels])
-
-      # TODO(chorowski): how to specify bottom's hparams and avoid hardcoding?
-      x = tf.pad(x, [[0, 0], [0, 8], [0, 0], [0, 0]])
-      for _ in range(2):
-        x = tf.compat.v1.layers.conv2d(
-            x, 128, (3, 3), (2, 2), use_bias=False)
-        x = common_layers.layer_norm(x)
-        x = tf.nn.relu(x)
-
-      xshape = common_layers.shape_list(x)
-      # apply a conv that will remove all frequencies and at the same time
-      # project the output into desired hidden_size
-      x = tf.pad(x, [[0, 0], [0, 2], [0, 0], [0, 0]])
-      x = tf.compat.v1.layers.conv2d(x, p.hidden_size, (3, xshape[2]), use_bias=False)
-
-      assert common_layers.shape_list(x)[2] == 1
-      x = common_layers.layer_norm(x)
-      x = tf.nn.relu(x)
+    # inputs = x
+    # p = self._model_hparams
+    #
+    # num_mel_bins = p.audio_num_mel_bins
+    # num_channels = 3 if p.audio_add_delta_deltas else 1
+    #
+    # with tf.compat.v1.variable_scope(self.name):
+    #   if p.audio_preproc_in_bottom:
+    #     # Compute filterbanks
+    #     with tf.compat.v1.variable_scope("fbanks"):
+    #       waveforms = tf.squeeze(inputs, [2, 3])
+    #       mel_fbanks = common_audio.compute_mel_filterbank_features(
+    #           waveforms,
+    #           sample_rate=p.audio_sample_rate,
+    #           dither=p.audio_dither,
+    #           preemphasis=p.audio_preemphasis,
+    #           frame_length=p.audio_frame_length,
+    #           frame_step=p.audio_frame_step,
+    #           lower_edge_hertz=p.audio_lower_edge_hertz,
+    #           upper_edge_hertz=p.audio_upper_edge_hertz,
+    #           num_mel_bins=p.audio_num_mel_bins,
+    #           apply_mask=True)
+    #       if p.audio_add_delta_deltas:
+    #         mel_fbanks = common_audio.add_delta_deltas(mel_fbanks)
+    #       x = tf.reshape(mel_fbanks,
+    #                      common_layers.shape_list(mel_fbanks)[:2] +
+    #                      [num_mel_bins, num_channels])
+    #
+    #       nonpadding_mask = 1. - common_attention.embedding_to_padding(x)
+    #       num_of_nonpadding_elements = tf.reduce_sum(
+    #           nonpadding_mask) * num_mel_bins * num_channels
+    #
+    #       # This replaces CMVN estimation on data
+    #       var_epsilon = 1e-09
+    #       mean = tf.reduce_sum(
+    #           x, axis=[1], keepdims=True) / num_of_nonpadding_elements
+    #       variance = (num_of_nonpadding_elements * mean**2. -
+    #                   2. * mean * tf.reduce_sum(x, axis=[1], keepdims=True) +
+    #                   tf.reduce_sum(x**2, axis=[1], keepdims=True)
+    #                  ) / num_of_nonpadding_elements
+    #       x = (x - mean) * tf.math.rsqrt(variance + var_epsilon) * tf.expand_dims(
+    #           nonpadding_mask, -1)
+    #   else:
+    #     x = inputs
+    #
+    #   # The convention is that the models are flattened along the spatial,
+    #   # dimensions, thus the speech preprocessor treats frequencies and
+    #   # channels as image colors (last axis)
+    #   x.set_shape([None, None, num_mel_bins, num_channels])
+    #
+    #   # TODO(chorowski): how to specify bottom's hparams and avoid hardcoding?
+    #   x = tf.pad(x, [[0, 0], [0, 8], [0, 0], [0, 0]])
+    #   for _ in range(2):
+    #     x = tf.compat.v1.layers.conv2d(
+    #         x, 128, (3, 3), (2, 2), use_bias=False)
+    #     x = common_layers.layer_norm(x)
+    #     x = tf.nn.relu(x)
+    #
+    #   xshape = common_layers.shape_list(x)
+    #   # apply a conv that will remove all frequencies and at the same time
+    #   # project the output into desired hidden_size
+    #   x = tf.pad(x, [[0, 0], [0, 2], [0, 0], [0, 0]])
+    #   x = tf.compat.v1.layers.conv2d(x, p.hidden_size, (3, xshape[2]), use_bias=False)
+    #
+    #   assert common_layers.shape_list(x)[2] == 1
+    #   x = common_layers.layer_norm(x)
+    #   x = tf.nn.relu(x)
     return x
 
 
@@ -604,25 +604,25 @@ class VideoModality(modality.Modality):
   """Modality for videos, i.e., time-sequences of frames."""
 
   def bottom(self, x):
-    common_video.gif_summary("inputs", x, max_outputs=1)
-    x = common_layers.standardize_images(x)
+    # common_video.gif_summary("inputs", x, max_outputs=1)
+    # x = common_layers.standardize_images(x)
     return x
 
   def targets_bottom(self, x):
-    common_video.gif_summary("targets", x, max_outputs=1)
-    x = common_layers.standardize_images(x)
+    # common_video.gif_summary("targets", x, max_outputs=1)
+    # x = common_layers.standardize_images(x)
     return x
 
   def top(self, body_output, targets):
-    num_channels = self._model_hparams.problem.num_channels
-    shape = common_layers.shape_list(body_output)
-    reshape_shape = shape[:-1] + [num_channels, self.top_dimensionality]
-    res = tf.reshape(body_output, reshape_shape)
-    # Calculate argmax so as to have a summary with the produced images.
-    x = tf.argmax(tf.reshape(res, [-1, self.top_dimensionality]), axis=-1)
-    x = tf.reshape(x, shape[:-1] + [num_channels])
-    common_video.gif_summary("results", x, max_outputs=1)
-    return res
+    # num_channels = self._model_hparams.problem.num_channels
+    # shape = common_layers.shape_list(body_output)
+    # reshape_shape = shape[:-1] + [num_channels, self.top_dimensionality]
+    # res = tf.reshape(body_output, reshape_shape)
+    # # Calculate argmax so as to have a summary with the produced images.
+    # x = tf.argmax(tf.reshape(res, [-1, self.top_dimensionality]), axis=-1)
+    # x = tf.reshape(x, shape[:-1] + [num_channels])
+    # common_video.gif_summary("results", x, max_outputs=1)
+    return None
 
   def loss(self, top_out, targets):
     """Compute loss numerator and denominator for one shard of output."""
@@ -753,20 +753,24 @@ class VideoModalityL2Raw(VideoModalityL2):
     return prediction, targets
 
   def bottom(self, x):
-    common_video.gif_summary("inputs", x)
-    return common_layers.convert_rgb_to_real(x)
+  #   common_video.gif_summary("inputs", x)
+  #   return common_layers.convert_rgb_to_real(x)
+    return x
 
   def targets_bottom(self, x):  # pylint: disable=arguments-differ
-    common_video.gif_summary("targets_bottom", x)
-    return common_layers.convert_rgb_to_real(x)
+    # common_video.gif_summary("targets_bottom", x)
+    # return common_layers.convert_rgb_to_real(x)
+    return x
 
   def top(self, body_output, _):
-    frames = body_output
-    if isinstance(body_output, list):
-      frames = tf.stack(body_output, axis=1)
-    rgb_frames = common_layers.convert_real_to_rgb(frames)
-    common_video.gif_summary("body_output", rgb_frames)
-    return tf.expand_dims(rgb_frames, axis=-1)
+    # frames = body_output
+    # if isinstance(body_output, list):
+    #   frames = tf.stack(body_output, axis=1)
+    # rgb_frames = common_layers.convert_real_to_rgb(frames)
+    # common_video.gif_summary("body_output", rgb_frames)
+    # return tf.expand_dims(rgb_frames, axis=-1)
+
+    return body_output
 
   def loss(self, top_out, targets):
     prediction, groundtruth = self.convert_rgb_to_real(top_out, targets)
