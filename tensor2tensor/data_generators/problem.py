@@ -41,6 +41,8 @@ from tensorflow.contrib.tpu.python.tpu import tpu_config
 import pretrained_models.bert.utilities as bert_utilities
 from fathomt2t_dependencies.common_t2t_utils import maybe_prepare_for_chunking
 
+import tf_slim
+
 
 class DatasetSplit(object):
   TRAIN = tf.estimator.ModeKeys.TRAIN
@@ -643,10 +645,10 @@ class Problem(object):
       imprv_data_filepattern = data_filepattern
     tf.compat.v1.logging.info("Reading data files from %s", data_filepattern)
     try:
-      data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
+      data_files = sorted(tf_slim.data.parallel_reader.get_data_files(
           imprv_data_filepattern))
     except ValueError:
-      data_files = sorted(tf.contrib.slim.parallel_reader.get_data_files(
+      data_files = sorted(tf_slim.data.parallel_reader.get_data_files(
           data_filepattern))
 
     # Functions used in dataset transforms below. `filenames` can be either a
@@ -700,11 +702,11 @@ class Problem(object):
     data_fields["batch_prediction_key"] = tf.io.FixedLenFeature([1], tf.int64, 0)
     if data_items_to_decoders is None:
       data_items_to_decoders = {
-          field: tf.contrib.slim.tfexample_decoder.Tensor(field)
+          field: tf_slim.data.tfexample_decoder.Tensor(field)
           for field in data_fields
       }
 
-    decoder = tf.contrib.slim.tfexample_decoder.TFExampleDecoder(
+    decoder = tf_slim.data.tfexample_decoder.TFExampleDecoder(
         data_fields, data_items_to_decoders)
 
     decode_items = list(sorted(data_items_to_decoders))
@@ -993,7 +995,7 @@ class Problem(object):
       dataset = dataset.repeat()
 
     if is_training:
-      data_files = tf.contrib.slim.parallel_reader.get_data_files(
+      data_files = tf_slim.data.parallel_reader.get_data_files(
           self.filepattern(data_dir, mode))
       #  In continuous_train_and_eval when switching between train and
       #  eval, this input_fn method gets called multiple times and it

@@ -24,9 +24,8 @@ from tensor2tensor.layers import common_layers
 
 import tensorflow as tf
 
-from tensorflow.contrib import slim
-from tensorflow.contrib.slim.python.slim.nets.resnet_v1 import resnet_v1_152
-from tensorflow.contrib.slim.python.slim.nets.resnet_v2 import resnet_v2_152  # pylint: disable=unused-import
+import tf_slim as slim
+from slim.nets.resnet_v1 import resnet_v1_152
 from tensorflow.python.ops import inplace_ops
 
 
@@ -73,20 +72,20 @@ def image_embedding(images,
     weights_regularizer = None
 
   with tf.compat.v1.variable_scope(model_fn.__name__, [images], reuse=reuse) as scope:
-    with slim.arg_scope(
+    with slim.ops.arg_scope.arg_scope(
         [slim.conv2d],
         weights_regularizer=weights_regularizer,
         trainable=trainable):
-      with slim.arg_scope(
+      with slim.ops.arg_scope.arg_scope(
           [slim.conv2d],
           weights_initializer=tf.compat.v1.keras.initializers.VarianceScaling(scale=2.0),
           activation_fn=tf.nn.relu,
           normalizer_fn=slim.batch_norm,
           normalizer_params=batch_norm_params):
-        with slim.arg_scope([slim.batch_norm],
+        with slim.ops.arg_scope.arg_scope([slim.batch_norm],
                             is_training=is_resnet_training,
                             trainable=trainable):
-          with slim.arg_scope([slim.max_pool2d], padding="SAME"):
+          with slim.ops.arg_scope.arg_scope([slim.max_pool2d], padding="SAME"):
             net, end_points = model_fn(
                 images, num_classes=None, global_pool=False,
                 is_training=is_resnet_training,
