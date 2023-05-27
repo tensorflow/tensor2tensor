@@ -31,8 +31,6 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
-from tensorflow.contrib.tpu.python.tpu import tpu_estimator
-
 
 class MtfModel(t2t_model.T2TModel):
   """Toy model to test mesh_tensorflow."""
@@ -157,7 +155,7 @@ class MtfModel(t2t_model.T2TModel):
 
     if use_tpu:
       _remove_summaries()
-      return tpu_estimator.TPUEstimatorSpec(
+      return tf.compat.v1.estimator.tpu.TPUEstimatorSpec(
           mode=tf.estimator.ModeKeys.TRAIN,
           loss=tf_loss,
           train_op=train_op,
@@ -185,7 +183,7 @@ class MtfModel(t2t_model.T2TModel):
               eval_metrics[metric_name] = metric_fn(
                   tf_logits, None, tf.identity(labels))
           return eval_metrics
-      return tpu_estimator.TPUEstimatorSpec(
+      return tf.compat.v1.estimator.tpu.TPUEstimatorSpec(
           tf.estimator.ModeKeys.EVAL,
           evaluation_hooks=[restore_hook],
           loss=loss,
@@ -220,7 +218,7 @@ class MtfModel(t2t_model.T2TModel):
     }
     if use_tpu:
       _remove_summaries()
-      return tpu_estimator.TPUEstimatorSpec(
+      return tf.compat.v1.estimator.tpu.TPUEstimatorSpec(
           mode=tf.estimator.ModeKeys.PREDICT,
           predictions=predictions,
           prediction_hooks=[mtf.MtfRestoreHook(lowering)])
