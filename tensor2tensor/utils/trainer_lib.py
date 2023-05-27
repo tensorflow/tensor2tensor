@@ -37,6 +37,8 @@ from tensorflow.python.training.session_run_hook import SessionRunHook, SessionR
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
+import tensorflow_probability as tfp
+
 # Fathom imports
 from fh_platform import fh_logging
 from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
@@ -230,7 +232,7 @@ def create_run_config(model_name,
           "Configuring MirroredStrategy DistributionStrategy to replicate the "
           "model."
       )
-      distribution = tf.contrib.distribute.MirroredStrategy()
+      distribution = tfp.distribute.MirroredStrategy()
       config = config.replace(train_distribute=distribution)
       config.data_parallelism = None
     else:

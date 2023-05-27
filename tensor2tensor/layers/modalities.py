@@ -29,6 +29,8 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+import tensorflow_probability as tfp
+
 class SymbolModality(modality.Modality):
   """Modality for sets of discrete symbols.
 
@@ -678,7 +680,7 @@ class VideoModalityPixelNoise(VideoModality):
   def bottom(self, x):
     inputs = x
     if self._model_hparams.mode == tf.estimator.ModeKeys.TRAIN:
-      background = tf.contrib.distributions.percentile(inputs, 50.,
+      background = tfp.stats.percentile(inputs, 50.,
                                                        axis=[0, 1, 2, 3])
       input_shape = common_layers.shape_list(inputs)
       input_size = tf.reduce_prod(input_shape[:-1])
