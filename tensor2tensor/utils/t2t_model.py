@@ -905,7 +905,7 @@ class T2TModel(base.Layer):
 
     def infer_step(i, recent_output, recent_logits, unused_loss):
       """Inference step."""
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.eagerly_executing():
         recent_output.set_shape([None, None, None, 1])
       padded = tf.pad(recent_output, [[0, 0], [0, 1], [0, 0], [0, 0]])
       features["targets"] = padded
@@ -923,7 +923,7 @@ class T2TModel(base.Layer):
       samples = inplace_ops.alias_inplace_update(samples, i,
                                                  tf.cast(cur_sample, dtype=tf.int64))
       samples = tf.transpose(samples, perm=[1, 0, 2, 3])
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.eagerly_executing():
         samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
@@ -966,7 +966,7 @@ class T2TModel(base.Layer):
     # tensor padded to [batch_size, decode_length, 1, 1, vocab_size]
     logits = tf.zeros((batch_size, decode_length, 1, 1,
                        target_modality.top_dimensionality))
-    if not tf.contrib.eager.in_eager_mode():
+    if not tf.eagerly_executing():
       logits.set_shape([None, None, None, None, None])
     loss = 0.0
 
@@ -1072,7 +1072,7 @@ class T2TModel(base.Layer):
 
     def infer_step(recent_output, recent_logits, unused_loss):
       """Inference step."""
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.eagerly_executing():
         if self._target_modality_is_real:
           dim = self._problem_hparams.target_modality.top_dimensionality
           recent_output.set_shape([None, None, None, dim])
@@ -1096,7 +1096,7 @@ class T2TModel(base.Layer):
       else:
         cur_sample = tf.cast(tf.expand_dims(cur_sample, axis=1), dtype=tf.int64)
         samples = tf.concat([recent_output, cur_sample], axis=1)
-        if not tf.contrib.eager.in_eager_mode():
+        if not tf.eagerly_executing():
           samples.set_shape([None, None, None, 1])
 
       # Assuming we have one shard for logits.
@@ -1142,7 +1142,7 @@ class T2TModel(base.Layer):
       logits = tf.zeros((batch_size, 0, 1, 1,
                          target_modality.top_dimensionality))
       logits_shape_inv = [None, None, None, None, None]
-    if not tf.contrib.eager.in_eager_mode():
+    if not tf.eagerly_executing():
       logits.set_shape(logits_shape_inv)
 
     loss = 0.0
@@ -1825,7 +1825,7 @@ class DummyVariableStore(object):
 
 
 def create_eager_var_store():
-  if tf.contrib.eager.in_eager_mode():
+  if tf.eagerly_executing():
     return variable_scope.EagerVariableStore()
   else:
     return DummyVariableStore()
@@ -1934,7 +1934,7 @@ _already_logged = set()
 
 
 def _eager_log(level, *args):
-  if tf.contrib.eager.in_eager_mode() and args in _already_logged:
+  if tf.eagerly_executing() and args in _already_logged:
     return
   _already_logged.add(args)
   getattr(tf.logging, level)(*args)

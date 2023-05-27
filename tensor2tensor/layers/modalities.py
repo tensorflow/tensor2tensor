@@ -92,7 +92,7 @@ class SymbolModality(modality.Modality):
     else:
       ret = tf.concat(shards, 0)
     # Convert ret to tensor.
-    if not tf.contrib.eager.in_eager_mode():
+    if not tf.eagerly_executing():
       ret = common_layers.convert_gradient_to_tensor(ret)
     return ret
 
@@ -228,7 +228,7 @@ class ImageModality(modality.Modality):
 
   def bottom(self, x):
     with tf.compat.v1.variable_scope(self.name):
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.eagerly_executing():
         tf.compat.v1.summary.image(
             "inputs", common_layers.tpu_safe_image_summary(x), max_outputs=2)
       return tf.cast(x, dtype=tf.float32)
@@ -236,7 +236,7 @@ class ImageModality(modality.Modality):
   def targets_bottom(self, x):
     inputs = x
     with tf.compat.v1.variable_scope(self.name):
-      if not tf.contrib.eager.in_eager_mode():
+      if not tf.eagerly_executing():
         tf.compat.v1.summary.image(
             "targets_bottom",
             common_layers.tpu_safe_image_summary(inputs),

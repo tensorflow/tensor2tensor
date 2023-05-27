@@ -52,7 +52,7 @@ class MultistepAdamOptimizer(tf.compat.v1.train.AdamOptimizer):
 
   def _get_iter_variable(self):
     graph = (
-        None if tf.contrib.eager.in_eager_mode() else tf.compat.v1.get_default_graph())
+        None if tf.eagerly_executing() else tf.compat.v1.get_default_graph())
     return self._get_non_slot_variable("iter", graph=graph)
 
   def _prepare(self):
