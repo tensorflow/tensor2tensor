@@ -53,7 +53,7 @@ class Imagetransformer(t2t_model.T2TModel):
                        "must be image:image_channel_bottom_identity and "
                        "num_channels must be 1.")
     if (not tf.compat.v1.get_variable_scope().reuse and
-        hparams.mode != tf.contrib.learn.ModeKeys.INFER and
+        hparams.mode != tf.estimator.ModeKeys.PREDICT and
         hparams.target_modality != "image:image_channel_bottom_identity"):
       tf.compat.v1.summary.image("targets", tf.cast(targets, dtype=tf.float32), max_outputs=1)
 
