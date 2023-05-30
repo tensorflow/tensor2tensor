@@ -91,9 +91,9 @@ def image_embedding(images,
                 is_training=is_resnet_training,
                 reuse=reuse, scope=scope)
 
-  if add_summaries:
-    for v in end_points.values():
-      tf.contrib.layers.summaries.summarize_activation(v)
+  # if add_summaries:
+  #   for v in end_points.values():
+  #     tf.contrib.layers.summaries.summarize_activation(v)
 
   return net
 
