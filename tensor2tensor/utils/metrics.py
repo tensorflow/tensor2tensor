@@ -28,7 +28,7 @@ from tensor2tensor.utils import rouge
 
 import tensorflow as tf
 
-from tensorflow.contrib.eager.python import tfe
+# from tensorflow.contrib.eager.python import tfe
 
 from fathomt2t_dependencies.fh_metrics import set_auc
 
@@ -655,26 +655,27 @@ def create_eager_metrics(metric_names, weights_fn=common_layers.weights_all):
     (accum_fn(predictions, targets) => None,
      result_fn() => dict<str metric_name, float avg_val>
   """
-  metric_fns = dict(
-      [(name, METRICS_FNS[name]) for name in metric_names])
-  tfe_metrics = dict()
-
-  for name in metric_names:
-    tfe_metrics[name] = tfe.metrics.Mean(name=name)
-
-  def metric_accum(predictions, targets):
-    for name, metric_fn in metric_fns.items():
-      val, weight = metric_fn(predictions, targets,
-                              weights_fn=weights_fn)
-      tfe_metrics[name](np.squeeze(val), np.squeeze(weight))
-
-  def metric_means():
-    avgs = {}
-    for name in metric_names:
-      avgs[name] = tfe_metrics[name].result().numpy()
-    return avgs
-
-  return metric_accum, metric_means
+  assert False, "Assuming we don't use eager"
+  # metric_fns = dict(
+  #     [(name, METRICS_FNS[name]) for name in metric_names])
+  # tfe_metrics = dict()
+  #
+  # for name in metric_names:
+  #   tfe_metrics[name] = tfe.metrics.Mean(name=name)
+  #
+  # def metric_accum(predictions, targets):
+  #   for name, metric_fn in metric_fns.items():
+  #     val, weight = metric_fn(predictions, targets,
+  #                             weights_fn=weights_fn)
+  #     tfe_metrics[name](np.squeeze(val), np.squeeze(weight))
+  #
+  # def metric_means():
+  #   avgs = {}
+  #   for name in metric_names:
+  #     avgs[name] = tfe_metrics[name].result().numpy()
+  #   return avgs
+  #
+  # return metric_accum, metric_means
 
 
 # Metrics are functions that take predictions and labels and return
