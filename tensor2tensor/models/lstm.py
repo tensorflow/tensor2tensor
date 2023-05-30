@@ -30,7 +30,7 @@ import tensorflow_addons as tfa
 
 
 def _dropout_lstm_cell(hparams, train):
-  return tf.contrib.rnn.DropoutWrapper(
+  return tf.compat.v1.nn.rnn_cell.DropoutWrapper(
       tf.compat.v1.nn.rnn_cell.LSTMCell(hparams.hidden_size),
       input_keep_prob=1.0 - hparams.dropout * tf.cast(train, dtype=tf.float32))
 
