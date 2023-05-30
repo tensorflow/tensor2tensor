@@ -30,6 +30,8 @@ from six.moves import range  # pylint: disable=redefined-builtin
 
 import tensorflow as tf
 
+import tf_slim as slim
+
 from tensorflow.python.framework import function
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import control_flow_util
@@ -2884,7 +2886,7 @@ def _recompute_grad(fn, args):
     variables = [underlying_variable_ref(v) for v in variables]
     # Recompute outputs
     with tf.control_dependencies(output_grads):
-      with tf.contrib.framework.arg_scope(cached_arg_scope[0]):
+      with slim.ops.arg_scope.arg_scope(cached_arg_scope[0]):
         with tf.compat.v1.variable_scope(cached_vs[0], reuse=True):
           outputs = fn(*inputs)
 
@@ -2904,7 +2906,7 @@ def _recompute_grad(fn, args):
   @fn_with_custom_grad(grad_fn)
   def fn_with_recompute(*args):
     cached_vs.append(tf.compat.v1.get_variable_scope())
-    cached_arg_scope.append(tf.contrib.framework.current_arg_scope())
+    cached_arg_scope.append(slim.ops.arg_scope.current_arg_scope())
     return fn(*args)
 
   return fn_with_recompute(*args)
@@ -3389,7 +3391,7 @@ def general_conv(x,
         kernel_initializer=tf.compat.v1.truncated_normal_initializer(stddev=stddev),
         bias_initializer=tf.compat.v1.constant_initializer(0.0))
     if do_norm == "layer":
-      x = tf.contrib.layers.layer_norm(x)
+      x = slim.layers.layers.layer_norm(x)
     elif do_norm == "instance":
       x = instance_norm(x)
 
@@ -3535,20 +3537,20 @@ def cyclegan_upsample(net, num_outputs, stride, method="conv2d_transpose"):
       net = tf.image.resize(
           net, [stride[0] * height, stride[1] * width], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.contrib.layers.conv2d(
+      net = tf.compat.v1.layers.conv2d(
           net, num_outputs, kernel_size=[3, 3], padding="valid")
     elif method == "bilinear_upsample_conv":
       net = tf.image.resize(net,
                                      [stride[0] * height, stride[1] * width], method=tf.image.ResizeMethod.BILINEAR)
       net = tf.pad(net, spatial_pad_1, "REFLECT")
-      net = tf.contrib.layers.conv2d(
+      net = tf.compat.v1.layers.conv2d(
           net, num_outputs, kernel_size=[3, 3], padding="valid")
     elif method == "conv2d_transpose":
       # This corrects 1 pixel offset for images with even width and height.
       # conv2d is left aligned and conv2d_transpose is right aligned for even
       # sized images (while doing "SAME" padding).
       # Note: This doesn"t reflect actual model in paper.
-      net = tf.contrib.layers.conv2d_transpose(
+      net = tf.compat.v1.layers.conv2d_transpose(
           net, num_outputs, kernel_size=[3, 3], stride=stride, padding="valid")
       net = net[:, 1:, 1:, :]
     else:
