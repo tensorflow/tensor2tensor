@@ -36,18 +36,18 @@ from tensor2tensor.data_generators import tokenizer
 
 import tensorflow as tf
 
-tf.flags.DEFINE_string('output_filename', '/tmp/my.subword_text_encoder',
+tf.compat.v1.flags.DEFINE_string('output_filename', '/tmp/my.subword_text_encoder',
                        'where to store the SubwordTextEncoder')
-tf.flags.DEFINE_string('corpus_filepattern', '',
+tf.compat.v1.flags.DEFINE_string('corpus_filepattern', '',
                        'Corpus of one or more text files')
-tf.flags.DEFINE_string('vocab_filepattern', '', 'One or more vocabulary files '
+tf.compat.v1.flags.DEFINE_string('vocab_filepattern', '', 'One or more vocabulary files '
                        '(one word per line as "word,count")')
-tf.flags.DEFINE_integer('min_count', 5, 'Minimum subtoken count in corpus')
-tf.flags.DEFINE_integer('corpus_max_lines', 10000,
+tf.compat.v1.flags.DEFINE_integer('min_count', 5, 'Minimum subtoken count in corpus')
+tf.compat.v1.flags.DEFINE_integer('corpus_max_lines', 10000,
                         'How many lines of corpus to read')
-tf.flags.DEFINE_integer('num_iterations', 4, 'Number of iterations')
-tf.flags.DEFINE_bool('split_on_newlines', True, 'Break corpus into lines.')
-FLAGS = tf.flags.FLAGS
+tf.compat.v1.flags.DEFINE_integer('num_iterations', 4, 'Number of iterations')
+tf.compat.v1.flags.DEFINE_bool('split_on_newlines', True, 'Break corpus into lines.')
+FLAGS = tf.compat.v1.flags.FLAGS
 
 
 def main(unused_argv):

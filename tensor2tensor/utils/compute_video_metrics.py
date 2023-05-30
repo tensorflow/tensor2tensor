@@ -26,7 +26,7 @@ from tensor2tensor.utils import video_metrics
 import tensorflow as tf
 
 
-FLAGS = tf.flags.FLAGS
+FLAGS = tf.compat.v1.flags.FLAGS
 
 
 def main(_):

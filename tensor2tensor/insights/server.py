@@ -27,7 +27,7 @@ from tensor2tensor.insights import transformer_model
 
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("configuration", "",

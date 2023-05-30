@@ -32,17 +32,17 @@ from tensor2tensor.data_generators import text_encoder
 import tensorflow as tf
 
 
-tf.flags.DEFINE_string("subword_text_encoder_filename", "",
+tf.compat.v1.flags.DEFINE_string("subword_text_encoder_filename", "",
                        "SubwordTextEncoder vocabulary file")
-tf.flags.DEFINE_string("token_text_encoder_filename", "",
+tf.compat.v1.flags.DEFINE_string("token_text_encoder_filename", "",
                        "TokenTextEncoder vocabulary file")
-tf.flags.DEFINE_bool("byte_text_encoder", False, "use a ByteTextEncoder")
-tf.flags.DEFINE_string("input_filename", "", "input filename")
-tf.flags.DEFINE_bool("print_inputs", False, "Print decoded inputs to stdout")
-tf.flags.DEFINE_bool("print_targets", False, "Print decoded targets to stdout")
-tf.flags.DEFINE_bool("print_all", False, "Print all fields")
+tf.compat.v1.flags.DEFINE_bool("byte_text_encoder", False, "use a ByteTextEncoder")
+tf.compat.v1.flags.DEFINE_string("input_filename", "", "input filename")
+tf.compat.v1.flags.DEFINE_bool("print_inputs", False, "Print decoded inputs to stdout")
+tf.compat.v1.flags.DEFINE_bool("print_targets", False, "Print decoded targets to stdout")
+tf.compat.v1.flags.DEFINE_bool("print_all", False, "Print all fields")
 
-FLAGS = tf.flags.FLAGS
+FLAGS = tf.compat.v1.flags.FLAGS
 
 
 def main(_):

@@ -47,7 +47,7 @@ from tensor2tensor.data_generators.wikisum import utils
 import tensorflow as tf
 
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string(

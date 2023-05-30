@@ -32,7 +32,7 @@ from __future__ import print_function
 import json
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("masters", "", "Comma-separated list of master addresses")

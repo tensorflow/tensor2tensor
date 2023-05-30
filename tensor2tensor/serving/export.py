@@ -28,12 +28,12 @@ from tensor2tensor.utils import usr_dir
 import tensorflow as tf
 import tensorflow_hub as hub
 
-FLAGS = tf.flags.FLAGS
+FLAGS = tf.compat.v1.flags.FLAGS
 
-tf.flags.DEFINE_bool("export_as_tfhub", False,
+tf.compat.v1.flags.DEFINE_bool("export_as_tfhub", False,
                      "If True, the model will be exported as tfHub module.")
 
-tf.flags.DEFINE_string(
+tf.compat.v1.flags.DEFINE_string(
     "export_dir", None, "Directory, where export model should be stored."
     "If None, the model will be stored in subdirectory "
     "where checkpoints are: --output_dir")

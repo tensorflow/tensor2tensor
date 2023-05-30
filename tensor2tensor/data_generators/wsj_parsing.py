@@ -26,10 +26,10 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
-tf.flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
+tf.compat.v1.flags.DEFINE_string("parsing_path", "", "Path to parsing files in tmp_dir.")
 
 
-FLAGS = tf.flags.FLAGS
+FLAGS = tf.compat.v1.flags.FLAGS
 
 
 @registry.register_problem

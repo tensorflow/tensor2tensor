@@ -53,7 +53,7 @@ from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 # Additional flags in bin/t2t_trainer.py and utils/flags.py

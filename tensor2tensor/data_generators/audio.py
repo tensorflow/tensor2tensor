@@ -26,7 +26,7 @@ import wave
 
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("timit_paths", "",

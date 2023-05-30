@@ -172,7 +172,7 @@ class InitialFrameChooser(object):
       )
       return {
           "mode": mode,
-          "data_dir": tf.flags.FLAGS.data_dir,
+          "data_dir": tf.compat.v1.flags.FLAGS.data_dir,
           "hparams": dataset_hparams,
           "only_last": True
       }

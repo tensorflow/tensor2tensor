@@ -31,7 +31,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import usr_dir as usr_dir_lib
 import tensorflow as tf
 
-FLAGS = tf.flags.FLAGS
+FLAGS = tf.compat.v1.flags.FLAGS
 
 CONSOLE_URL = "https://console.cloud.google.com/mlengine/jobs/"
 RUNTIME_VERSION = "1.9"

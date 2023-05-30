@@ -41,7 +41,7 @@ from tensor2tensor.utils import usr_dir
 
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 # See flags.py for additional command-line flags.

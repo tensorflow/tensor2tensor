@@ -35,7 +35,7 @@ from tensor2tensor.utils import usr_dir
 import tensorflow as tf
 from tensorflow.python import debug as tfdbg
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 

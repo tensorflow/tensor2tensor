@@ -21,7 +21,7 @@ from __future__ import print_function
 
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_bool("registry_help", False,

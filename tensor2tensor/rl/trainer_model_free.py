@@ -32,7 +32,7 @@ from tensor2tensor.utils import trainer_lib
 
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 # To maintain compatibility with some internal libs, we guard against these flag

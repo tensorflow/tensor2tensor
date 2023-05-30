@@ -22,7 +22,7 @@ from tensor2tensor.rl import trainer_model_based
 
 import tensorflow as tf
 
-FLAGS = tf.flags.FLAGS
+FLAGS = tf.compat.v1.flags.FLAGS
 
 
 class ModelRLExperimentTest(tf.test.TestCase):

@@ -26,11 +26,11 @@ from tempfile import mkdtemp
 import pyrouge
 import tensorflow as tf
 
-FLAGS = tf.flags.FLAGS
+FLAGS = tf.compat.v1.flags.FLAGS
 
-tf.flags.DEFINE_string("decodes_filename", None,
+tf.compat.v1.flags.DEFINE_string("decodes_filename", None,
                        "File containing model generated summaries tokenized")
-tf.flags.DEFINE_string("targets_filename", None,
+tf.compat.v1.flags.DEFINE_string("targets_filename", None,
                        "File containing model target summaries tokenized")
 
 

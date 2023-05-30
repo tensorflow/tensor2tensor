@@ -51,7 +51,7 @@ def data_parallelism_from_flags(daisy_chain_variables=True, all_workers=False):
   for arg in dp_arg_names:
     if arg in blacklist:
       continue
-    kwargs[arg] = getattr(tf.flags.FLAGS, arg)
+    kwargs[arg] = getattr(tf.compat.v1.flags.FLAGS, arg)
 
   return data_parallelism(
       daisy_chain_variables=daisy_chain_variables,

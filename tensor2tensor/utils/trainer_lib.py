@@ -359,7 +359,7 @@ def create_hooks(use_tfdbg=False,
     tf.compat.v1.logging.info("Using ValidationMonitor")
     # Fathom
     # continuous_train_and_eval breaks early stopping
-    flags = tf.flags
+    flags = tf.compat.v1.flags
     FLAGS = flags.FLAGS
     assert FLAGS.schedule != 'continuous_train_and_eval'
     
@@ -429,7 +429,7 @@ class T2TExperiment(object):
         max_steps=max_steps or self._train_spec.max_steps)
 
   def evaluate(self):
-    flags = tf.flags
+    flags = tf.compat.v1.flags
     FLAGS = flags.FLAGS
     return self._estimator.evaluate(
         self._eval_spec.input_fn,

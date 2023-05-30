@@ -32,7 +32,7 @@ from tensor2tensor.data_generators import text_problems
 from tensor2tensor.utils import registry
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("data_dir", "/tmp/t2t/data_dir",

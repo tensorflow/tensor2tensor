@@ -34,7 +34,7 @@ from tensor2tensor.utils import bleu_hook
 
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 # t2t-translate-all specific options

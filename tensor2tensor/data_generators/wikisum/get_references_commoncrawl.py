@@ -26,7 +26,7 @@ from tensor2tensor.data_generators.wikisum import wikisum
 
 import tensorflow as tf
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("num_tasks", 1000, "Number of parallel tasks.")

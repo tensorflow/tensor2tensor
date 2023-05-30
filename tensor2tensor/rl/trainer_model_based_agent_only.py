@@ -36,7 +36,7 @@ from tensor2tensor.rl import trainer_model_based_params
 import tensorflow as tf
 
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("world_model_dir", "",

@@ -37,7 +37,7 @@ from tensor2tensor.data_generators.wikisum import html
 from tensor2tensor.data_generators.wikisum import utils
 
 
-flags = tf.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string("urls_dir", "gs://tensor2tensor-data/wikisum/wiki_urls/",
