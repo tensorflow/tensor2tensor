@@ -26,6 +26,7 @@ from tensor2tensor.utils import registry
 from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
+import tensorflow_addons as tfa
 
 
 def _dropout_lstm_cell(hparams, train):
@@ -96,9 +97,9 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
   layers = [_dropout_lstm_cell(hparams, train)
             for _ in range(hparams.num_hidden_layers)]
   if hparams.attention_mechanism == "luong":
-    attention_mechanism_class = tf.contrib.seq2seq.LuongAttention
+    attention_mechanism_class = tfa.seq2seq.LuongAttention
   elif hparams.attention_mechanism == "bahdanau":
-    attention_mechanism_class = tf.contrib.seq2seq.BahdanauAttention
+    attention_mechanism_class = tfa.seq2seq.BahdanauAttention
   else:
     raise ValueError("Unknown hparams.attention_mechanism = %s, must be "
                      "luong or bahdanau." % hparams.attention_mechanism)
@@ -106,7 +107,7 @@ def lstm_attention_decoder(inputs, hparams, train, name, initial_state,
       hparams.hidden_size, encoder_outputs,
       memory_sequence_length=encoder_output_length)
 
-  cell = tf.contrib.seq2seq.AttentionWrapper(
+  cell = tfa.seq2seq.AttentionWrapper(
       tf.compat.v1.nn.rnn_cell.MultiRNNCell(layers),
       [attention_mechanism]*hparams.num_heads,
       attention_layer_size=[hparams.attention_layer_size]*hparams.num_heads,
