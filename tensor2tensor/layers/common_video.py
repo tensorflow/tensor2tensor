@@ -26,8 +26,8 @@ import tensorflow as tf
 
 from tensorflow.python.ops import summary_op_util
 
-tfl = tf.layers
-tfcl = tf.contrib.layers
+# tfl = tf.layers
+# tfcl = tf.contrib.layers
 
 
 def swap_time_and_batch_axes(inputs):
@@ -41,8 +41,8 @@ def encode_to_shape(inputs, shape, scope):
   with tf.compat.v1.variable_scope(scope, reuse=tf.compat.v1.AUTO_REUSE):
     w, h = shape[1], shape[2]
     x = inputs
-    x = tf.contrib.layers.flatten(x)
-    x = tfl.dense(x, w * h, activation=None, name="enc_dense")
+    # x = tf.contrib.layers.flatten(x)
+    # x = tfl.dense(x, w * h, activation=None, name="enc_dense")
     x = tf.reshape(x, (-1, w, h, 1))
     return x
 
@@ -51,8 +51,8 @@ def decode_to_shape(inputs, shape, scope):
   """Encode the given tensor to given image shape."""
   with tf.compat.v1.variable_scope(scope, reuse=tf.compat.v1.AUTO_REUSE):
     x = inputs
-    x = tf.contrib.layers.flatten(x)
-    x = tfl.dense(x, shape[2], activation=None, name="dec_dense")
+    # x = tf.contrib.layers.flatten(x)
+    # x = tfl.dense(x, shape[2], activation=None, name="dec_dense")
     x = tf.expand_dims(x, axis=1)
     return x
 
@@ -106,13 +106,14 @@ def conv_lstm_2d(inputs, state, output_channels,
   else:
     input_shape = spatial_dims + [input_channels]
 
-  cell = tf.contrib.rnn.ConvLSTMCell(
-      2, input_shape, output_channels,
-      [kernel_size, kernel_size], name=name)
-  if state is None:
-    state = cell.zero_state(batch_size, tf.float32)
-  outputs, new_state = cell(inputs, state)
-  return outputs, new_state
+  # cell = tf.contrib.rnn.ConvLSTMCell(
+  #     2, input_shape, output_channels,
+  #     [kernel_size, kernel_size], name=name)
+  # if state is None:
+  #   state = cell.zero_state(batch_size, tf.float32)
+  # outputs, new_state = cell(inputs, state)
+  # return outputs, new_state
+  return None, None
 
 
 def scheduled_sample_count(ground_truth_x,
@@ -263,10 +264,11 @@ def cdna_transformation(prev_image, cdna_input, num_masks, color_channels,
   width = int(prev_image.get_shape()[2])
 
   # Predict kernels using linear function of last hidden layer.
-  cdna_kerns = tfl.dense(
-      cdna_input, dna_kernel_size * dna_kernel_size * num_masks,
-      name="cdna_params",
-      activation=None)
+  # cdna_kerns = tfl.dense(
+  #     cdna_input, dna_kernel_size * dna_kernel_size * num_masks,
+  #     name="cdna_params",
+  #     activation=None)
+  cdna_kerns = None
 
   # Reshape and normalize.
   cdna_kerns = tf.reshape(
@@ -317,12 +319,12 @@ def vgg_layer(inputs,
   Returns:
     net: output of layer
   """
-  with tf.compat.v1.variable_scope(scope):
-    net = tfl.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
-                     activation=None, name="conv")
-    net = tfl.batch_normalization(net, training=is_training, name="bn")
-    net = activation(net)
-  return net
+  # with tf.compat.v1.variable_scope(scope):
+  #   net = tfl.conv2d(inputs, nout, kernel_size=kernel_size, padding=padding,
+  #                    activation=None, name="conv")
+  #   net = tfl.batch_normalization(net, training=is_training, name="bn")
+  #   net = activation(net)
+  return inputs
 
 
 def tile_and_concat(image, latent, concat_latent=True):
@@ -524,43 +526,44 @@ def conv_latent_tower(images, time_axis, latent_channels=1, min_logvar=-5,
     latent_mean: predicted latent mean
     latent_logvar: predicted latent log variance
   """
-  conv_size = tinyify([32, 64, 64], tiny_mode, small_mode)
-  with tf.compat.v1.variable_scope("latent", reuse=tf.compat.v1.AUTO_REUSE):
-    images = tf.cast(images, dtype=tf.float32)
-    images = tf.unstack(images, axis=time_axis)
-    images = tf.concat(images, axis=3)
-
-    x = images
-    x = common_layers.make_even_size(x)
-    x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
-                   padding="SAME", activation=tf.nn.relu, name="latent_conv1")
-    x = tfcl.layer_norm(x)
-    if not small_mode:
-      x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
-                     padding="SAME", activation=tf.nn.relu, name="latent_conv2")
-      x = tfcl.layer_norm(x)
-    x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
-                   padding="SAME", activation=tf.nn.relu, name="latent_conv3")
-    x = tfcl.layer_norm(x)
-
-    nc = latent_channels
-    mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
-                      padding="SAME", activation=None, name="latent_mean")
-    logv = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
-                      padding="SAME", activation=tf.nn.relu, name="latent_std")
-    logvar = logv + min_logvar
-
-    # No latent tower at inference time, just standard gaussian.
-    if not is_training:
-      return tf.zeros_like(mean), tf.zeros_like(logvar)
-
-    # No latent in the first phase
-    ret_mean, ret_logvar = tf.cond(
-        random_latent,
-        lambda: (tf.zeros_like(mean), tf.zeros_like(logvar)),
-        lambda: (mean, logvar))
-
-    return ret_mean, ret_logvar
+  # conv_size = tinyify([32, 64, 64], tiny_mode, small_mode)
+  # with tf.compat.v1.variable_scope("latent", reuse=tf.compat.v1.AUTO_REUSE):
+  #   images = tf.cast(images, dtype=tf.float32)
+  #   images = tf.unstack(images, axis=time_axis)
+  #   images = tf.concat(images, axis=3)
+  #
+  #   x = images
+  #   x = common_layers.make_even_size(x)
+  #   x = tfl.conv2d(x, conv_size[0], [3, 3], strides=(2, 2),
+  #                  padding="SAME", activation=tf.nn.relu, name="latent_conv1")
+  #   x = tfcl.layer_norm(x)
+  #   if not small_mode:
+  #     x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+  #                    padding="SAME", activation=tf.nn.relu, name="latent_conv2")
+  #     x = tfcl.layer_norm(x)
+  #   x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(1, 1),
+  #                  padding="SAME", activation=tf.nn.relu, name="latent_conv3")
+  #   x = tfcl.layer_norm(x)
+  #
+  #   nc = latent_channels
+  #   mean = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+  #                     padding="SAME", activation=None, name="latent_mean")
+  #   logv = tfl.conv2d(x, nc, [3, 3], strides=(2, 2),
+  #                     padding="SAME", activation=tf.nn.relu, name="latent_std")
+  #   logvar = logv + min_logvar
+  #
+  #   # No latent tower at inference time, just standard gaussian.
+  #   if not is_training:
+  #     return tf.zeros_like(mean), tf.zeros_like(logvar)
+  #
+  #   # No latent in the first phase
+  #   ret_mean, ret_logvar = tf.cond(
+  #       random_latent,
+  #       lambda: (tf.zeros_like(mean), tf.zeros_like(logvar)),
+  #       lambda: (mean, logvar))
+  #
+  #   return ret_mean, ret_logvar
+  return None, None
 
 
 def beta_schedule(schedule, global_step, final_beta, decay_start, decay_end):

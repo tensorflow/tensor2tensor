@@ -27,6 +27,8 @@ from tensor2tensor.utils import yellowfin
 import tensorflow as tf
 
 from tensorflow.python.framework import dtypes
+import tf_slim as slim
+import tensorflow_addons as tfa
 
 
 def optimize(loss, learning_rate, hparams, use_tpu=False):
@@ -60,7 +62,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
     tf.compat.v1.logging.info("Adding noise to gradients, noise scale: %0.5f",
                     hparams.grad_noise_scale)
 
-  train_op = tf.contrib.layers.optimize_loss(
+  train_op = slim.optimize_loss(
       name="training",
       loss=loss,
       global_step=tf.compat.v1.train.get_or_create_global_step(),
@@ -82,7 +84,7 @@ class ConditionalOptimizer(tf.compat.v1.train.Optimizer):
     if optimizer_name == "Adam":
       # We change the default epsilon for Adam.
       # Using LazyAdam as it's much faster for large vocabulary embeddings.
-      self._opt = tf.contrib.opt.LazyAdamOptimizer(
+      self._opt = tfa.optimizers.LazyAdam(
           lr,
           beta1=hparams.optimizer_adam_beta1,
           beta2=hparams.optimizer_adam_beta2,
@@ -111,7 +113,8 @@ class ConditionalOptimizer(tf.compat.v1.train.Optimizer):
     elif optimizer_name == "Adafactor":
       self._opt = adafactor.adafactor_optimizer_from_hparams(hparams, lr)
     else:
-      self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
+      assert False, "Should not be here"
+      # self._opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer_name](lr)
 
     self._zero_grads = hparams.optimizer_zero_grads
 

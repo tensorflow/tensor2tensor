@@ -36,7 +36,6 @@ from tensor2tensor.utils import data_reader
 from tensor2tensor.utils import metrics
 
 import tensorflow as tf
-from tensorflow.contrib.tpu.python.tpu import tpu_config
 
 import pretrained_models.bert.utilities as bert_utilities
 from fathomt2t_dependencies.common_t2t_utils import maybe_prepare_for_chunking
@@ -830,8 +829,8 @@ class Problem(object):
       return 0, 1
     phift = config.tpu_config.per_host_input_for_training
     # This is the mesh-tensorflow case.
-    if (hasattr(tpu_config.InputPipelineConfig, "BROADCAST") and
-        phift == tpu_config.InputPipelineConfig.BROADCAST):
+    if (hasattr(tf.compat.v1.estimator.tpu.InputPipelineConfig, "BROADCAST") and
+        phift == tf.compat.v1.estimator.tpu.InputPipelineConfig.BROADCAST):
       return 0, 1
     if phift:
       num_partitions = max(config.tpu_config.num_shards // 8, 1)
