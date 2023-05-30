@@ -39,6 +39,8 @@ from tensorflow.python import debug
 
 import tensorflow_probability as tfp
 
+from tensor2tensor.utils.contrib import replace_monitors_with_hooks
+
 # Fathom imports
 from fh_platform import fh_logging
 from fathomt2t.problems.fprecord_text_problem import FPRecordTextProblem
@@ -171,7 +173,7 @@ def create_run_config(model_name,
   }
   if save_checkpoints_secs:
     del run_config_args["save_checkpoints_steps"]
-  run_config_cls = tf.contrib.learn.RunConfig
+  run_config_cls = tf.estimator.RunConfig
 
   if use_tpu or use_tpu_estimator:
     # If using TPUEstimator, use TPU RunConfig, add TPUConfig, and add
@@ -654,9 +656,9 @@ def create_experiment(
   if additional_eval_hooks:
     eval_hooks += additional_eval_hooks
 
-  train_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
+  train_hooks = replace_monitors_with_hooks(
       train_hooks, estimator)
-  eval_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
+  eval_hooks = replace_monitors_with_hooks(
       eval_hooks, estimator)
 
   train_spec = tf.estimator.TrainSpec(
