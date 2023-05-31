@@ -22,12 +22,13 @@ from six.moves import zip  # pylint: disable=redefined-builtin
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+from tensor2tensor.utils.hparam import HParams
 
 
 @registry.register_hparams("basic_1")
 def basic_params1():
   """A set of basic hyperparameters."""
-  return tf.contrib.training.HParams(
+  return HParams(
       # If the problem consists of variable-length sequences
       # (see problem.batch_size_means_tokens()), then this is the number
       # of tokens per batch per GPU or per TPU core.  Otherwise, this is

@@ -38,6 +38,8 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
+from tensor2tensor.utils.hparam import HParams
+
 FLAGS = tf.compat.v1.flags.FLAGS
 
 # Number of samples to draw for an image input (in such cases as captioning)
@@ -46,7 +48,7 @@ IMAGE_DECODE_LENGTH = 100
 
 def decode_hparams(overrides=""):
   """Hyperparameters for decoding."""
-  hp = tf.contrib.training.HParams(
+  hp = HParams(
       save_images=False,
       log_results=True,
       extra_length=100,

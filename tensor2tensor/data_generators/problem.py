@@ -37,6 +37,8 @@ from tensor2tensor.utils import metrics
 
 import tensorflow as tf
 
+from tensor2tensor.utils.hparam import HParams
+
 import pretrained_models.bert.utilities as bert_utilities
 from fathomt2t_dependencies.common_t2t_utils import maybe_prepare_for_chunking
 
@@ -138,7 +140,7 @@ class TaskID(object):
 
 
 def default_model_hparams():
-  return tf.contrib.training.HParams(
+  return HParams(
       max_input_seq_length=0,
       max_target_seq_length=0,
       prepend_mode="none",
@@ -1304,7 +1306,7 @@ def _warn_changed_modality_type(new_name, old_name, feature_name):
 
 def _default_hparams():
   """A set of basic model hyperparameters."""
-  return tf.contrib.training.HParams(
+  return HParams(
       # Use this parameter to get comparable perplexity numbers with different
       # tokenizations.  This value should be set to the ratio of the number of
       # tokens in the test set according to the tokenization used to the number

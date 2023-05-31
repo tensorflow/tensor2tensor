@@ -25,6 +25,7 @@ from tensor2tensor.utils import t2t_model
 
 import tensorflow as tf
 
+from tensor2tensor.utils.hparam import HParams
 
 def shake_shake_skip_connection(x, output_filters, stride, is_training):
   """Adds a residual connection to the filter x for the shake-shake model."""
@@ -214,7 +215,7 @@ def shakeshake_tpu():
 
 @registry.register_attack_params
 def shake_shake_fgsm():
-  aparams = tf.contrib.training.HParams()
+  aparams = HParams()
   aparams.attack = "fgsm"
   aparams.attack_epsilons = [(i+1) * 0.1 for i in range(12)]
   aparams.add_hparam("clip_min", 0.0)
