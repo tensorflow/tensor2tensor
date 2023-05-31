@@ -40,6 +40,7 @@ from tensorflow.python import debug
 import tensorflow_probability as tfp
 
 from tensor2tensor.utils.contrib import replace_monitors_with_hooks
+import tf_slim as slim
 
 # Fathom imports
 from fh_platform import fh_logging
@@ -51,7 +52,7 @@ def next_checkpoint(model_dir, timeout_mins=120):
   """Yields successive checkpoints from model_dir."""
   last_ckpt = None
   while True:
-    last_ckpt = tf.contrib.training.wait_for_new_checkpoint(
+    last_ckpt = slim.training.evaluation.wait_for_new_checkpoint(
         model_dir, last_ckpt, seconds_to_sleep=60, timeout=60 * timeout_mins)
 
     if last_ckpt is None:
