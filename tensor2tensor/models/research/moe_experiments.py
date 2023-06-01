@@ -20,7 +20,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.models import mtf_transformer
+# from tensor2tensor.models import mtf_transformer
 from tensor2tensor.models.research import moe
 from tensor2tensor.utils import registry
 
@@ -51,7 +51,8 @@ def xmoe_dense_4k():
   Returns:
     a hparams
   """
-  hparams = mtf_transformer.mtf_transformer_base()
+  # hparams = mtf_transformer.mtf_transformer_base()
+  hparams = None
 
   # The following hparams are constant across all these experiments.
   hparams.label_smoothing = 0.0
@@ -120,7 +121,8 @@ def mtf_transformer_lm_moe():
   Returns:
     a hparams
   """
-  hparams = mtf_transformer.mtf_transformer_lm_baseline()
+  # hparams = mtf_transformer.mtf_transformer_lm_baseline()
+  hparams = None
   moe.set_default_moe_hparams(hparams)
   hparams.mesh_shape = "all:8"
   hparams.layout = "batch:all;experts:all"
@@ -175,7 +177,8 @@ def xmoe_wiki_base():
   Returns:
     a hparams
   """
-  hparams = mtf_transformer.mtf_transformer_base()
+  # hparams = mtf_transformer.mtf_transformer_base()
+  hparams = None
 
   # The following hparams are constant across all these experiments.
   hparams.label_smoothing = 0.0

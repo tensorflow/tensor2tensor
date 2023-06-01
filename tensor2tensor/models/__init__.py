@@ -26,9 +26,9 @@ from tensor2tensor.models import distillation
 from tensor2tensor.models import image_transformer
 from tensor2tensor.models import image_transformer_2d
 from tensor2tensor.models import lstm
-from tensor2tensor.models import mtf_image_transformer
-from tensor2tensor.models import mtf_resnet
-from tensor2tensor.models import mtf_transformer
+# from tensor2tensor.models import mtf_image_transformer
+# from tensor2tensor.models import mtf_resnet
+# from tensor2tensor.models import mtf_transformer
 from tensor2tensor.models import neural_gpu
 from tensor2tensor.models import resnet
 from tensor2tensor.models import revnet
