@@ -47,83 +47,84 @@ class VqaSelfAttention(vqa_attention.VqaAttentionBaseline):
   #   return [restore_resnet_hook]
 
   def body(self, features):
-    hp = self.hparams
-    # pylint: disable=eval-used
-    if hp.image_input_type == "image":
-      image_feat = vqa_layers.image_embedding(
-          features["inputs"],
-          model_fn=eval(hp.image_model_fn),
-          trainable=hp.train_resnet,
-          is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
-    else:
-      image_feat = features["inputs"]
-
-    image_feat = common_layers.flatten4d3d(image_feat)
-    image_hidden_size = hp.image_hidden_size or hp.hidden_size
-    if hp.image_feat_preprocess_proj:
-      image_feat = common_layers.dense(image_feat, image_hidden_size)
-      utils.collect_named_outputs("norms", "image_feat_after_proj",
-                                  tf.norm(image_feat, axis=-1))
-    else:
-      assert image_hidden_size == 2048
-
-    image_feat = tf.nn.dropout(
-        image_feat, rate=1 - (1.-hp.layer_prepostprocess_dropout))
-
-    if hp.image_feat_encode:
-      image_feat = image_encoder(image_feat, hp)
-      utils.collect_named_outputs("norms", "image_feat_encoded",
-                                  tf.norm(image_feat, axis=-1))
-    else:
-      image_feat = common_layers.layer_norm(image_feat)
-      utils.collect_named_outputs("norms", "image_feat_after_layer",
-                                  tf.norm(image_feat, axis=-1))
-
-    question = common_layers.flatten4d3d(features["question"])
-    utils.collect_named_outputs("norms", "question_embedding",
-                                tf.norm(question, axis=-1))
-    question, question_self_attention_bias = prepare_question_encoder(
-        question, hp)
-    question = tf.nn.dropout(
-        question, rate=1 - (1.-hp.layer_prepostprocess_dropout))
-    query = question_encoder(question, question_self_attention_bias, hp)
-    utils.collect_named_outputs(
-        "norms", "query_encode", tf.norm(query, axis=-1))
-    query = (query + tf.expand_dims(
-        tf.squeeze(question_self_attention_bias, [1, 2]), axis=2))
-    query = tf.reduce_max(query, axis=1)
-    utils.collect_named_outputs(
-        "norms", "query_maxpool", tf.norm(query, axis=-1))
-
-    # query = common_layers.l2_norm(query)
-    # utils.collect_named_outputs("norms", "query_after_l2",
-    #                             tf.norm(query, axis=-1))
-
-    image_ave = attn(image_feat, query, hp)
-    utils.collect_named_outputs("norms", "image_ave",
-                                tf.norm(image_ave, axis=-1))
-
-    if hp.multimodal_combine == "concat":
-      image_question = tf.concat([image_ave, query], axis=1)
-    elif hp.multimodal_combine == "sum":
-      image_question = image_ave + query
-    elif hp.multimodal_combine == "product":
-      image_question = image_ave * query
-
-    utils.collect_named_outputs("norms", "image_question",
-                                tf.norm(image_question, axis=-1))
-
-    image_question = tf.nn.dropout(image_question, rate=1 - (1. - hp.dropout))
-
-    output = mlp(image_question, hp)
-    utils.collect_named_outputs("norms", "output",
-                                tf.norm(output, axis=-1))
-
-    norm_tensors = utils.convert_collection_to_dict("norms")
-    vqa_layers.summarize_tensors(norm_tensors, tag="norms/")
-
-    # Expand dimension 1 and 2
-    return tf.expand_dims(tf.expand_dims(output, axis=1), axis=2)
+    return None
+    # hp = self.hparams
+    # # pylint: disable=eval-used
+    # if hp.image_input_type == "image":
+    #   image_feat = vqa_layers.image_embedding(
+    #       features["inputs"],
+    #       model_fn=eval(hp.image_model_fn),
+    #       trainable=hp.train_resnet,
+    #       is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
+    # else:
+    #   image_feat = features["inputs"]
+    #
+    # image_feat = common_layers.flatten4d3d(image_feat)
+    # image_hidden_size = hp.image_hidden_size or hp.hidden_size
+    # if hp.image_feat_preprocess_proj:
+    #   image_feat = common_layers.dense(image_feat, image_hidden_size)
+    #   utils.collect_named_outputs("norms", "image_feat_after_proj",
+    #                               tf.norm(image_feat, axis=-1))
+    # else:
+    #   assert image_hidden_size == 2048
+    #
+    # image_feat = tf.nn.dropout(
+    #     image_feat, rate=1 - (1.-hp.layer_prepostprocess_dropout))
+    #
+    # if hp.image_feat_encode:
+    #   image_feat = image_encoder(image_feat, hp)
+    #   utils.collect_named_outputs("norms", "image_feat_encoded",
+    #                               tf.norm(image_feat, axis=-1))
+    # else:
+    #   image_feat = common_layers.layer_norm(image_feat)
+    #   utils.collect_named_outputs("norms", "image_feat_after_layer",
+    #                               tf.norm(image_feat, axis=-1))
+    #
+    # question = common_layers.flatten4d3d(features["question"])
+    # utils.collect_named_outputs("norms", "question_embedding",
+    #                             tf.norm(question, axis=-1))
+    # question, question_self_attention_bias = prepare_question_encoder(
+    #     question, hp)
+    # question = tf.nn.dropout(
+    #     question, rate=1 - (1.-hp.layer_prepostprocess_dropout))
+    # query = question_encoder(question, question_self_attention_bias, hp)
+    # utils.collect_named_outputs(
+    #     "norms", "query_encode", tf.norm(query, axis=-1))
+    # query = (query + tf.expand_dims(
+    #     tf.squeeze(question_self_attention_bias, [1, 2]), axis=2))
+    # query = tf.reduce_max(query, axis=1)
+    # utils.collect_named_outputs(
+    #     "norms", "query_maxpool", tf.norm(query, axis=-1))
+    #
+    # # query = common_layers.l2_norm(query)
+    # # utils.collect_named_outputs("norms", "query_after_l2",
+    # #                             tf.norm(query, axis=-1))
+    #
+    # image_ave = attn(image_feat, query, hp)
+    # utils.collect_named_outputs("norms", "image_ave",
+    #                             tf.norm(image_ave, axis=-1))
+    #
+    # if hp.multimodal_combine == "concat":
+    #   image_question = tf.concat([image_ave, query], axis=1)
+    # elif hp.multimodal_combine == "sum":
+    #   image_question = image_ave + query
+    # elif hp.multimodal_combine == "product":
+    #   image_question = image_ave * query
+    #
+    # utils.collect_named_outputs("norms", "image_question",
+    #                             tf.norm(image_question, axis=-1))
+    #
+    # image_question = tf.nn.dropout(image_question, rate=1 - (1. - hp.dropout))
+    #
+    # output = mlp(image_question, hp)
+    # utils.collect_named_outputs("norms", "output",
+    #                             tf.norm(output, axis=-1))
+    #
+    # norm_tensors = utils.convert_collection_to_dict("norms")
+    # vqa_layers.summarize_tensors(norm_tensors, tag="norms/")
+    #
+    # # Expand dimension 1 and 2
+    # return tf.expand_dims(tf.expand_dims(output, axis=1), axis=2)
 
 
 @registry.register_model
@@ -141,54 +142,55 @@ class VqaCombinedSelfAttention(VqaSelfAttention):
   #   return [restore_resnet_hook]
 
   def body(self, features):
-    hp = self.hparams
-    # pylint: disable=eval-used
-    if hp.image_input_type == "image":
-      image_feat = vqa_layers.image_embedding(
-          features["inputs"],
-          model_fn=eval(hp.image_model_fn),
-          trainable=hp.train_resnet,
-          is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
-    else:
-      image_feat = features["inputs"]
-
-    image_feat = common_layers.flatten4d3d(image_feat)
-    image_hidden_size = hp.hidden_size
-    image_feat = common_layers.dense(image_feat, image_hidden_size)
-    utils.collect_named_outputs("norms", "image_feat_after_proj",
-                                tf.norm(image_feat, axis=-1))
-
-    question = common_layers.flatten4d3d(features["question"])
-    utils.collect_named_outputs("norms", "question_embedding",
-                                tf.norm(question, axis=-1))
-    (encoder_input, encoder_self_attention_bias,
-     encoder_decoder_attention_bias) = prepare_image_question_encoder(
-         image_feat, question, hp)
-    encoder_input = tf.nn.dropout(
-        encoder_input, rate=1 - (1.-hp.layer_prepostprocess_dropout))
-    encoder_output = image_question_encoder(
-        encoder_input, encoder_self_attention_bias, hp)
-    utils.collect_named_outputs(
-        "norms", "encoder_output", tf.norm(encoder_output, axis=-1))
-
-    # scale query by sqrt(hidden_size)
-    query = tf.compat.v1.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
-    query = tf.expand_dims(tf.expand_dims(query, axis=0), axis=0)
-    batch_size = common_layers.shape_list(encoder_input)[0]
-    query = tf.tile(query, [batch_size, 1, 1])
-    query = tf.nn.dropout(
-        query, rate=1 - (1.-hp.layer_prepostprocess_dropout))
-
-    decoder_output = decoder(
-        query, encoder_output, None, encoder_decoder_attention_bias, hp)
-    utils.collect_named_outputs("norms", "decoder_output",
-                                tf.norm(decoder_output, axis=-1))
-
-    norm_tensors = utils.convert_collection_to_dict("norms")
-    vqa_layers.summarize_tensors(norm_tensors, tag="norms/")
-
-    # Expand dimension 1 and 2
-    return tf.expand_dims(decoder_output, axis=1)
+    return None
+    # hp = self.hparams
+    # # pylint: disable=eval-used
+    # if hp.image_input_type == "image":
+    #   image_feat = vqa_layers.image_embedding(
+    #       features["inputs"],
+    #       model_fn=eval(hp.image_model_fn),
+    #       trainable=hp.train_resnet,
+    #       is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
+    # else:
+    #   image_feat = features["inputs"]
+    #
+    # image_feat = common_layers.flatten4d3d(image_feat)
+    # image_hidden_size = hp.hidden_size
+    # image_feat = common_layers.dense(image_feat, image_hidden_size)
+    # utils.collect_named_outputs("norms", "image_feat_after_proj",
+    #                             tf.norm(image_feat, axis=-1))
+    #
+    # question = common_layers.flatten4d3d(features["question"])
+    # utils.collect_named_outputs("norms", "question_embedding",
+    #                             tf.norm(question, axis=-1))
+    # (encoder_input, encoder_self_attention_bias,
+    #  encoder_decoder_attention_bias) = prepare_image_question_encoder(
+    #      image_feat, question, hp)
+    # encoder_input = tf.nn.dropout(
+    #     encoder_input, rate=1 - (1.-hp.layer_prepostprocess_dropout))
+    # encoder_output = image_question_encoder(
+    #     encoder_input, encoder_self_attention_bias, hp)
+    # utils.collect_named_outputs(
+    #     "norms", "encoder_output", tf.norm(encoder_output, axis=-1))
+    #
+    # # scale query by sqrt(hidden_size)
+    # query = tf.compat.v1.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
+    # query = tf.expand_dims(tf.expand_dims(query, axis=0), axis=0)
+    # batch_size = common_layers.shape_list(encoder_input)[0]
+    # query = tf.tile(query, [batch_size, 1, 1])
+    # query = tf.nn.dropout(
+    #     query, rate=1 - (1.-hp.layer_prepostprocess_dropout))
+    #
+    # decoder_output = decoder(
+    #     query, encoder_output, None, encoder_decoder_attention_bias, hp)
+    # utils.collect_named_outputs("norms", "decoder_output",
+    #                             tf.norm(decoder_output, axis=-1))
+    #
+    # norm_tensors = utils.convert_collection_to_dict("norms")
+    # vqa_layers.summarize_tensors(norm_tensors, tag="norms/")
+    #
+    # # Expand dimension 1 and 2
+    # return tf.expand_dims(decoder_output, axis=1)
 
 
 @registry.register_model
@@ -206,55 +208,56 @@ class VqaIterativeCombinedSelfAttention(VqaSelfAttention):
   #   return [restore_resnet_hook]
 
   def body(self, features):
-    hp = self.hparams
-    # pylint: disable=eval-used
-    if hp.image_input_type == "image":
-      image_feat = vqa_layers.image_embedding(
-          features["inputs"],
-          model_fn=eval(hp.image_model_fn),
-          trainable=hp.train_resnet,
-          is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
-    else:
-      image_feat = features["inputs"]
-
-    image_feat = common_layers.flatten4d3d(image_feat)
-    image_hidden_size = hp.hidden_size
-    image_feat = common_layers.dense(image_feat, image_hidden_size)
-    utils.collect_named_outputs("norms", "image_feat_after_proj",
-                                tf.norm(image_feat, axis=-1))
-
-    question = common_layers.flatten4d3d(features["question"])
-    utils.collect_named_outputs("norms", "question_embedding",
-                                tf.norm(question, axis=-1))
-    (encoder_input, encoder_self_attention_bias,
-     encoder_decoder_attention_bias) = prepare_image_question_encoder(
-         image_feat, question, hp)
-    encoder_input = tf.nn.dropout(
-        encoder_input, rate=1 - (1.-hp.layer_prepostprocess_dropout))
-
-    # scale query by sqrt(hidden_size)
-    query = tf.compat.v1.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
-    query = tf.expand_dims(tf.expand_dims(query, axis=0), axis=0)
-    batch_size = common_layers.shape_list(encoder_input)[0]
-    query = tf.tile(query, [batch_size, 1, 1])
-    query = tf.nn.dropout(
-        query, rate=1 - (1.-hp.layer_prepostprocess_dropout))
-
-    decoder_output = iterative_encoder_decoder(
-        encoder_input,
-        encoder_self_attention_bias,
-        encoder_decoder_attention_bias,
-        query,
-        hp)
-
-    utils.collect_named_outputs("norms", "decoder_output",
-                                tf.norm(decoder_output, axis=-1))
-
-    norm_tensors = utils.convert_collection_to_dict("norms")
-    vqa_layers.summarize_tensors(norm_tensors, tag="norms/")
-
-    # Expand dimension 1 and 2
-    return tf.expand_dims(decoder_output, axis=1)
+    return None
+    # hp = self.hparams
+    # # pylint: disable=eval-used
+    # if hp.image_input_type == "image":
+    #   image_feat = vqa_layers.image_embedding(
+    #       features["inputs"],
+    #       model_fn=eval(hp.image_model_fn),
+    #       trainable=hp.train_resnet,
+    #       is_training=hp.mode == tf.estimator.ModeKeys.TRAIN)
+    # else:
+    #   image_feat = features["inputs"]
+    #
+    # image_feat = common_layers.flatten4d3d(image_feat)
+    # image_hidden_size = hp.hidden_size
+    # image_feat = common_layers.dense(image_feat, image_hidden_size)
+    # utils.collect_named_outputs("norms", "image_feat_after_proj",
+    #                             tf.norm(image_feat, axis=-1))
+    #
+    # question = common_layers.flatten4d3d(features["question"])
+    # utils.collect_named_outputs("norms", "question_embedding",
+    #                             tf.norm(question, axis=-1))
+    # (encoder_input, encoder_self_attention_bias,
+    #  encoder_decoder_attention_bias) = prepare_image_question_encoder(
+    #      image_feat, question, hp)
+    # encoder_input = tf.nn.dropout(
+    #     encoder_input, rate=1 - (1.-hp.layer_prepostprocess_dropout))
+    #
+    # # scale query by sqrt(hidden_size)
+    # query = tf.compat.v1.get_variable("query", [hp.hidden_size]) * hp.hidden_size **0.5
+    # query = tf.expand_dims(tf.expand_dims(query, axis=0), axis=0)
+    # batch_size = common_layers.shape_list(encoder_input)[0]
+    # query = tf.tile(query, [batch_size, 1, 1])
+    # query = tf.nn.dropout(
+    #     query, rate=1 - (1.-hp.layer_prepostprocess_dropout))
+    #
+    # decoder_output = iterative_encoder_decoder(
+    #     encoder_input,
+    #     encoder_self_attention_bias,
+    #     encoder_decoder_attention_bias,
+    #     query,
+    #     hp)
+    #
+    # utils.collect_named_outputs("norms", "decoder_output",
+    #                             tf.norm(decoder_output, axis=-1))
+    #
+    # norm_tensors = utils.convert_collection_to_dict("norms")
+    # vqa_layers.summarize_tensors(norm_tensors, tag="norms/")
+    #
+    # # Expand dimension 1 and 2
+    # return tf.expand_dims(decoder_output, axis=1)
 
 
 def image_encoder(image_feat,
@@ -263,52 +266,53 @@ def image_encoder(image_feat,
                   save_weights_to=None,
                   make_image_summary=True):
   """A stack of self attention layers."""
+  return None
 
-  x = image_feat
-  image_hidden_size = hparams.image_hidden_size or hparams.hidden_size
-  image_filter_size = hparams.image_filter_size or hparams.filter_size
-  with tf.compat.v1.variable_scope(name):
-    for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
-      with tf.compat.v1.variable_scope("layer_%d" % layer):
-        with tf.compat.v1.variable_scope("self_attention"):
-          y = vqa_layers.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
-              None,
-              None,
-              hparams.attention_key_channels or image_hidden_size,
-              hparams.attention_value_channels or image_hidden_size,
-              image_hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout,
-              attention_type=hparams.image_self_attention_type,
-              save_weights_to=save_weights_to,
-              make_image_summary=make_image_summary,
-              scale_dotproduct=hparams.scale_dotproduct,
-          )
-          utils.collect_named_outputs(
-              "norms", "image_feat_self_attention_%d"%(layer),
-              tf.norm(y, axis=-1))
-          x = common_layers.layer_postprocess(x, y, hparams)
-          utils.collect_named_outputs(
-              "norms", "image_feat_self_attention_postprocess_%d"%(layer),
-              tf.norm(x, axis=-1))
-        with tf.compat.v1.variable_scope("ffn"):
-          y = common_layers.dense_relu_dense(
-              common_layers.layer_preprocess(x, hparams),
-              image_filter_size,
-              image_hidden_size,
-              dropout=hparams.relu_dropout,
-          )
-          utils.collect_named_outputs(
-              "norms", "image_feat_ffn_%d"%(layer), tf.norm(y, axis=-1))
-          x = common_layers.layer_postprocess(x, y, hparams)
-          utils.collect_named_outputs(
-              "norms", "image_feat_ffn_postprocess_%d"%(layer),
-              tf.norm(x, axis=-1))
-    # if normalization is done in layer_preprocess, then it should also be done
-    # on the output, since the output can grow very large, being the sum of
-    # a whole stack of unnormalized layer outputs.
-    return common_layers.layer_preprocess(x, hparams)
+  # x = image_feat
+  # image_hidden_size = hparams.image_hidden_size or hparams.hidden_size
+  # image_filter_size = hparams.image_filter_size or hparams.filter_size
+  # with tf.compat.v1.variable_scope(name):
+  #   for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
+  #     with tf.compat.v1.variable_scope("layer_%d" % layer):
+  #       with tf.compat.v1.variable_scope("self_attention"):
+  #         y = vqa_layers.multihead_attention(
+  #             common_layers.layer_preprocess(x, hparams),
+  #             None,
+  #             None,
+  #             hparams.attention_key_channels or image_hidden_size,
+  #             hparams.attention_value_channels or image_hidden_size,
+  #             image_hidden_size,
+  #             hparams.num_heads,
+  #             hparams.attention_dropout,
+  #             attention_type=hparams.image_self_attention_type,
+  #             save_weights_to=save_weights_to,
+  #             make_image_summary=make_image_summary,
+  #             scale_dotproduct=hparams.scale_dotproduct,
+  #         )
+  #         utils.collect_named_outputs(
+  #             "norms", "image_feat_self_attention_%d"%(layer),
+  #             tf.norm(y, axis=-1))
+  #         x = common_layers.layer_postprocess(x, y, hparams)
+  #         utils.collect_named_outputs(
+  #             "norms", "image_feat_self_attention_postprocess_%d"%(layer),
+  #             tf.norm(x, axis=-1))
+  #       with tf.compat.v1.variable_scope("ffn"):
+  #         y = common_layers.dense_relu_dense(
+  #             common_layers.layer_preprocess(x, hparams),
+  #             image_filter_size,
+  #             image_hidden_size,
+  #             dropout=hparams.relu_dropout,
+  #         )
+  #         utils.collect_named_outputs(
+  #             "norms", "image_feat_ffn_%d"%(layer), tf.norm(y, axis=-1))
+  #         x = common_layers.layer_postprocess(x, y, hparams)
+  #         utils.collect_named_outputs(
+  #             "norms", "image_feat_ffn_postprocess_%d"%(layer),
+  #             tf.norm(x, axis=-1))
+  #   # if normalization is done in layer_preprocess, then it should also be done
+  #   # on the output, since the output can grow very large, being the sum of
+  #   # a whole stack of unnormalized layer outputs.
+  #   return common_layers.layer_preprocess(x, hparams)
 
 
 def prepare_question_encoder(inputs, hparams):
@@ -344,50 +348,51 @@ def question_encoder(question,
                      save_weights_to=None,
                      make_image_summary=True):
   """A stack of self attention layers."""
-  x = question
-  with tf.compat.v1.variable_scope(name):
-    for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
-      with tf.compat.v1.variable_scope("layer_%d" % layer):
-        with tf.compat.v1.variable_scope("self_attention"):
-          y = vqa_layers.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
-              None,
-              question_self_attention_bias,
-              hparams.attention_key_channels or hparams.hidden_size,
-              hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout,
-              attention_type=hparams.question_self_attention_type,
-              block_length=hparams.block_length,
-              save_weights_to=save_weights_to,
-              make_image_summary=make_image_summary,
-              scale_dotproduct=hparams.scale_dotproduct,
-          )
-          utils.collect_named_outputs(
-              "norms", "query_self_attention_%d"%(layer),
-              tf.norm(y, axis=-1))
-          x = common_layers.layer_postprocess(x, y, hparams)
-          utils.collect_named_outputs(
-              "norms", "query_self_attention_postprocess_%d"%(layer),
-              tf.norm(x, axis=-1))
-        with tf.compat.v1.variable_scope("ffn"):
-          y = common_layers.dense_relu_dense(
-              common_layers.layer_preprocess(x, hparams),
-              hparams.filter_size,
-              hparams.hidden_size,
-              dropout=hparams.relu_dropout,
-              )
-          utils.collect_named_outputs(
-              "norms", "query_ffn_%d"%(layer), tf.norm(y, axis=-1))
-          x = common_layers.layer_postprocess(x, y, hparams)
-          utils.collect_named_outputs(
-              "norms", "query_ffn_postprocess_%d"%(layer),
-              tf.norm(x, axis=-1))
-    # if normalization is done in layer_preprocess, then it should also be done
-    # on the output, since the output can grow very large, being the sum of
-    # a whole stack of unnormalized layer outputs.
-    return common_layers.layer_preprocess(x, hparams)
+  return None
+  # x = question
+  # with tf.compat.v1.variable_scope(name):
+  #   for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
+  #     with tf.compat.v1.variable_scope("layer_%d" % layer):
+  #       with tf.compat.v1.variable_scope("self_attention"):
+  #         y = vqa_layers.multihead_attention(
+  #             common_layers.layer_preprocess(x, hparams),
+  #             None,
+  #             question_self_attention_bias,
+  #             hparams.attention_key_channels or hparams.hidden_size,
+  #             hparams.attention_value_channels or hparams.hidden_size,
+  #             hparams.hidden_size,
+  #             hparams.num_heads,
+  #             hparams.attention_dropout,
+  #             attention_type=hparams.question_self_attention_type,
+  #             block_length=hparams.block_length,
+  #             save_weights_to=save_weights_to,
+  #             make_image_summary=make_image_summary,
+  #             scale_dotproduct=hparams.scale_dotproduct,
+  #         )
+  #         utils.collect_named_outputs(
+  #             "norms", "query_self_attention_%d"%(layer),
+  #             tf.norm(y, axis=-1))
+  #         x = common_layers.layer_postprocess(x, y, hparams)
+  #         utils.collect_named_outputs(
+  #             "norms", "query_self_attention_postprocess_%d"%(layer),
+  #             tf.norm(x, axis=-1))
+  #       with tf.compat.v1.variable_scope("ffn"):
+  #         y = common_layers.dense_relu_dense(
+  #             common_layers.layer_preprocess(x, hparams),
+  #             hparams.filter_size,
+  #             hparams.hidden_size,
+  #             dropout=hparams.relu_dropout,
+  #             )
+  #         utils.collect_named_outputs(
+  #             "norms", "query_ffn_%d"%(layer), tf.norm(y, axis=-1))
+  #         x = common_layers.layer_postprocess(x, y, hparams)
+  #         utils.collect_named_outputs(
+  #             "norms", "query_ffn_postprocess_%d"%(layer),
+  #             tf.norm(x, axis=-1))
+  #   # if normalization is done in layer_preprocess, then it should also be done
+  #   # on the output, since the output can grow very large, being the sum of
+  #   # a whole stack of unnormalized layer outputs.
+  #   return common_layers.layer_preprocess(x, hparams)
 
 
 def attn(image_feat,
@@ -430,17 +435,18 @@ def attn(image_feat,
 
 def mlp(feature, hparams, name="mlp"):
   """Multi layer perceptron with dropout and relu activation."""
-  with tf.compat.v1.variable_scope(name, "mlp", values=[feature]):
-    num_mlp_layers = hparams.num_mlp_layers
-    mlp_size = hparams.mlp_size
-    for _ in range(num_mlp_layers):
-      feature = common_layers.dense(feature, mlp_size, activation=None)
-      utils.collect_named_outputs("norms", "mlp_feature",
-                                  tf.norm(feature, axis=-1))
-      feature = common_layers.layer_norm(feature)
-      feature = tf.nn.relu(feature)
-      feature = tf.nn.dropout(feature, rate=1 - (1.-hparams.dropout))
-    return feature
+  return None
+  # with tf.compat.v1.variable_scope(name, "mlp", values=[feature]):
+  #   num_mlp_layers = hparams.num_mlp_layers
+  #   mlp_size = hparams.mlp_size
+  #   for _ in range(num_mlp_layers):
+  #     feature = common_layers.dense(feature, mlp_size, activation=None)
+  #     utils.collect_named_outputs("norms", "mlp_feature",
+  #                                 tf.norm(feature, axis=-1))
+  #     feature = common_layers.layer_norm(feature)
+  #     feature = tf.nn.relu(feature)
+  #     feature = tf.nn.dropout(feature, rate=1 - (1.-hparams.dropout))
+  #   return feature
 
 
 def prepare_image_question_encoder(image_feat, question, hparams):
@@ -483,76 +489,77 @@ def image_question_encoder(encoder_inputs,
                            save_weights_to=None,
                            make_image_summary=True):
   """A stack of self attention layers."""
-  x = encoder_inputs
-  with tf.compat.v1.variable_scope(name):
-    for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
-      with tf.compat.v1.variable_scope("layer_%d" % layer):
-        with tf.compat.v1.variable_scope("self_attention"):
-          y = vqa_layers.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
-              None,
-              encoder_self_attention_bias,
-              hparams.attention_key_channels or hparams.hidden_size,
-              hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout,
-              attention_type=hparams.self_attention_type,
-              block_length=hparams.block_length,
-              save_weights_to=save_weights_to,
-              make_image_summary=make_image_summary,
-              scale_dotproduct=hparams.scale_dotproduct,
-          )
-          utils.collect_named_outputs(
-              "norms", "encoder_self_attention_%d"%(layer),
-              tf.norm(y, axis=-1))
-          x = common_layers.layer_postprocess(x, y, hparams)
-          utils.collect_named_outputs(
-              "norms", "encoder_self_attention_postprocess_%d"%(layer),
-              tf.norm(x, axis=-1))
-        if query is not None:
-          with tf.compat.v1.variable_scope("encdec_attention"):
-            y = common_attention.multihead_attention(
-                common_layers.layer_preprocess(x, hparams),
-                query,
-                None,
-                hparams.attention_key_channels or hparams.hidden_size,
-                hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size,
-                hparams.num_heads,
-                hparams.attention_dropout,
-                attention_type=hparams.self_attention_type,
-                block_length=hparams.block_length,
-                save_weights_to=save_weights_to,
-                make_image_summary=make_image_summary,
-                scale_dotproduct=hparams.scale_dotproduct,
-            )
-            utils.collect_named_outputs(
-                "norms",
-                "encoder_decoder_attention_%d"%(layer),
-                tf.norm(y, axis=-1))
-            x = common_layers.layer_postprocess(x, y, hparams)
-            utils.collect_named_outputs(
-                "norms",
-                "encoder_decoder_attention_post_%d"%(layer),
-                tf.norm(x, axis=-1))
-        with tf.compat.v1.variable_scope("ffn"):
-          y = common_layers.dense_relu_dense(
-              common_layers.layer_preprocess(x, hparams),
-              hparams.filter_size,
-              hparams.hidden_size,
-              dropout=hparams.relu_dropout,
-              )
-          utils.collect_named_outputs(
-              "norms", "encoder_ffn_%d"%(layer), tf.norm(y, axis=-1))
-          x = common_layers.layer_postprocess(x, y, hparams)
-          utils.collect_named_outputs(
-              "norms", "encoder_ffn_postprocess_%d"%(layer),
-              tf.norm(x, axis=-1))
-    # if normalization is done in layer_preprocess, then it should also be done
-    # on the output, since the output can grow very large, being the sum of
-    # a whole stack of unnormalized layer outputs.
-    return common_layers.layer_preprocess(x, hparams)
+  return None
+  # x = encoder_inputs
+  # with tf.compat.v1.variable_scope(name):
+  #   for layer in range(hparams.num_encoder_layers or hparams.num_hidden_layers):
+  #     with tf.compat.v1.variable_scope("layer_%d" % layer):
+  #       with tf.compat.v1.variable_scope("self_attention"):
+  #         y = vqa_layers.multihead_attention(
+  #             common_layers.layer_preprocess(x, hparams),
+  #             None,
+  #             encoder_self_attention_bias,
+  #             hparams.attention_key_channels or hparams.hidden_size,
+  #             hparams.attention_value_channels or hparams.hidden_size,
+  #             hparams.hidden_size,
+  #             hparams.num_heads,
+  #             hparams.attention_dropout,
+  #             attention_type=hparams.self_attention_type,
+  #             block_length=hparams.block_length,
+  #             save_weights_to=save_weights_to,
+  #             make_image_summary=make_image_summary,
+  #             scale_dotproduct=hparams.scale_dotproduct,
+  #         )
+  #         utils.collect_named_outputs(
+  #             "norms", "encoder_self_attention_%d"%(layer),
+  #             tf.norm(y, axis=-1))
+  #         x = common_layers.layer_postprocess(x, y, hparams)
+  #         utils.collect_named_outputs(
+  #             "norms", "encoder_self_attention_postprocess_%d"%(layer),
+  #             tf.norm(x, axis=-1))
+  #       if query is not None:
+  #         with tf.compat.v1.variable_scope("encdec_attention"):
+  #           y = common_attention.multihead_attention(
+  #               common_layers.layer_preprocess(x, hparams),
+  #               query,
+  #               None,
+  #               hparams.attention_key_channels or hparams.hidden_size,
+  #               hparams.attention_value_channels or hparams.hidden_size,
+  #               hparams.hidden_size,
+  #               hparams.num_heads,
+  #               hparams.attention_dropout,
+  #               attention_type=hparams.self_attention_type,
+  #               block_length=hparams.block_length,
+  #               save_weights_to=save_weights_to,
+  #               make_image_summary=make_image_summary,
+  #               scale_dotproduct=hparams.scale_dotproduct,
+  #           )
+  #           utils.collect_named_outputs(
+  #               "norms",
+  #               "encoder_decoder_attention_%d"%(layer),
+  #               tf.norm(y, axis=-1))
+  #           x = common_layers.layer_postprocess(x, y, hparams)
+  #           utils.collect_named_outputs(
+  #               "norms",
+  #               "encoder_decoder_attention_post_%d"%(layer),
+  #               tf.norm(x, axis=-1))
+  #       with tf.compat.v1.variable_scope("ffn"):
+  #         y = common_layers.dense_relu_dense(
+  #             common_layers.layer_preprocess(x, hparams),
+  #             hparams.filter_size,
+  #             hparams.hidden_size,
+  #             dropout=hparams.relu_dropout,
+  #             )
+  #         utils.collect_named_outputs(
+  #             "norms", "encoder_ffn_%d"%(layer), tf.norm(y, axis=-1))
+  #         x = common_layers.layer_postprocess(x, y, hparams)
+  #         utils.collect_named_outputs(
+  #             "norms", "encoder_ffn_postprocess_%d"%(layer),
+  #             tf.norm(x, axis=-1))
+  #   # if normalization is done in layer_preprocess, then it should also be done
+  #   # on the output, since the output can grow very large, being the sum of
+  #   # a whole stack of unnormalized layer outputs.
+  #   return common_layers.layer_preprocess(x, hparams)
 
 
 def decoder(decoder_input,
@@ -582,71 +589,72 @@ def decoder(decoder_input,
   Returns:
     y: a Tensors
   """
-  x = decoder_input
-  with tf.compat.v1.variable_scope(name):
-    for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
-      layer_name = "layer_%d" % layer
-      with tf.compat.v1.variable_scope(layer_name):
-        with tf.compat.v1.variable_scope("self_attention"):
-          y = common_attention.multihead_attention(
-              common_layers.layer_preprocess(x, hparams),
-              None,
-              decoder_self_attention_bias,
-              hparams.attention_key_channels or hparams.hidden_size,
-              hparams.attention_value_channels or hparams.hidden_size,
-              hparams.hidden_size,
-              hparams.num_heads,
-              hparams.attention_dropout,
-              attention_type=hparams.self_attention_type,
-              save_weights_to=save_weights_to,
-              make_image_summary=make_image_summary,
-              )
-          utils.collect_named_outputs("norms",
-                                      "decoder_self_attention_%d"%(layer),
-                                      tf.norm(y, axis=-1))
-          x = common_layers.layer_postprocess(x, y, hparams)
-          utils.collect_named_outputs("norms",
-                                      "decoder_self_attention_post_%d"%(layer),
-                                      tf.norm(x, axis=-1))
-        if encoder_output is not None:
-          with tf.compat.v1.variable_scope("encdec_attention"):
-            y = common_attention.multihead_attention(
-                common_layers.layer_preprocess(x, hparams),
-                encoder_output,
-                encoder_decoder_attention_bias,
-                hparams.attention_key_channels or hparams.hidden_size,
-                hparams.attention_value_channels or hparams.hidden_size,
-                hparams.hidden_size,
-                hparams.num_heads,
-                hparams.attention_dropout,
-                save_weights_to=save_weights_to,
-                make_image_summary=make_image_summary,
-                )
-            utils.collect_named_outputs(
-                "norms",
-                "decoder_encoder_attention_%d"%(layer),
-                tf.norm(y, axis=-1))
-            x = common_layers.layer_postprocess(x, y, hparams)
-            utils.collect_named_outputs(
-                "norms",
-                "decoder_encoder_attention_post_%d"%(layer),
-                tf.norm(x, axis=-1))
-        with tf.compat.v1.variable_scope("ffn"):
-          y = common_layers.dense_relu_dense(
-              common_layers.layer_preprocess(x, hparams),
-              hparams.filter_size,
-              hparams.hidden_size,
-              dropout=hparams.relu_dropout,
-          )
-          utils.collect_named_outputs("norms", "decoder_ffn_%d"%(layer),
-                                      tf.norm(y, axis=-1))
-          x = common_layers.layer_postprocess(x, y, hparams)
-          utils.collect_named_outputs("norms", "decoder_ffn_post_%d"%(layer),
-                                      tf.norm(x, axis=-1))
-    # if normalization is done in layer_preprocess, then it should also be done
-    # on the output, since the output can grow very large, being the sum of
-    # a whole stack of unnormalized layer outputs.
-    return common_layers.layer_preprocess(x, hparams)
+  return None
+  # x = decoder_input
+  # with tf.compat.v1.variable_scope(name):
+  #   for layer in range(hparams.num_decoder_layers or hparams.num_hidden_layers):
+  #     layer_name = "layer_%d" % layer
+  #     with tf.compat.v1.variable_scope(layer_name):
+  #       with tf.compat.v1.variable_scope("self_attention"):
+  #         y = common_attention.multihead_attention(
+  #             common_layers.layer_preprocess(x, hparams),
+  #             None,
+  #             decoder_self_attention_bias,
+  #             hparams.attention_key_channels or hparams.hidden_size,
+  #             hparams.attention_value_channels or hparams.hidden_size,
+  #             hparams.hidden_size,
+  #             hparams.num_heads,
+  #             hparams.attention_dropout,
+  #             attention_type=hparams.self_attention_type,
+  #             save_weights_to=save_weights_to,
+  #             make_image_summary=make_image_summary,
+  #             )
+  #         utils.collect_named_outputs("norms",
+  #                                     "decoder_self_attention_%d"%(layer),
+  #                                     tf.norm(y, axis=-1))
+  #         x = common_layers.layer_postprocess(x, y, hparams)
+  #         utils.collect_named_outputs("norms",
+  #                                     "decoder_self_attention_post_%d"%(layer),
+  #                                     tf.norm(x, axis=-1))
+  #       if encoder_output is not None:
+  #         with tf.compat.v1.variable_scope("encdec_attention"):
+  #           y = common_attention.multihead_attention(
+  #               common_layers.layer_preprocess(x, hparams),
+  #               encoder_output,
+  #               encoder_decoder_attention_bias,
+  #               hparams.attention_key_channels or hparams.hidden_size,
+  #               hparams.attention_value_channels or hparams.hidden_size,
+  #               hparams.hidden_size,
+  #               hparams.num_heads,
+  #               hparams.attention_dropout,
+  #               save_weights_to=save_weights_to,
+  #               make_image_summary=make_image_summary,
+  #               )
+  #           utils.collect_named_outputs(
+  #               "norms",
+  #               "decoder_encoder_attention_%d"%(layer),
+  #               tf.norm(y, axis=-1))
+  #           x = common_layers.layer_postprocess(x, y, hparams)
+  #           utils.collect_named_outputs(
+  #               "norms",
+  #               "decoder_encoder_attention_post_%d"%(layer),
+  #               tf.norm(x, axis=-1))
+  #       with tf.compat.v1.variable_scope("ffn"):
+  #         y = common_layers.dense_relu_dense(
+  #             common_layers.layer_preprocess(x, hparams),
+  #             hparams.filter_size,
+  #             hparams.hidden_size,
+  #             dropout=hparams.relu_dropout,
+  #         )
+  #         utils.collect_named_outputs("norms", "decoder_ffn_%d"%(layer),
+  #                                     tf.norm(y, axis=-1))
+  #         x = common_layers.layer_postprocess(x, y, hparams)
+  #         utils.collect_named_outputs("norms", "decoder_ffn_post_%d"%(layer),
+  #                                     tf.norm(x, axis=-1))
+  #   # if normalization is done in layer_preprocess, then it should also be done
+  #   # on the output, since the output can grow very large, being the sum of
+  #   # a whole stack of unnormalized layer outputs.
+  #   return common_layers.layer_preprocess(x, hparams)
 
 
 def iterative_encoder_decoder(encoder_input,

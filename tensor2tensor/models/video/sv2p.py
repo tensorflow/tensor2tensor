@@ -35,7 +35,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+# tfcl = tf.contrib.layers
 
 
 @registry.register_model
@@ -73,75 +73,76 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       - the output of the partial network.
       - intermidate outputs for skip connections.
     """
-    lstm_func = common_video.conv_lstm_2d
-    tile_and_concat = common_video.tile_and_concat
-
-    input_image = common_layers.make_even_size(input_image)
-    concat_input_image = tile_and_concat(
-        input_image, latent, concat_latent=concat_latent)
-
-    layer_id = 0
-    enc0 = tfl.conv2d(
-        concat_input_image,
-        conv_size[0], [5, 5],
-        strides=(2, 2),
-        activation=tf.nn.relu,
-        padding="SAME",
-        name="scale1_conv1")
-    enc0 = tfcl.layer_norm(enc0, scope="layer_norm1")
-
-    hidden1, lstm_state[layer_id] = lstm_func(
-        enc0, lstm_state[layer_id], lstm_size[layer_id], name="state1")
-    hidden1 = tile_and_concat(hidden1, latent, concat_latent=concat_latent)
-    hidden1 = tfcl.layer_norm(hidden1, scope="layer_norm2")
-    layer_id += 1
-
-    hidden2, lstm_state[layer_id] = lstm_func(
-        hidden1, lstm_state[layer_id], lstm_size[layer_id], name="state2")
-    hidden2 = tfcl.layer_norm(hidden2, scope="layer_norm3")
-    hidden2 = common_layers.make_even_size(hidden2)
-    enc1 = tfl.conv2d(hidden2, hidden2.get_shape()[3], [3, 3], strides=(2, 2),
-                      padding="SAME", activation=tf.nn.relu, name="conv2")
-    enc1 = tile_and_concat(enc1, latent, concat_latent=concat_latent)
-    layer_id += 1
-
-    if self.hparams.small_mode:
-      hidden4, enc2 = hidden2, enc1
-    else:
-      hidden3, lstm_state[layer_id] = lstm_func(
-          enc1, lstm_state[layer_id], lstm_size[layer_id], name="state3")
-      hidden3 = tile_and_concat(hidden3, latent, concat_latent=concat_latent)
-      hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
-      layer_id += 1
-
-      hidden4, lstm_state[layer_id] = lstm_func(
-          hidden3, lstm_state[layer_id], lstm_size[layer_id], name="state4")
-      hidden4 = tile_and_concat(hidden4, latent, concat_latent=concat_latent)
-      hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
-      hidden4 = common_layers.make_even_size(hidden4)
-      enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
-                        padding="SAME", activation=tf.nn.relu, name="conv3")
-      layer_id += 1
-
-    if action is not None:
-      enc2 = common_video.inject_additional_input(
-          enc2, action, "action_enc", self.hparams.action_injection)
-    if input_reward is not None:
-      enc2 = common_video.inject_additional_input(
-          enc2, input_reward, "reward_enc")
-    if latent is not None and not concat_latent:
-      with tf.control_dependencies([latent]):
-        enc2 = tf.concat([enc2, latent], axis=3)
-
-    enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
-                      padding="SAME", activation=tf.nn.relu, name="conv4")
-
-    hidden5, lstm_state[layer_id] = lstm_func(
-        enc3, lstm_state[layer_id], lstm_size[layer_id], name="state5")
-    hidden5 = tfcl.layer_norm(hidden5, scope="layer_norm6")
-    hidden5 = tile_and_concat(hidden5, latent, concat_latent=concat_latent)
-    layer_id += 1
-    return hidden5, (enc0, enc1), layer_id
+    return None, None, None
+    # lstm_func = common_video.conv_lstm_2d
+    # tile_and_concat = common_video.tile_and_concat
+    #
+    # input_image = common_layers.make_even_size(input_image)
+    # concat_input_image = tile_and_concat(
+    #     input_image, latent, concat_latent=concat_latent)
+    #
+    # layer_id = 0
+    # enc0 = tfl.conv2d(
+    #     concat_input_image,
+    #     conv_size[0], [5, 5],
+    #     strides=(2, 2),
+    #     activation=tf.nn.relu,
+    #     padding="SAME",
+    #     name="scale1_conv1")
+    # enc0 = tfcl.layer_norm(enc0, scope="layer_norm1")
+    #
+    # hidden1, lstm_state[layer_id] = lstm_func(
+    #     enc0, lstm_state[layer_id], lstm_size[layer_id], name="state1")
+    # hidden1 = tile_and_concat(hidden1, latent, concat_latent=concat_latent)
+    # hidden1 = tfcl.layer_norm(hidden1, scope="layer_norm2")
+    # layer_id += 1
+    #
+    # hidden2, lstm_state[layer_id] = lstm_func(
+    #     hidden1, lstm_state[layer_id], lstm_size[layer_id], name="state2")
+    # hidden2 = tfcl.layer_norm(hidden2, scope="layer_norm3")
+    # hidden2 = common_layers.make_even_size(hidden2)
+    # enc1 = tfl.conv2d(hidden2, hidden2.get_shape()[3], [3, 3], strides=(2, 2),
+    #                   padding="SAME", activation=tf.nn.relu, name="conv2")
+    # enc1 = tile_and_concat(enc1, latent, concat_latent=concat_latent)
+    # layer_id += 1
+    #
+    # if self.hparams.small_mode:
+    #   hidden4, enc2 = hidden2, enc1
+    # else:
+    #   hidden3, lstm_state[layer_id] = lstm_func(
+    #       enc1, lstm_state[layer_id], lstm_size[layer_id], name="state3")
+    #   hidden3 = tile_and_concat(hidden3, latent, concat_latent=concat_latent)
+    #   hidden3 = tfcl.layer_norm(hidden3, scope="layer_norm4")
+    #   layer_id += 1
+    #
+    #   hidden4, lstm_state[layer_id] = lstm_func(
+    #       hidden3, lstm_state[layer_id], lstm_size[layer_id], name="state4")
+    #   hidden4 = tile_and_concat(hidden4, latent, concat_latent=concat_latent)
+    #   hidden4 = tfcl.layer_norm(hidden4, scope="layer_norm5")
+    #   hidden4 = common_layers.make_even_size(hidden4)
+    #   enc2 = tfl.conv2d(hidden4, hidden4.get_shape()[3], [3, 3], strides=(2, 2),
+    #                     padding="SAME", activation=tf.nn.relu, name="conv3")
+    #   layer_id += 1
+    #
+    # if action is not None:
+    #   enc2 = common_video.inject_additional_input(
+    #       enc2, action, "action_enc", self.hparams.action_injection)
+    # if input_reward is not None:
+    #   enc2 = common_video.inject_additional_input(
+    #       enc2, input_reward, "reward_enc")
+    # if latent is not None and not concat_latent:
+    #   with tf.control_dependencies([latent]):
+    #     enc2 = tf.concat([enc2, latent], axis=3)
+    #
+    # enc3 = tfl.conv2d(enc2, hidden4.get_shape()[3], [1, 1], strides=(1, 1),
+    #                   padding="SAME", activation=tf.nn.relu, name="conv4")
+    #
+    # hidden5, lstm_state[layer_id] = lstm_func(
+    #     enc3, lstm_state[layer_id], lstm_size[layer_id], name="state5")
+    # hidden5 = tfcl.layer_norm(hidden5, scope="layer_norm6")
+    # hidden5 = tile_and_concat(hidden5, latent, concat_latent=concat_latent)
+    # layer_id += 1
+    # return hidden5, (enc0, enc1), layer_id
 
   def reward_prediction(self, *args, **kwargs):
     model = self.hparams.reward_model
@@ -162,34 +163,34 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
 
   def reward_prediction_big(self, input_images, input_reward, action, latent):
     """Builds a reward prediction network."""
-    conv_size = self.tinyify([32, 32, 16, 8])
-
-    with tf.compat.v1.variable_scope("reward_pred", reuse=tf.compat.v1.AUTO_REUSE):
-      x = tf.concat(input_images, axis=3)
-      x = tfcl.layer_norm(x)
-
-      if not self.hparams.small_mode:
-        x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
-                       activation=tf.nn.relu, name="reward_conv1")
-        x = tfcl.layer_norm(x)
-
-      # Inject additional inputs
-      if action is not None:
-        x = common_video.inject_additional_input(
-            x, action, "action_enc", self.hparams.action_injection)
-      if input_reward is not None:
-        x = common_video.inject_additional_input(x, input_reward, "reward_enc")
-      if latent is not None:
-        latent = tfl.flatten(latent)
-        latent = tf.expand_dims(latent, axis=1)
-        latent = tf.expand_dims(latent, axis=1)
-        x = common_video.inject_additional_input(x, latent, "latent_enc")
-
-      x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(2, 2),
-                     activation=tf.nn.relu, name="reward_conv2")
-      x = tfcl.layer_norm(x)
-      x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
-                     activation=tf.nn.relu, name="reward_conv3")
+    # conv_size = self.tinyify([32, 32, 16, 8])
+    #
+    # with tf.compat.v1.variable_scope("reward_pred", reuse=tf.compat.v1.AUTO_REUSE):
+    #   x = tf.concat(input_images, axis=3)
+    #   x = tfcl.layer_norm(x)
+    #
+    #   if not self.hparams.small_mode:
+    #     x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
+    #                    activation=tf.nn.relu, name="reward_conv1")
+    #     x = tfcl.layer_norm(x)
+    #
+    #   # Inject additional inputs
+    #   if action is not None:
+    #     x = common_video.inject_additional_input(
+    #         x, action, "action_enc", self.hparams.action_injection)
+    #   if input_reward is not None:
+    #     x = common_video.inject_additional_input(x, input_reward, "reward_enc")
+    #   if latent is not None:
+    #     latent = tfl.flatten(latent)
+    #     latent = tf.expand_dims(latent, axis=1)
+    #     latent = tf.expand_dims(latent, axis=1)
+    #     x = common_video.inject_additional_input(x, latent, "latent_enc")
+    #
+    #   x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(2, 2),
+    #                  activation=tf.nn.relu, name="reward_conv2")
+    #   x = tfcl.layer_norm(x)
+    #   x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
+    #                  activation=tf.nn.relu, name="reward_conv3")
 
   def get_extra_loss(self,
                      latent_means=None, latent_stds=None,
@@ -233,7 +234,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
           enc4, lstm_state[layer_id], lstm_size[5], name="state6",
           spatial_dims=enc1_shape[1:-1])  # 16x16
       hidden6 = tile_and_concat(hidden6, latent, concat_latent=concat_latent)
-      hidden6 = tfcl.layer_norm(hidden6, scope="layer_norm7")
+      # hidden6 = tfcl.layer_norm(hidden6, scope="layer_norm7")
       # Skip connection.
       hidden6 = tf.concat(axis=3, values=[hidden6, enc1])  # both 16x16
       layer_id += 1
@@ -250,7 +251,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
       hidden7, lstm_state[layer_id] = lstm_func(
           enc5, lstm_state[layer_id], lstm_size[6], name="state7",
           spatial_dims=enc0_shape[1:-1])  # 32x32
-      hidden7 = tfcl.layer_norm(hidden7, scope="layer_norm8")
+      # hidden7 = tfcl.layer_norm(hidden7, scope="layer_norm8")
       layer_id += 1
 
       # Skip connection.
@@ -260,7 +261,7 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
         enc6 = common_layers.cyclegan_upsample(
             hidden7, num_outputs=hidden7.shape.as_list()[-1],
             stride=[2, 2], method=upsample_method)
-      enc6 = tfcl.layer_norm(enc6, scope="layer_norm9")
+      # enc6 = tfcl.layer_norm(enc6, scope="layer_norm9")
       enc6 = tile_and_concat(enc6, latent, concat_latent=concat_latent)
 
       if self.hparams.model_options == "DNA":
@@ -287,20 +288,20 @@ class NextFrameSv2p(base.NextFrameBase, base_vae.NextFrameBaseVae):
         # which is useful when regions of the image become unoccluded.
         transformed = [tf.nn.sigmoid(enc7)]
 
-      if self.hparams.model_options == "CDNA":
-        # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
-        cdna_input = tfcl.flatten(hidden5)
-        transformed += common_video.cdna_transformation(
-            input_image, cdna_input, num_masks, int(color_channels),
-            self.hparams.dna_kernel_size, self.hparams.relu_shift)
-      elif self.hparams.model_options == "DNA":
-        # Only one mask is supported (more should be unnecessary).
-        if num_masks != 1:
-          raise ValueError("Only one mask is supported for DNA model.")
-        transformed = [
-            common_video.dna_transformation(
-                input_image, enc7,
-                self.hparams.dna_kernel_size, self.hparams.relu_shift)]
+      # if self.hparams.model_options == "CDNA":
+      #   # cdna_input = tf.reshape(hidden5, [int(batch_size), -1])
+      #   cdna_input = tfcl.flatten(hidden5)
+      #   transformed += common_video.cdna_transformation(
+      #       input_image, cdna_input, num_masks, int(color_channels),
+      #       self.hparams.dna_kernel_size, self.hparams.relu_shift)
+      # elif self.hparams.model_options == "DNA":
+      #   # Only one mask is supported (more should be unnecessary).
+      #   if num_masks != 1:
+      #     raise ValueError("Only one mask is supported for DNA model.")
+      #   transformed = [
+      #       common_video.dna_transformation(
+      #           input_image, enc7,
+      #           self.hparams.dna_kernel_size, self.hparams.relu_shift)]
 
       masks = tfl.conv2d(
           enc6, filters=num_masks + 1, kernel_size=[1, 1],

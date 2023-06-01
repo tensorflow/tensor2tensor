@@ -41,7 +41,7 @@ from tensorflow.contrib.framework.python.ops import arg_scope
 from tensorflow.contrib.slim.python.slim.nets import vgg
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+# tfcl = tf.contrib.layers
 
 IMG_WIDTH = 64
 IMG_HEIGHT = 64

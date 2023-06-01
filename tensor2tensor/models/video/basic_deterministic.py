@@ -30,7 +30,7 @@ import tensorflow as tf
 
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+# tfcl = tf.contrib.layers
 
 
 @registry.register_model

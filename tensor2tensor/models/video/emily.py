@@ -37,7 +37,7 @@ from tensor2tensor.utils import registry
 import tensorflow as tf
 
 tfl = tf.layers
-tfcl = tf.contrib.layers
+# tfcl = tf.contrib.layers
 
 
 @registry.register_model
@@ -54,30 +54,31 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
       net: encoded image with size BSxNout
       skips: skip connection after each layer
     """
-    vgg_layer = common_video.vgg_layer
-    net01 = inputs
-    # h1
-    net11 = tfcl.repeat(net01, 2, vgg_layer, 64,
-                        scope="h1", is_training=self.is_training)
-    net12 = tfl.max_pooling2d(net11, [2, 2], strides=(2, 2), name="h1_pool")
-    # h2
-    net21 = tfcl.repeat(net12, 2, vgg_layer, 128,
-                        scope="h2", is_training=self.is_training)
-    net22 = tfl.max_pooling2d(net21, [2, 2], strides=(2, 2), name="h2_pool")
-    # h3
-    net31 = tfcl.repeat(net22, 3, vgg_layer, 256,
-                        scope="h3", is_training=self.is_training)
-    net32 = tfl.max_pooling2d(net31, [2, 2], strides=(2, 2), name="h3_pool")
-    # h4
-    net41 = tfcl.repeat(net32, 3, vgg_layer, 512,
-                        scope="h4", is_training=self.is_training)
-    net42 = tfl.max_pooling2d(net41, [2, 2], strides=(2, 2), name="h4_pool")
-    # h5
-    net51 = tfcl.repeat(net42, 1, vgg_layer, nout,
-                        kernel_size=4, padding="VALID", activation=tf.tanh,
-                        scope="h5", is_training=self.is_training)
-    skips = [net11, net21, net31, net41]
-    return net51, skips
+    return None, None
+    # vgg_layer = common_video.vgg_layer
+    # net01 = inputs
+    # # h1
+    # net11 = tfcl.repeat(net01, 2, vgg_layer, 64,
+    #                     scope="h1", is_training=self.is_training)
+    # net12 = tfl.max_pooling2d(net11, [2, 2], strides=(2, 2), name="h1_pool")
+    # # h2
+    # net21 = tfcl.repeat(net12, 2, vgg_layer, 128,
+    #                     scope="h2", is_training=self.is_training)
+    # net22 = tfl.max_pooling2d(net21, [2, 2], strides=(2, 2), name="h2_pool")
+    # # h3
+    # net31 = tfcl.repeat(net22, 3, vgg_layer, 256,
+    #                     scope="h3", is_training=self.is_training)
+    # net32 = tfl.max_pooling2d(net31, [2, 2], strides=(2, 2), name="h3_pool")
+    # # h4
+    # net41 = tfcl.repeat(net32, 3, vgg_layer, 512,
+    #                     scope="h4", is_training=self.is_training)
+    # net42 = tfl.max_pooling2d(net41, [2, 2], strides=(2, 2), name="h4_pool")
+    # # h5
+    # net51 = tfcl.repeat(net42, 1, vgg_layer, nout,
+    #                     kernel_size=4, padding="VALID", activation=tf.tanh,
+    #                     scope="h5", is_training=self.is_training)
+    # skips = [net11, net21, net31, net41]
+    # return net51, skips
 
   def decoder(self, inputs, skips, nout):
     """VGG based image decoder.
@@ -90,35 +91,36 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
       net: decoded image with size BSx64x64xNout
       skips: skip connection after each layer
     """
-    vgg_layer = common_video.vgg_layer
-    net = inputs
-    # d1
-    net = tfl.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
-                               name="d1_deconv", activation=None)
-    net = tfl.batch_normalization(net, training=self.is_training, name="d1_bn")
-    net = tf.nn.leaky_relu(net)
-    net = common_layers.upscale(net, 2)
-    # d2
-    net = tf.concat([net, skips[3]], axis=3)
-    net = tfcl.repeat(net, 2, vgg_layer, 512, scope="d2a")
-    net = tfcl.repeat(net, 1, vgg_layer, 256, scope="d2b")
-    net = common_layers.upscale(net, 2)
-    # d3
-    net = tf.concat([net, skips[2]], axis=3)
-    net = tfcl.repeat(net, 2, vgg_layer, 256, scope="d3a")
-    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d3b")
-    net = common_layers.upscale(net, 2)
-    # d4
-    net = tf.concat([net, skips[1]], axis=3)
-    net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d4a")
-    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d4b")
-    net = common_layers.upscale(net, 2)
-    # d5
-    net = tf.concat([net, skips[0]], axis=3)
-    net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d5")
-    net = tfl.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
-                               name="d6_deconv", activation=tf.sigmoid)
-    return net
+    return None
+    # vgg_layer = common_video.vgg_layer
+    # net = inputs
+    # # d1
+    # net = tfl.conv2d_transpose(net, 512, kernel_size=4, padding="VALID",
+    #                            name="d1_deconv", activation=None)
+    # net = tfl.batch_normalization(net, training=self.is_training, name="d1_bn")
+    # net = tf.nn.leaky_relu(net)
+    # net = common_layers.upscale(net, 2)
+    # # d2
+    # net = tf.concat([net, skips[3]], axis=3)
+    # net = tfcl.repeat(net, 2, vgg_layer, 512, scope="d2a")
+    # net = tfcl.repeat(net, 1, vgg_layer, 256, scope="d2b")
+    # net = common_layers.upscale(net, 2)
+    # # d3
+    # net = tf.concat([net, skips[2]], axis=3)
+    # net = tfcl.repeat(net, 2, vgg_layer, 256, scope="d3a")
+    # net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d3b")
+    # net = common_layers.upscale(net, 2)
+    # # d4
+    # net = tf.concat([net, skips[1]], axis=3)
+    # net = tfcl.repeat(net, 1, vgg_layer, 128, scope="d4a")
+    # net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d4b")
+    # net = common_layers.upscale(net, 2)
+    # # d5
+    # net = tf.concat([net, skips[0]], axis=3)
+    # net = tfcl.repeat(net, 1, vgg_layer, 64, scope="d5")
+    # net = tfl.conv2d_transpose(net, nout, kernel_size=3, padding="SAME",
+    #                            name="d6_deconv", activation=tf.sigmoid)
+    # return net
 
   def stacked_lstm(self, inputs, states, hidden_size, output_size, nlayers):
     """Stacked LSTM layers with FC layers as input and output embeddings.
@@ -213,7 +215,7 @@ class NextFrameEmily(sv2p.NextFrameSv2pLegacy):
     for i, image in enumerate(images):
       with tf.compat.v1.variable_scope("encoder", reuse=tf.compat.v1.AUTO_REUSE):
         enc, skips = self.encoder(image, rnn_size)
-        enc = tfcl.flatten(enc)
+        # enc = tfcl.flatten(enc)
         enc_images.append(enc)
         enc_skips.append(skips)
 
