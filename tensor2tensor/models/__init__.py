@@ -38,16 +38,16 @@ from tensor2tensor.models import transformer
 from tensor2tensor.models import vanilla_gan
 from tensor2tensor.models import xception
 
-from tensor2tensor.models.research import adafactor_experiments
-from tensor2tensor.models.research import aligned
-from tensor2tensor.models.research import attention_lm
-from tensor2tensor.models.research import attention_lm_moe
-from tensor2tensor.models.research import autoencoders
-from tensor2tensor.models.research import cycle_gan
-from tensor2tensor.models.research import gene_expression
-from tensor2tensor.models.research import glow
-from tensor2tensor.models.research import lm_experiments
-from tensor2tensor.models.research import moe_experiments
+# from tensor2tensor.models.research import adafactor_experiments
+# from tensor2tensor.models.research import aligned
+# from tensor2tensor.models.research import attention_lm
+# from tensor2tensor.models.research import attention_lm_moe
+# from tensor2tensor.models.research import autoencoders
+# from tensor2tensor.models.research import cycle_gan
+# from tensor2tensor.models.research import gene_expression
+# from tensor2tensor.models.research import glow
+# from tensor2tensor.models.research import lm_experiments
+# from tensor2tensor.models.research import moe_experiments
 # FATHOM
 # comment out so gym not required
 #from tensor2tensor.models.research import rl

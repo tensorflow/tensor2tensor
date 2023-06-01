@@ -25,9 +25,10 @@ import scipy
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
 import tensorflow as tf
+import tf_slim as slim
 
-arg_scope = tf.contrib.framework.arg_scope
-add_arg_scope = tf.contrib.framework.add_arg_scope
+arg_scope = slim.ops.arg_scope.arg_scope
+add_arg_scope = slim.ops.arg_scope.add_arg_scope
 
 
 def default_initializer(std=0.05):
