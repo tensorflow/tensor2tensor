@@ -25,7 +25,7 @@ from tensor2tensor.layers import common_layers
 import tensorflow as tf
 
 import tf_slim as slim
-from slim.nets.resnet_v1 import resnet_v1_152
+from tf_slim.nets.resnet_v1 import resnet_v1_152
 from tensorflow.python.ops import inplace_ops
 
 

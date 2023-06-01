@@ -29,7 +29,7 @@ from tensor2tensor.utils import registry
 
 import tensorflow as tf
 
-from tensorflow.contrib.layers.python.layers import utils
+# from tensorflow.contrib.layers.python.layers import utils
 
 
 @registry.register_model

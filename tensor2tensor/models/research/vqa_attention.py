@@ -30,9 +30,9 @@ from tensor2tensor.utils import t2t_model
 import tensorflow as tf
 
 # pylint: disable=unused-import
-from tensorflow.contrib.layers.python.layers import utils
-from tensorflow.contrib.slim.python.slim.nets.resnet_v1 import resnet_v1_152
-from tensorflow.contrib.slim.python.slim.nets.resnet_v2 import resnet_v2_152
+from tf_slim.layers import utils
+from tf_slim.nets.resnet_v1 import resnet_v1_152
+from tf_slim.nets.resnet_v2 import resnet_v2_152
 
 
 @registry.register_model
